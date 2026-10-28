@@ -194,12 +194,8 @@ fn parse_part(
     let mut ongoing = Ongoing::default();
     // _handle_new_page / _handle_new_system at position 0
     part.add_point(0);
-    for (mc, measure_el) in part_el
-        .children()
-        .filter(|n| n.has_tag_name("measure"))
-        .enumerate()
-    {
-        position = handle_measure(measure_el, position, part, &mut ongoing, generic, mc + 1)?;
+    for measure_el in part_el.children().filter(|n| n.has_tag_name("measure")) {
+        position = handle_measure(measure_el, position, part, &mut ongoing, generic)?;
     }
 
     // add collected ties (pitches in first-seen order, start timepoints in insertion order)
@@ -237,7 +233,6 @@ fn handle_measure(
     part: &mut Part,
     ongoing: &mut Ongoing,
     generic: &mut Vec<GenericNote>,
-    _measure_counter: usize,
 ) -> std::result::Result<Time, String> {
     let measure_index = part.measures.len();
     part.measures.push(Span {
@@ -300,7 +295,6 @@ fn handle_measure(
                     part.add_point(position);
                 }
             }
-            "print" => {}
             _ => {}
         }
     }
@@ -436,8 +430,10 @@ fn handle_direction(e: Node, position: Time, part: &mut Part) -> std::result::Re
 /// Port of `_handle_sound`: `<sound tempo="…">` adds a quarter-note tempo.
 fn handle_sound(e: Node, position: Time, part: &mut Part) -> std::result::Result<(), String> {
     if let Some(tempo) = e.attribute("tempo") {
-        let bpm = parse_python_float(tempo)
-            .ok_or_else(|| format!("could not convert string to float: {tempo:?}"))?;
+        let bpm = tempo
+            .trim()
+            .parse::<f64>()
+            .map_err(|_| format!("could not convert string to float: {tempo:?}"))?;
         add_tempo_if_unique(
             position,
             part,
@@ -514,9 +510,6 @@ fn handle_note(
     generic: &mut Vec<GenericNote>,
 ) -> (Time, PrevNote) {
     let mut duration = value_from_tag::<Time>(e, "duration").unwrap_or(0);
-    let staff = value_from_tag::<i32>(e, "staff")
-        .filter(|v| *v != 0)
-        .unwrap_or(1);
     let voice = value_from_tag::<i32>(e, "voice")
         .filter(|v| *v != 0)
         .unwrap_or(1);
@@ -557,10 +550,8 @@ fn handle_note(
                     id: note_id.clone(),
                     midi_pitch: mp,
                     voice,
-                    staff,
                     start: position,
                     end: position + duration,
-                    is_grace,
                     tie_next: None,
                     tie_prev: None,
                 });
@@ -796,34 +787,9 @@ fn find<'a, 'i>(e: Node<'a, 'i>, path: &str) -> Option<Node<'a, 'i>> {
     rec(e, first, &rest)
 }
 
-/// Values parsed like Python's `int(text)` / `str(text)` in `get_value_from_tag`.
-trait FromTag: Sized {
-    fn from_tag(text: &str) -> Option<Self>;
-}
-impl FromTag for i64 {
-    fn from_tag(text: &str) -> Option<Self> {
-        text.trim().parse().ok()
-    }
-}
-impl FromTag for i32 {
-    fn from_tag(text: &str) -> Option<Self> {
-        text.trim().parse().ok()
-    }
-}
-impl FromTag for String {
-    fn from_tag(text: &str) -> Option<Self> {
-        Some(text.to_string())
-    }
-}
-
 /// Port of `get_value_from_tag(e, tag, as_type)` (None if missing or not convertible).
-fn value_from_tag<T: FromTag>(e: Node, path: &str) -> Option<T> {
-    T::from_tag(find(e, path)?.text()?)
-}
-
-/// Python `float(text)` for the plain decimal forms MusicXML uses.
-fn parse_python_float(text: &str) -> Option<f64> {
-    text.trim().parse::<f64>().ok()
+fn value_from_tag<T: std::str::FromStr>(e: Node, path: &str) -> Option<T> {
+    find(e, path)?.text()?.trim().parse().ok()
 }
 
 #[cfg(test)]

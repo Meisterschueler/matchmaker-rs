@@ -94,7 +94,7 @@ src/
 │   ├── tempo_models.rs         # KalmanTempoModel
 │   └── eval.rs                 # transfer_positions, metrics, SPARC, GroundTruth (TSV, .match)
 ├── score/
-│   ├── mod.rs                  # Score, ScoreNote, ScoreOptions, unique_onsets, chords
+│   ├── mod.rs                  # Score, ScoreNote, unique_onsets, chords
 │   ├── musicxml.rs             # partitura.io.importmusicxml subset (on `roxmltree`)
 │   ├── midi.rs                 # partitura.io.importmidi.load_score_midi
 │   ├── timeline.rs             # beat_map / quarter_map (_time_interpolator)

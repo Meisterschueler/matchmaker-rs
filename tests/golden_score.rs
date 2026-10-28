@@ -7,7 +7,7 @@
 mod common;
 
 use common::{Ctx, golden, golden_pieces, json, npy};
-use matchmaker_rs::score::{Score, ScoreOptions};
+use matchmaker_rs::score::Score;
 
 #[derive(Debug, Clone, PartialEq)]
 struct Row {
@@ -15,8 +15,6 @@ struct Row {
     pitch: i64,
     id: String,
     duration_beat: f32,
-    onset_quarter: f32,
-    duration_quarter: f32,
     onset_div: i64,
     duration_div: i64,
     voice: i64,
@@ -52,13 +50,8 @@ fn note_arrays_equal_reference() {
         let ctx = Ctx::new("score", &piece, "score/note_array.npy");
         let na = npy(dir.join("note_array.npy"));
         let ids: Vec<String> = serde_json::from_value(json(dir.join("note_ids.json"))).unwrap();
-        let f = |name: &str| na.field(name).unwrap();
-        let (ob, db, oq, dq) = (
-            f("onset_beat"),
-            f("duration_beat"),
-            f("onset_quarter"),
-            f("duration_quarter"),
-        );
+        let f = |name: &str| na.field(name);
+        let (ob, db) = (f("onset_beat"), f("duration_beat"));
         let (od, dd, pitch, voice) = (f("onset_div"), f("duration_div"), f("pitch"), f("voice"));
         let mut expected: Vec<Row> = (0..na.len())
             .map(|i| Row {
@@ -66,16 +59,14 @@ fn note_arrays_equal_reference() {
                 pitch: pitch[i] as i64,
                 id: ids[i].clone(),
                 duration_beat: db[i] as f32,
-                onset_quarter: oq[i] as f32,
-                duration_quarter: dq[i] as f32,
                 onset_div: od[i] as i64,
                 duration_div: dd[i] as i64,
                 voice: voice[i] as i64,
             })
             .collect();
 
-        let score = Score::load(&path, &ScoreOptions::default())
-            .unwrap_or_else(|e| panic!("[{piece}] load failed: {e}"));
+        let score =
+            Score::load(&path, true).unwrap_or_else(|e| panic!("[{piece}] load failed: {e}"));
         let mut actual: Vec<Row> = score
             .notes
             .iter()
@@ -84,8 +75,6 @@ fn note_arrays_equal_reference() {
                 pitch: i64::from(n.pitch),
                 id: n.id.clone(),
                 duration_beat: n.duration_beat,
-                onset_quarter: n.onset_quarter,
-                duration_quarter: n.duration_quarter,
                 onset_div: n.onset_div,
                 duration_div: n.duration_div,
                 voice: i64::from(n.voice),

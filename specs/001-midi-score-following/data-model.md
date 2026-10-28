@@ -13,7 +13,7 @@ Types: `f32`/`f64` follow [research.md R4](research.md#r4-numeric-types-and-prom
 | `pitch` | `u8` | MIDI pitch from step/alter/octave (0–127) |
 | `onset_beat` | `f32` | `beat_map(onset_div)` (computed in `f64`, stored as `f32`) |
 | `duration_beat` | `f32` | `beat_map(onset_div + duration_div) − onset_beat` |
-| `onset_quarter`, `duration_quarter` | `f32` | `quarter_map` analogues |
+| `onset_quarter`, `duration_quarter` | — | not ported: no consumer (the golden files still contain them) |
 | `onset_div`, `duration_div` | `i32` | merged-part divisions (after `lcm` rescaling) |
 | `voice` | `i32` | after `merge_parts` reassignment |
 
@@ -33,7 +33,7 @@ Derived (pure functions, no stored state):
 - `unique_onsets() -> Vec<f32>` — sorted unique `onset_beat` (`np.unique`).
 - `chords() -> Vec<BTreeSet<u8>>` — pitch set per unique onset (`get_chords_from_score`).
 
-Construction: `Score::load(path, &ScoreOptions { unfold: true })` dispatches on extension
+Construction: `Score::load(path, unfold)` (`unfold = true` in pymatchmaker) dispatches on extension
 (`.musicxml`/`.xml`/`.mxl` → MusicXML; `.mid`/`.midi` → MIDI score); other extensions →
 `Error::UnsupportedFormat`.
 

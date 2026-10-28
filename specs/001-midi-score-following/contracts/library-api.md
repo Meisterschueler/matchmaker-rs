@@ -2,7 +2,7 @@
 
 Public surface of the core crate for this feature. Names mirror pymatchmaker (II); types are
 defined in [data-model.md](../data-model.md). Everything here builds for
-`wasm32-unknown-unknown`; functions taking paths have `*_from_bytes` siblings for wasm/no-fs use.
+`wasm32-unknown-unknown` (file-reading functions compile there but return `Error::Io`).
 
 ## Module map (Rust module ← Python path)
 
@@ -68,7 +68,7 @@ arrives or on `finish`). Timestamps must be non-decreasing (`Error::InvalidParam
 ## Low-level pipeline (Stream → Processor → OnlineAlignment)
 
 ```rust
-let score = Score::load(score_path, &ScoreOptions::default())?;
+let score = Score::load(score_path, true)?;   // true = unfold repeats
 let perf  = Performance::load(perf_path)?;
 let frames = io::stream::frames(&perf.messages(), StreamMode::Windowed { polling_period: 0.01 });
 let mut processor = PitchProcessor::new(true, false);

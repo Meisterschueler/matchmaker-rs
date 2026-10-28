@@ -17,10 +17,8 @@ pub(crate) struct Note {
     pub id: Option<String>,
     pub midi_pitch: i32,
     pub voice: i32,
-    pub staff: i32,
     pub start: Time,
     pub end: Time,
-    pub is_grace: bool,
     /// Index of the next note in a tie chain (`Note.tie_next`).
     pub tie_next: Option<usize>,
     /// Index of the previous note in a tie chain (`Note.tie_prev`).
@@ -153,6 +151,25 @@ impl Part {
             .iter()
             .enumerate()
             .filter(|(_, n)| n.tie_prev.is_none())
+    }
+
+    /// Put notes in timeline iteration order (stable by start time), keeping tie links.
+    pub fn sort_notes_by_start(&mut self) {
+        let mut order: Vec<usize> = (0..self.notes.len()).collect();
+        order.sort_by_key(|&i| self.notes[i].start);
+        let mut position = vec![0; order.len()];
+        for (new_i, &old_i) in order.iter().enumerate() {
+            position[old_i] = new_i;
+        }
+        self.notes = order
+            .iter()
+            .map(|&i| {
+                let mut n = self.notes[i].clone();
+                n.tie_next = n.tie_next.map(|j| position[j]);
+                n.tie_prev = n.tie_prev.map(|j| position[j]);
+                n
+            })
+            .collect();
     }
 
     /// `Note.duration_tied`: own duration plus the tied continuation(s).

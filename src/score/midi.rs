@@ -13,7 +13,7 @@ use std::path::Path;
 use midly::{MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 
 use super::part::{Note, Part, Span, Tempo, Time, TimeSignature};
-use super::timeline::{TimeMap, Unit};
+use super::timeline::TimeMap;
 use crate::error::{Error, Result};
 
 /// A note collected from a track: `(onset, pitch, duration)` in ticks.
@@ -173,10 +173,8 @@ fn create_part(
             id: Some(id),
             midi_pitch: pitch,
             voice,
-            staff: 1,
             start: onset,
             end: onset + duration,
-            is_grace: duration <= 0,
             tie_next: None,
             tie_prev: None,
         });
@@ -225,7 +223,7 @@ fn add_first_measure(part: &mut Part) {
         .min()
         .unwrap_or(end)
         .min(end);
-    let Some(map) = TimeMap::new(part, Unit::Beat) else {
+    let Some(map) = TimeMap::new(part) else {
         return;
     };
     let (Some(b_start), Some(b_end)) = (map.eval(start as f64), map.eval(end as f64)) else {

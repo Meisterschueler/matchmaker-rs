@@ -8,8 +8,8 @@
 //! the note array (`Part.note_array()`).
 //!
 //! ```no_run
-//! use matchmaker_rs::score::{Score, ScoreOptions};
-//! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", &ScoreOptions::default())?;
+//! use matchmaker_rs::score::Score;
+//! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;
 //! println!("{} notes, {} onsets", score.notes.len(), score.unique_onsets().len());
 //! # Ok::<(), matchmaker_rs::Error>(())
 //! ```
@@ -18,18 +18,18 @@ mod merge;
 mod midi;
 mod musicxml;
 mod part;
-pub mod tempo;
+mod tempo;
 mod timeline;
 mod unfold;
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::error::{Error, Result};
 use part::Part;
-use timeline::{TimeMap, Unit};
+use timeline::TimeMap;
 
-/// One row of partitura's `note_array()` (default fields).
+/// One row of partitura's `note_array()` (the fields score following and its tests use).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoreNote {
     /// Note id (`-<repetition>` suffix after unfolding).
@@ -40,29 +40,12 @@ pub struct ScoreNote {
     pub onset_beat: f32,
     /// Duration in beats, including tied continuations.
     pub duration_beat: f32,
-    /// Onset in quarter notes.
-    pub onset_quarter: f32,
-    /// Duration in quarter notes.
-    pub duration_quarter: f32,
     /// Onset in divisions of the merged part.
     pub onset_div: i64,
     /// Duration in divisions (tied).
     pub duration_div: i64,
     /// Voice after `merge_parts` reassignment.
     pub voice: i32,
-}
-
-/// Options for [`Score::load`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScoreOptions {
-    /// Unfold repeats maximally (`unfold_score=True` in pymatchmaker).
-    pub unfold: bool,
-}
-
-impl Default for ScoreOptions {
-    fn default() -> Self {
-        ScoreOptions { unfold: true }
-    }
 }
 
 /// A loaded score: the merged, (unfolded) part's note array and its tempo.
@@ -74,13 +57,12 @@ pub struct Score {
     pub tempo: Option<f64>,
     /// Whether repeat unfolding was applied (it falls back to the folded score on failure).
     pub unfolded: bool,
-    /// The file the score was loaded from.
-    pub source: PathBuf,
 }
 
 impl Score {
-    /// Load a score file (`.musicxml`, `.xml`, `.mxl`, `.mid`, `.midi`).
-    pub fn load(path: impl AsRef<Path>, options: &ScoreOptions) -> Result<Score> {
+    /// Load a score file (`.musicxml`, `.xml`, `.mxl`, `.mid`, `.midi`); `unfold` is
+    /// pymatchmaker's `unfold_score` (default `true`).
+    pub fn load(path: impl AsRef<Path>, unfold: bool) -> Result<Score> {
         let path = path.as_ref();
         let extension = path
             .extension()
@@ -110,14 +92,13 @@ impl Score {
             path: path.to_path_buf(),
             reason,
         };
-        let (part, unfolded) = build_part(parts, options.unfold).map_err(invalid)?;
+        let (part, unfolded) = build_part(parts, unfold).map_err(invalid)?;
         let notes = note_array(&part).map_err(invalid)?;
         let tempo = tempo::get_tempo_from_score(&part, xml_text.as_deref());
         Ok(Score {
             notes,
             tempo,
             unfolded,
-            source: path.to_path_buf(),
         })
     }
 
@@ -167,10 +148,9 @@ fn build_part(parts: Vec<Part>, unfold: bool) -> std::result::Result<(Part, bool
 /// Port of `note_array_from_note_list` for the default fields, followed by the sort by
 /// pitch and then (stably) by onset.
 fn note_array(part: &Part) -> std::result::Result<Vec<ScoreNote>, String> {
-    let beat_map = TimeMap::new(part, Unit::Beat);
-    let quarter_map = TimeMap::new(part, Unit::Quarter);
-    let eval = |map: &Option<TimeMap>, t: i64| -> std::result::Result<f64, String> {
-        match map {
+    let beat_map = TimeMap::new(part);
+    let eval = |t: i64| -> std::result::Result<f64, String> {
+        match &beat_map {
             None => Ok(0.0),
             Some(m) => m.eval(t as f64).ok_or_else(|| {
                 format!("A value ({t}) in x_new is outside the interpolation range.")
@@ -181,15 +161,12 @@ fn note_array(part: &Part) -> std::result::Result<Vec<ScoreNote>, String> {
     for (i, n) in part.notes_tied() {
         let on = n.start;
         let off = on + part.duration_tied(i);
-        let (on_beat, off_beat) = (eval(&beat_map, on)?, eval(&beat_map, off)?);
-        let (on_q, off_q) = (eval(&quarter_map, on)?, eval(&quarter_map, off)?);
+        let (on_beat, off_beat) = (eval(on)?, eval(off)?);
         notes.push(ScoreNote {
             id: n.id.clone().unwrap_or_default(),
             pitch: n.midi_pitch,
             onset_beat: on_beat as f32,
             duration_beat: (off_beat - on_beat) as f32,
-            onset_quarter: on_q as f32,
-            duration_quarter: (off_q - on_q) as f32,
             onset_div: on,
             duration_div: off - on,
             voice: n.voice,

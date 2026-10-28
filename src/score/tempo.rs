@@ -3,11 +3,6 @@
 //!
 //! Sources in order: the first partitura `Tempo` object, the first MusicXML `<sound tempo>`,
 //! a text tempo marking such as "Allegro". `None` means the caller's default (120 BPM).
-//!
-//! ```
-//! use matchmaker_rs::score::tempo::to_quarter_tempo;
-//! assert_eq!(to_quarter_tempo("h.", 50.0), Some(150.0));
-//! ```
 
 use roxmltree::{Document, Node};
 
@@ -34,7 +29,7 @@ const TEMPO_MARKING_TO_BPM: [(&str, f64); 16] = [
 ];
 
 /// Port of `to_quarter_tempo(unit, tempo)`; `None` where Python raises (unknown unit, > 3 dots).
-pub fn to_quarter_tempo(unit: &str, tempo: f64) -> Option<f64> {
+fn to_quarter_tempo(unit: &str, tempo: f64) -> Option<f64> {
     const DOT_MULTIPLIERS: [f64; 4] = [1.0, 1.0 + 1.0 / 2.0, 1.0 + 3.0 / 4.0, 1.0 + 7.0 / 8.0];
     let dots = unit.matches('.').count();
     let label = unit.trim().trim_end_matches('.');

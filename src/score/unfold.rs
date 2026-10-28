@@ -175,6 +175,14 @@ fn add_segments(part: &Part) -> Result<BTreeMap<String, Segment>, UnfoldError> {
             .map(|s| s.id.clone())
             .ok_or_else(|| UnfoldError(format!("KeyError: {t}")))
     };
+    // segment_info[t] (Python raises KeyError for a missing t)
+    fn seg(
+        info: &mut BTreeMap<Time, SegmentInfo>,
+        t: Time,
+    ) -> Result<&mut SegmentInfo, UnfoldError> {
+        info.get_mut(&t)
+            .ok_or_else(|| UnfoldError(format!("KeyError: {t}")))
+    }
 
     let mut current_volta_repeat_start: Time = 0;
     let mut current_volta_end: Time = 0;
@@ -187,18 +195,14 @@ fn add_segments(part: &Part) -> Result<BTreeMap<String, Segment>, UnfoldError> {
             match *boundary_type {
                 "repeat_start" => {
                     let id = id_at(&info, se)?;
-                    if let Some(s) = info.get_mut(&ss) {
-                        s.to.push(id);
-                    }
+                    seg(&mut info, ss)?.to.push(id);
                 }
                 "repeat_end" => {
                     if !b_se.contains("volta_end") {
                         let id = id_at(&info, se)?;
                         let repeat_start = part.repeats[value.unwrap_or(0)].start.unwrap_or(0);
                         let start_id = id_at(&info, repeat_start)?;
-                        let s = info
-                            .get_mut(&ss)
-                            .ok_or_else(|| UnfoldError("segment".into()))?;
+                        let s = seg(&mut info, ss)?;
                         s.to.push(id);
                         s.to.push(start_id);
                     }
@@ -229,13 +233,11 @@ fn add_segments(part: &Part) -> Result<BTreeMap<String, Segment>, UnfoldError> {
                             current_volta_total_number += numbers.len();
                             let target_id = id_at(&info, current_volta_end)?;
                             for no in &numbers {
-                                info.get_mut(&ss)
-                                    .ok_or_else(|| UnfoldError("segment".into()))?
+                                seg(&mut info, ss)?
                                     .to
                                     .push(format!("{no}_Volta_{target_id}"));
                             }
-                            info.get_mut(&current_volta_end)
-                                .ok_or_else(|| UnfoldError("segment".into()))?
+                            seg(&mut info, current_volta_end)?
                                 .volta_numbers
                                 .extend(numbers);
                             current_volta_end = part.endings[vi].end.unwrap_or(0);
@@ -253,29 +255,18 @@ fn add_segments(part: &Part) -> Result<BTreeMap<String, Segment>, UnfoldError> {
                             }
                             let target =
                                 format!("Z_Volta_{}", id_at(&info, current_volta_repeat_start)?);
-                            info.get_mut(&ss)
-                                .ok_or_else(|| UnfoldError("segment".into()))?
-                                .to
-                                .push(target);
+                            seg(&mut info, ss)?.to.push(target);
                         }
                     }
                     if numbers.contains(&total) {
                         let id = id_at(&info, current_volta_end)?;
-                        info.get_mut(&ss)
-                            .ok_or_else(|| UnfoldError("segment".into()))?
-                            .to
-                            .push(id);
+                        seg(&mut info, ss)?.to.push(id);
                     }
                 }
-                "coda" => {
+                "coda" | "segno" => {
                     let id = id_at(&info, se)?;
-                    info.get_mut(&ss)
-                        .ok_or_else(|| UnfoldError("segment".into()))?
-                        .to
-                        .push(id);
-                    info.get_mut(&se)
-                        .ok_or_else(|| UnfoldError("segment".into()))?
-                        .kind = SegmentType::LeapEnd;
+                    seg(&mut info, ss)?.to.push(id);
+                    seg(&mut info, se)?.kind = SegmentType::LeapEnd;
                 }
                 "tocoda" => {
                     let id = id_at(&info, se)?;
@@ -283,71 +274,43 @@ fn add_segments(part: &Part) -> Result<BTreeMap<String, Segment>, UnfoldError> {
                         .first()
                         .ok_or_else(|| UnfoldError("IndexError: no coda".into()))?;
                     let coda_id = id_at(&info, coda)?;
-                    let s = info
-                        .get_mut(&ss)
-                        .ok_or_else(|| UnfoldError("segment".into()))?;
+                    let s = seg(&mut info, ss)?;
                     s.to.push(id);
                     s.to.push(format!("Navigation2_{coda_id}"));
                     s.kind = SegmentType::LeapStart;
                 }
-                "segno" => {
+                "dalsegno" | "dacapo" => {
                     let id = id_at(&info, se)?;
-                    info.get_mut(&ss)
-                        .ok_or_else(|| UnfoldError("segment".into()))?
-                        .to
-                        .push(id);
-                    info.get_mut(&se)
-                        .ok_or_else(|| UnfoldError("segment".into()))?
-                        .kind = SegmentType::LeapEnd;
-                }
-                "dalsegno" => {
-                    let id = id_at(&info, se)?;
-                    let segno = *segno_destinations
-                        .first()
-                        .ok_or_else(|| UnfoldError("IndexError: no segno".into()))?;
-                    let segno_id = id_at(&info, segno)?;
-                    let s = info
-                        .get_mut(&ss)
-                        .ok_or_else(|| UnfoldError("segment".into()))?;
+                    let target = if *boundary_type == "dalsegno" {
+                        *segno_destinations
+                            .first()
+                            .ok_or_else(|| UnfoldError("IndexError: no segno".into()))?
+                    } else {
+                        first
+                    };
+                    let target_id = id_at(&info, target)?;
+                    let s = seg(&mut info, ss)?;
                     s.to.push(id.clone());
-                    s.to.push(format!("Navigation1_{segno_id}"));
-                    s.to.push(format!("Navigation2_{id}"));
-                    s.kind = SegmentType::LeapStart;
-                }
-                "dacapo" => {
-                    let id = id_at(&info, se)?;
-                    let first_id = id_at(&info, first)?;
-                    let s = info
-                        .get_mut(&ss)
-                        .ok_or_else(|| UnfoldError("segment".into()))?;
-                    s.to.push(id.clone());
-                    s.to.push(format!("Navigation1_{first_id}"));
+                    s.to.push(format!("Navigation1_{target_id}"));
                     s.to.push(format!("Navigation2_{id}"));
                     s.kind = SegmentType::LeapStart;
                 }
                 "fine" => {
                     let id = id_at(&info, se)?;
                     let last_id = id_at(&info, last)?;
-                    let s = info
-                        .get_mut(&ss)
-                        .ok_or_else(|| UnfoldError("segment".into()))?;
+                    let s = seg(&mut info, ss)?;
                     s.to.push(id);
                     s.to.push(format!("Navigation2_{last_id}"));
                 }
                 "end" => {
                     let id = id_at(&info, se)?;
-                    info.get_mut(&ss)
-                        .ok_or_else(|| UnfoldError("segment".into()))?
-                        .to
-                        .push(id);
+                    seg(&mut info, ss)?.to.push(id);
                 }
                 _ => {}
             }
             // first segment is always a leap destination (da capo)
             if ss == 0 {
-                info.get_mut(&ss)
-                    .ok_or_else(|| UnfoldError("segment".into()))?
-                    .kind = SegmentType::LeapEnd;
+                seg(&mut info, ss)?.kind = SegmentType::LeapEnd;
             }
         }
     }
@@ -642,23 +605,7 @@ fn create_variant_part(part: &Part, segments: &[(Time, Time)]) -> Result<Part, U
             });
         }
     }
-    // keep timeline iteration order of notes (by start time, stable)
-    let mut order: Vec<usize> = (0..new.notes.len()).collect();
-    order.sort_by_key(|&i| new.notes[i].start);
-    let mut position = vec![0; order.len()];
-    for (new_i, &old_i) in order.iter().enumerate() {
-        position[old_i] = new_i;
-    }
-    let notes: Vec<Note> = order
-        .iter()
-        .map(|&i| {
-            let mut n = new.notes[i].clone();
-            n.tie_next = n.tie_next.map(|j| position[j]);
-            n.tie_prev = n.tie_prev.map(|j| position[j]);
-            n
-        })
-        .collect();
-    new.notes = notes;
+    new.sort_notes_by_start();
     Ok(new)
 }
 

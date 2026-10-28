@@ -6,7 +6,8 @@
 //! release with golden tests (see `tests/golden/`).
 
 pub mod error;
-pub mod npy;
+pub mod io;
+pub mod performance;
 pub mod score;
 
 pub use error::{Error, Result};

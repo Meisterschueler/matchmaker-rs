@@ -51,42 +51,6 @@ pub enum Error {
         /// Why it cannot be used.
         reason: String,
     },
-    /// Unknown alignment method.
-    #[error("invalid method {method:?} for {input_type}; available: {available:?}")]
-    InvalidMethod {
-        /// Input type (`"midi"`).
-        input_type: String,
-        /// Requested method.
-        method: String,
-        /// Supported methods.
-        available: Vec<String>,
-    },
-    /// Unknown or out-of-range parameter.
-    #[error("invalid parameter {key:?} for {method}; allowed: {allowed:?}")]
-    InvalidParameter {
-        /// Method (or component) the parameter was given to.
-        method: String,
-        /// Parameter name (and value, if relevant).
-        key: String,
-        /// Accepted parameters or values.
-        allowed: Vec<String>,
-    },
-    /// Ground truth could not be loaded.
-    #[error("invalid ground truth {path}: {reason}")]
-    GroundTruth {
-        /// Ground-truth file.
-        path: PathBuf,
-        /// What was wrong.
-        reason: String,
-    },
-    /// A `.npy` file could not be read or has an unexpected layout.
-    #[error("invalid .npy file {path}: {reason}")]
-    Npy {
-        /// File that failed.
-        path: PathBuf,
-        /// What was wrong.
-        reason: String,
-    },
 }
 
 impl Error {

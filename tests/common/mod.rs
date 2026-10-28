@@ -3,9 +3,11 @@
 
 #![allow(dead_code)]
 
+mod npy;
+
 use std::path::{Path, PathBuf};
 
-use matchmaker_rs::npy::NpyArray;
+pub use npy::NpyArray;
 
 /// `tests/data/<name>`.
 pub fn data(name: &str) -> PathBuf {

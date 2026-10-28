@@ -277,7 +277,7 @@ in CI would then link libpython into every test build.
 | `midly` (`std` only) | core | Unlicense | MIDI file parsing (pure Rust). **Requires adding `Unlicense` to `deny.toml`.** |
 | `roxmltree` | core | MIT/Apache-2.0 | MusicXML DOM (see R6 update) |
 | `zip` (feature `deflate` only) | core | MIT | `.mxl` containers (pure Rust: `zlib-rs`, `zopfli`) |
-| own `npy` module | core | — | `.npy` read/write. `npyz` and `ndarray-npy` were rejected: both pull `py_literal` → `pest` → `stacker` → `psm`, whose `build.rs` compiles C/assembly (violates V) |
+| own `.npy` reader (tests only) | tests | — | golden data loading; a writer is added with the export (US6). `npyz` and `ndarray-npy` were rejected: both pull `py_literal` → `pest` → `stacker` → `psm`, whose `build.rs` compiles C/assembly (violates V) |
 | `realfft` (+`rustfft`) | core | MIT (/Apache-2.0) | `rfft` for SPARC |
 | `thiserror` | core | MIT/Apache-2.0 | typed errors (IV) |
 | `tracing` | core | MIT | stage spans (III) |

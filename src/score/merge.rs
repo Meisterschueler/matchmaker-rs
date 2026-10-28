@@ -79,21 +79,6 @@ pub(crate) fn merge_parts(mut parts: Vec<Part>) -> Result<Part, String> {
             }
         }
     }
-    // timeline iteration order of notes: by start time (stable)
-    let mut order: Vec<usize> = (0..new.notes.len()).collect();
-    order.sort_by_key(|&i| new.notes[i].start);
-    let mut position = vec![0; order.len()];
-    for (k, &i) in order.iter().enumerate() {
-        position[i] = k;
-    }
-    new.notes = order
-        .iter()
-        .map(|&i| {
-            let mut n = new.notes[i].clone();
-            n.tie_next = n.tie_next.map(|j| position[j]);
-            n.tie_prev = n.tie_prev.map(|j| position[j]);
-            n
-        })
-        .collect();
+    new.sort_notes_by_start();
     Ok(new)
 }
