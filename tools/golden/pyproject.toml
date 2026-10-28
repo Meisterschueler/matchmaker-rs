@@ -1,0 +1,13 @@
+[project]
+name = "matchmaker-rs-golden"
+version = "0.1.0"
+description = "Locked reference environment that generates golden data for matchmaker-rs (constitution I)"
+requires-python = "==3.12.*"
+dependencies = [
+    # Reference release; the tag is the single source of truth (see README "Reference implementation").
+    "pymatchmaker @ git+https://github.com/pymatchmaker/matchmaker@v0.4.0",
+    "numpy>=2",
+]
+
+[tool.uv]
+package = false

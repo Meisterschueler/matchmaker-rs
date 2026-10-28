@@ -4,3 +4,8 @@ Copyright 2026 The matchmaker-rs contributors
 This product is a Rust port of pymatchmaker
 (https://github.com/pymatchmaker/matchmaker), Copyright the Matchmaker
 Development Team, licensed under the Apache License, Version 2.0.
+
+The test inputs in tests/data/ (simple_mozart_k265_var1, mozart_k265_var1,
+Bach-fugue_bwv_858: MusicXML, MIDI and .match files) are copied unchanged from
+pymatchmaker v0.4.0 (matchmaker/assets), licensed under the Apache License,
+Version 2.0. The golden data in tests/golden/ is generated from that release.

@@ -1,17 +1,41 @@
-[package]
-name = "matchmaker-rs"
+[workspace]
+members = [".", "crates/matchmaker-cli", "crates/matchmaker-py"]
+default-members = [".", "crates/matchmaker-cli"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Pure-Rust port of pymatchmaker (real-time music alignment / score following)"
 license = "Apache-2.0"
 repository = "https://github.com/Meisterschueler/matchmaker-rs"
 
-[lints.rust]
+[workspace.lints.rust]
 missing_docs = "warn"
 unsafe_code = "deny"
 
-[lints.clippy]
+[workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
 
+[package]
+name = "matchmaker-rs"
+description = "Pure-Rust port of pymatchmaker (real-time music alignment / score following)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
 [dependencies]
+midly = "0.5.3"
+musicxml = "1.1.2"
+ndarray = { version = "0.17.2", default-features = false, features = ["std"] }
+npyz = { version = "0.9.1", features = ["derive"] }
+realfft = "3.5.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tracing = "0.1.44"

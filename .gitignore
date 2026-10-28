@@ -1,1 +1,17 @@
 /target
+*.rs.bk
+*.log
+.env*
+.idea/
+.DS_Store
+Thumbs.db
+
+# Python tooling (tools/golden, tools/bench, crates/matchmaker-py)
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+crates/matchmaker-py/dist/
+
+# Local run outputs
+/out/
