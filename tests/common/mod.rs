@@ -44,12 +44,13 @@ pub fn npy(path: impl AsRef<Path>) -> NpyArray {
         .unwrap_or_else(|e| panic!("cannot read golden file {}: {e}", path.display()))
 }
 
-/// Load a golden JSON file.
+/// Load a golden JSON file; Python's `NaN` becomes `null`.
 pub fn json(path: impl AsRef<Path>) -> serde_json::Value {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    serde_json::from_str(&text).unwrap_or_else(|e| panic!("invalid JSON {}: {e}", path.display()))
+    serde_json::from_str(&text.replace("NaN", "null"))
+        .unwrap_or_else(|e| panic!("invalid JSON {}: {e}", path.display()))
 }
 
 /// Where a comparison happens: printed on failure.

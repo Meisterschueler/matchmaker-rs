@@ -67,6 +67,14 @@ pub enum Error {
         /// Why.
         reason: String,
     },
+    /// A ground-truth file (`.match` or TSV) cannot be used.
+    #[error("invalid ground truth {path}: {reason}")]
+    GroundTruth {
+        /// Ground-truth file.
+        path: PathBuf,
+        /// Why it cannot be used.
+        reason: String,
+    },
 }
 
 impl Error {

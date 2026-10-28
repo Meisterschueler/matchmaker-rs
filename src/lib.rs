@@ -13,5 +13,6 @@ pub mod matchmaker;
 pub mod performance;
 pub mod prob;
 pub mod score;
+pub mod utils;
 
 pub use error::{Error, Result};

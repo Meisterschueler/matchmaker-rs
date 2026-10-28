@@ -5,8 +5,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use matchmaker_rs::base::AlignmentPath;
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
 use matchmaker_rs::performance::Performance;
+use matchmaker_rs::score::Score;
+use matchmaker_rs::utils::eval::{GroundTruth, evaluate_alignment};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 #[derive(Parser)]
@@ -39,6 +42,21 @@ enum Command {
         /// Do not print positions
         #[arg(long)]
         quiet: bool,
+    },
+    /// Evaluate an alignment path against ground truth (reference metrics).
+    Evaluate {
+        /// Score the alignment refers to (note ids for `.match` ground truth)
+        score: PathBuf,
+        /// Alignment path TSV written by `follow --output`
+        alignment: PathBuf,
+        /// Ground truth: .match, or TSV with columns perf_sec and score_beat
+        ground_truth: PathBuf,
+        /// Performance MIDI the follower received (onset times for `.match`)
+        #[arg(long)]
+        performance: Option<PathBuf>,
+        /// Print JSON instead of a table
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -88,6 +106,31 @@ fn main() -> Result<()> {
                 }
                 std::fs::write(&path, tsv)
                     .with_context(|| format!("cannot write {}", path.display()))?;
+            }
+            Ok(())
+        }
+        Command::Evaluate {
+            score,
+            alignment,
+            ground_truth,
+            performance,
+            json,
+        } => {
+            let score = Score::load(&score, true)?;
+            // the path TSV has the ground-truth TSV layout (perf_sec, score_beat)
+            let path = GroundTruth::load(&alignment, &score, None)?;
+            let path = AlignmentPath {
+                perf_time: path.perf_sec,
+                score_beat: path.score_beat,
+            };
+            let gt = GroundTruth::load(&ground_truth, &score, performance.as_deref())?;
+            let result = serde_json::to_value(evaluate_alignment(&path, &gt))?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                for (key, value) in result.as_object().into_iter().flatten() {
+                    println!("{key:<16}{value}");
+                }
             }
             Ok(())
         }
