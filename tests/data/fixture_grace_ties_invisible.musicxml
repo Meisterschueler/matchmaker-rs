@@ -28,10 +28,10 @@
       <note id="n5"><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><tie type="stop"/><voice>1</voice><type>quarter</type><staff>1</staff><notations><tied type="stop"/></notations></note>
       <note id="g2"><grace/><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><voice>1</voice><type>16th</type><staff>1</staff></note>
       <note id="g3"><grace/><pitch><step>A</step><octave>4</octave></pitch><voice>1</voice><type>16th</type><staff>1</staff></note>
-      <note id="n6"><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
       <backup><duration>8</duration></backup>
       <note id="b3"><pitch><step>B</step><octave>2</octave></pitch><duration>4</duration><voice>5</voice><type>quarter</type><staff>2</staff></note>
-      <note id="b4"><pitch><step>G</step><octave>2</octave></pitch><duration>4</duration><voice>5</voice><type>quarter</type><staff>2</staff></note>
+      <note><rest/><duration>4</duration><voice>5</voice><type>quarter</type><staff>2</staff></note>
       <note print-object="no"><pitch><step>C</step><octave>3</octave></pitch><duration>4</duration><voice>6</voice><type>quarter</type><staff>2</staff></note>
       <note><cue/><pitch><step>E</step><octave>3</octave></pitch><duration>4</duration><voice>6</voice><type>quarter</type><staff>2</staff></note>
       <barline location="right"><bar-style>light-heavy</bar-style></barline>

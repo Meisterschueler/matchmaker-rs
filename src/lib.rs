@@ -1,21 +1,12 @@
-//! Pure-Rust port of pymatchmaker (real-time music alignment / score following).
+//! Pure-Rust port of [pymatchmaker](https://github.com/pymatchmaker/matchmaker): real-time
+//! music alignment (score following) for MIDI performances.
+//!
+//! The pipeline mirrors pymatchmaker: `Stream` → `Processor` → `OnlineAlignment`.
+//! Every module names the Python code it ports; results are verified against the reference
+//! release with golden tests (see `tests/golden/`).
 
-/// Placeholder until the first feature lands.
-///
-/// ```
-/// assert_eq!(matchmaker_rs::add(2, 2), 4);
-/// ```
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod error;
+pub mod npy;
+pub mod score;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use error::{Error, Result};

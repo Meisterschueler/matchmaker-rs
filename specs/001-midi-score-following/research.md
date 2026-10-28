@@ -167,6 +167,15 @@ unfolding raises), `note_array()`, `iter_all(Tempo)`.
 parsing only, and port the partitura semantics on top in `score::{musicxml, timeline, unfold,
 merge, midi, tempo}`; each module names its partitura source. Note-array order is reproduced
 (stable sort by onset, then pitch) although followers only use the onset→pitch-set grouping.
+**Update (implementation)**: switched to the planned fallback, `roxmltree` (generic DOM) + `zip`
+(deflate only, pure Rust) for `.mxl`. partitura walks the lxml tree element by element
+(`find`, `findall`, attribute lookups); a generic DOM allows a line-by-line port (II) and is
+as lenient as lxml, whereas the typed `musicxml` crate would need a different structure.
+Text tempo directions: partitura parses `<words>` with a Lark grammar; only its
+`tempo_indication` rule (`[qhe]\.* = [0-9]+`, optionally in parentheses after other words)
+produces a `Tempo`. The port recognises exactly that rule and does not port the rest of the
+grammar (it only yields non-tempo directions); documented deviation for texts the grammar would
+reject, affecting only `tempo`, never positions.
 **Rationale**: No Rust crate implements partitura's timeline, unfolding or merging; these
 define `onset_beat`, which every result depends on (Scope: "MUST match partitura's output").
 **Alternatives considered**: Own XML reader on `roxmltree` — kept as fallback if `musicxml`
@@ -265,10 +274,10 @@ in CI would then link libpython into every test build.
 
 | Crate | Where | License | Why |
 |---|---|---|---|
-| `midly` | core | Unlicense | MIDI file parsing (pure Rust, no_std). **Requires adding `Unlicense` to `deny.toml`.** |
-| `musicxml` | core | MIT | MusicXML / `.mxl` parsing |
-| `ndarray` (no BLAS) | core | MIT/Apache-2.0 | readable NumPy-like arrays |
-| `npyz` (feature `derive`) | core | MIT | `.npy` export / golden loading, incl. structured arrays with string ids (`ndarray-npy` cannot write those) |
+| `midly` (`std` only) | core | Unlicense | MIDI file parsing (pure Rust). **Requires adding `Unlicense` to `deny.toml`.** |
+| `roxmltree` | core | MIT/Apache-2.0 | MusicXML DOM (see R6 update) |
+| `zip` (feature `deflate` only) | core | MIT | `.mxl` containers (pure Rust: `zlib-rs`, `zopfli`) |
+| own `npy` module | core | — | `.npy` read/write. `npyz` and `ndarray-npy` were rejected: both pull `py_literal` → `pest` → `stacker` → `psm`, whose `build.rs` compiles C/assembly (violates V) |
 | `realfft` (+`rustfft`) | core | MIT (/Apache-2.0) | `rfft` for SPARC |
 | `thiserror` | core | MIT/Apache-2.0 | typed errors (IV) |
 | `tracing` | core | MIT | stage spans (III) |

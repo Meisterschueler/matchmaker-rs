@@ -30,12 +30,11 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-midly = "0.5.3"
-musicxml = "1.1.2"
-ndarray = { version = "0.17.2", default-features = false, features = ["std"] }
-npyz = { version = "0.9.1", features = ["derive"] }
+midly = { version = "0.5.3", default-features = false, features = ["std"] }
 realfft = "3.5.1"
+roxmltree = "0.21.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
 tracing = "0.1.44"
+zip = { version = "7.3.0", default-features = false, features = ["deflate"] }

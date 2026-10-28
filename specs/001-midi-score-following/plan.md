@@ -21,7 +21,7 @@ forward step instead of the reference's dense `O(N²)` one (R2).
 
 **Language/Version**: Rust stable, edition 2024, MSRV 1.85 (`rust-version`); Python 3.10–3.13 for bindings and tooling
 
-**Primary Dependencies**: core: `midly`, `musicxml`, `ndarray`, `npyz`, `realfft`, `thiserror`, `tracing`, `serde`/`serde_json`; CLI: `clap`, `anyhow`, `tracing-subscriber`; bindings: `pyo3`, `numpy` (maturin). Justification per crate: [research.md R12](research.md#r12-dependencies-v)
+**Primary Dependencies**: core: `midly`, `roxmltree`, `zip` (deflate), `realfft`, `thiserror`, `tracing`, `serde`/`serde_json`, own `npy` module; CLI: `clap`, `anyhow`, `tracing-subscriber`; bindings: `pyo3`, `numpy` (maturin). Justification per crate: [research.md R12](research.md#r12-dependencies-v)
 
 **Storage**: Files only: inputs (MusicXML/`.mxl`/MIDI/`.match`/TSV), `.npy` + JSON outputs; golden data in `tests/golden/`; datasets in a CI cache
 
@@ -95,7 +95,7 @@ src/
 │   └── eval.rs                 # transfer_positions, metrics, SPARC, GroundTruth (TSV, .match)
 ├── score/
 │   ├── mod.rs                  # Score, ScoreNote, ScoreOptions, unique_onsets, chords
-│   ├── musicxml.rs             # partitura.io.importmusicxml subset (on the `musicxml` crate)
+│   ├── musicxml.rs             # partitura.io.importmusicxml subset (on `roxmltree`)
 │   ├── midi.rs                 # partitura.io.importmidi.load_score_midi
 │   ├── timeline.rs             # beat_map / quarter_map (_time_interpolator)
 │   ├── unfold.rs               # get_paths / unfold_part_maximal
@@ -154,7 +154,7 @@ and `performance.rs`, each naming its partitura source.
 
 | Risk | Mitigation |
 |---|---|
-| `musicxml` crate rejects files that lxml accepts | Golden + dataset load tests early (step 2); fallback: own reader on `roxmltree` (R6) |
+| A score feature partitura handles is missed by the port | Fixture coverage check in `generate.py` (T008); dataset-wide score golden check in the benchmark job |
 | Argmax flips from summation order | First-difference reports; NumPy-compatible pairwise sum where needed (R4) |
 | Reference install needs a C compiler (Cython extension) | Lockfile pins wheels where available; CI installs build tools for the reference job only |
 | CI time of the full Python benchmark | Cache deterministic reference accuracy by key; shard per dataset (R9, R13) |
