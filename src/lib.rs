@@ -6,6 +6,7 @@
 //! release with golden tests (see `tests/golden/`).
 
 pub mod error;
+pub mod features;
 pub mod io;
 pub mod performance;
 pub mod score;

@@ -70,17 +70,17 @@ Cargo workspace per [plan.md](plan.md#source-code-repository-root): core crate a
 
 ### Performance and stream (R5)
 
-- [ ] T022 [P] Write failing golden test `tests/golden_stream_processors.rs` (stream part): messages per mode equal `stream/<mode>/messages.npy` (times exact, compared as multiset per timestamp), `frame_times.npy` exact
-- [ ] T023 [P] Port `load_performance_midi` (per-track `(channel, pitch)` pairing, overwrite on re-trigger, ignore unmatched note-offs, tempo changes collected across tracks, sort `(note_on, pitch, note_off, channel, track)`, times recomputed with `adjust_time`; note ids are added with the `.match` ground truth in T043) and `midi_messages_from_performance` (note-on + note-off per note, then control and program changes, **stable** sort by time) with `PerformedNote`, `Performance::load` in `src/performance.rs`, using `midly`
-- [ ] T024 [P] Implement `MidiMessage`, `MidiMessageKind`, `Frame`, `StreamMode { Event, Windowed { polling_period } }` and `frames(messages, mode)` porting `midi_messages_to_framed_midi` exactly (`n = ceil(max_t/pp)`, frame 0 takes `t ≤ pp`, frame k takes `k·pp < t ≤ (k+1)·pp`, time `(k+0.5)·pp`) in `src/io/stream.rs`; `TRACE` span `stream` per frame
+- [X] T022 [P] Write failing golden test `tests/golden_stream_processors.rs` (stream part): messages per mode equal `stream/<mode>/messages.npy` (times exact, compared as multiset per timestamp), `frame_times.npy` exact
+- [X] T023 [P] Port `load_performance_midi` (per-track `(channel, pitch)` pairing, overwrite on re-trigger, ignore unmatched note-offs, tempo changes collected across tracks, sort `(note_on, pitch, note_off, channel, track)`, times recomputed with `adjust_time`; note ids are added with the `.match` ground truth in T043) and `midi_messages_from_performance` (note-on + note-off per note, then control and program changes, **stable** sort by time) with `PerformedNote`, `Performance::load` in `src/performance.rs`, using `midly`
+- [X] T024 [P] Implement `MidiMessage`, `MidiMessageKind`, `Frame`, `StreamMode { Event, Windowed { polling_period } }` and `frames(messages, mode)` porting `midi_messages_to_framed_midi` exactly (`n = ceil(max_t/pp)`, frame 0 takes `t ≤ pp`, frame k takes `k·pp < t ≤ (k+1)·pp`, time `(k+0.5)·pp`) in `src/io/stream.rs`; `TRACE` span `stream` per frame
 
 ### Processors (FR-006, SC-003)
 
-- [ ] T025 [P] Extend `tests/golden_stream_processors.rs` (processor part, failing first): features and times of `pitch` (vector/list, piano/full) and `chord_onset` equal `processor/*/features.npy` / `times.npy` exactly for all pieces
-- [ ] T026 [P] Implement `Processor` trait (`process`, `flush_remaining` default `None`, `reset`), `Observation { features, perf_time }`, `Features { PitchVector(Vec<f32>), PitchList(Vec<f32>) }` in `src/features/mod.rs`
-- [ ] T027 [P] Port `PitchProcessor` (`piano_range`, `return_pitch_list`; observation time = min note-on time in frame; `None` without note-on; velocity-0 note-on ignored) in `src/features/pitch.rs`; `DEBUG` span `feature`
-- [ ] T028 [P] Port `ChordOnsetProcessor` (`chord_threshold = 0.035`, flush on gap `> threshold`, empty-frame heartbeat, `flush_remaining`) in `src/features/chord_onset.rs`; `DEBUG` span `feature`
-- [ ] T029 Make `tests/golden_stream_processors.rs` pass
+- [X] T025 [P] Extend `tests/golden_stream_processors.rs` (processor part, failing first): features and times of `pitch` (vector/list, piano/full) and `chord_onset` equal `processor/*/features.npy` / `times.npy` exactly for all pieces
+- [X] T026 [P] Implement `Processor` trait (`process`, `flush_remaining` default `None`, `reset`), `Observation { features, perf_time }`, `Features { PitchVector(Vec<f32>), PitchList(Vec<f32>) }` in `src/features/mod.rs`
+- [X] T027 [P] Port `PitchProcessor` (`piano_range`, `return_pitch_list`; observation time = min note-on time in frame; `None` without note-on; velocity-0 note-on ignored) in `src/features/pitch.rs`; `DEBUG` span `feature`
+- [X] T028 [P] Port `ChordOnsetProcessor` (`chord_threshold = 0.035`, flush on gap `> threshold`, empty-frame heartbeat, `flush_remaining`) in `src/features/chord_onset.rs`; `DEBUG` span `feature`
+- [X] T029 Make `tests/golden_stream_processors.rs` pass
 
 ### Follower base
 
