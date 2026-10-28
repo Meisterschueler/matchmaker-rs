@@ -163,4 +163,8 @@ impl OnlineAlignment for PitchIoiHmm {
     fn alignment_path(&self) -> &AlignmentPath {
         &self.path
     }
+
+    fn score_positions(&self) -> &[f32] {
+        &self.score_positions
+    }
 }

@@ -78,6 +78,10 @@ impl OnlineAlignment for TimedFollower {
     fn alignment_path(&self) -> &AlignmentPath {
         self.inner.alignment_path()
     }
+
+    fn score_positions(&self) -> &[f32] {
+        self.inner.score_positions()
+    }
 }
 
 /// Latency summary in milliseconds; percentiles interpolate linearly like `np.percentile`.

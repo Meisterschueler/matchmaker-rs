@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use crate::base::{AlignmentPath, OnlineAlignment};
 use crate::error::{Error, Result};
-use crate::features::{Processor, pitch::PitchProcessor};
+use crate::features::{Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor};
 use crate::io::stream::{Frame, MidiMessage};
 use crate::performance::Performance;
 use crate::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
@@ -39,6 +39,20 @@ pub enum Method {
 impl Method {
     /// Reference names of the supported methods.
     pub const AVAILABLE: [&'static str; 3] = ["pthmm", "hmm", "outerhmm"];
+
+    /// Keys [`MethodConfig::set`] accepts for this method.
+    pub fn config_keys(self) -> &'static [&'static str] {
+        match self {
+            Method::OuterHmm => &[
+                "processor",
+                "piano_range",
+                "polling_period",
+                "patience",
+                "other_prob",
+            ],
+            _ => &["processor", "piano_range", "polling_period"],
+        }
+    }
 
     /// Reference name of the method.
     pub fn name(self) -> &'static str {
@@ -66,11 +80,161 @@ impl FromStr for Method {
     }
 }
 
+/// Feature processor (processor keys of the reference's `methods.yaml`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessorKind {
+    /// `pitch`: pitch vector, or pitch list for `hmm`.
+    Pitch,
+    /// `chord_onset`: one binary vector per chord.
+    ChordOnset,
+}
+
+impl ProcessorKind {
+    /// Reference names of the supported processors.
+    pub const AVAILABLE: [&'static str; 2] = ["pitch", "chord_onset"];
+}
+
+impl FromStr for ProcessorKind {
+    type Err = Error;
+
+    fn from_str(name: &str) -> Result<Self> {
+        match name {
+            "pitch" => Ok(ProcessorKind::Pitch),
+            "chord_onset" => Ok(ProcessorKind::ChordOnset),
+            _ => Err(Error::InvalidParameter {
+                key: "processor".into(),
+                reason: format!(
+                    "unknown processor {name:?}; available: {:?}",
+                    ProcessorKind::AVAILABLE
+                ),
+            }),
+        }
+    }
+}
+
+/// A value of a `Matchmaker(kwargs=...)` entry.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigValue {
+    /// Python `None`.
+    None,
+    /// A boolean.
+    Bool(bool),
+    /// An integer.
+    Int(i64),
+    /// A float.
+    Float(f64),
+    /// A string.
+    Str(String),
+}
+
+/// What `Matchmaker(kwargs=...)` controls: processor, `piano_range`, the stream's
+/// `polling_period` (`None` = event-based, one message per frame) and `outerhmm` parameters.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodConfig {
+    /// Feature processor.
+    pub processor: ProcessorKind,
+    /// Pitches are restricted to the 88 piano keys.
+    pub piano_range: bool,
+    /// Window length in seconds; `None` streams one message per frame.
+    pub polling_period: Option<f64>,
+    /// `outerhmm`: chords without a state change before following stops (default 10).
+    pub patience: Option<usize>,
+    /// `outerhmm`: probability of pitches outside every error class (default 1e-6).
+    pub other_prob: Option<f64>,
+}
+
+impl MethodConfig {
+    /// The `default_kwargs` of `method`: `pitch`, `piano_range`, windows of 10 ms (`outerhmm`: 1 ms).
+    pub fn for_method(method: Method) -> Self {
+        MethodConfig {
+            processor: ProcessorKind::Pitch,
+            piano_range: true,
+            polling_period: Some(if method == Method::OuterHmm {
+                0.001
+            } else {
+                0.01
+            }),
+            patience: None,
+            other_prob: None,
+        }
+    }
+
+    /// Set one `kwargs` entry; unknown keys and invalid values are [`Error::InvalidParameter`].
+    pub fn set(&mut self, method: Method, key: &str, value: &ConfigValue) -> Result<()> {
+        let invalid = |reason: String| Error::InvalidParameter {
+            key: key.to_string(),
+            reason,
+        };
+        if !method.config_keys().contains(&key) {
+            return Err(invalid(format!(
+                "unknown parameter for {}; allowed: {:?}",
+                method.name(),
+                method.config_keys()
+            )));
+        }
+        match (key, value) {
+            ("processor", ConfigValue::Str(name)) => self.processor = name.parse()?,
+            ("piano_range", ConfigValue::Bool(b)) => self.piano_range = *b,
+            ("polling_period", ConfigValue::None) => self.polling_period = None,
+            ("polling_period", ConfigValue::Float(p)) => self.polling_period = Some(*p),
+            ("polling_period", ConfigValue::Int(p)) => self.polling_period = Some(*p as f64),
+            ("patience", ConfigValue::Int(p)) => {
+                self.patience =
+                    Some(usize::try_from(*p).map_err(|_| invalid("must not be negative".into()))?);
+            }
+            ("other_prob", ConfigValue::Float(p)) => self.other_prob = Some(*p),
+            ("other_prob", ConfigValue::Int(p)) => self.other_prob = Some(*p as f64),
+            _ => return Err(invalid(format!("unsupported value {value:?}"))),
+        }
+        Ok(())
+    }
+
+    /// Reject combinations the method cannot run with.
+    fn validate(&self, method: Method) -> Result<()> {
+        let invalid = |key: &str, reason: &str| Error::InvalidParameter {
+            key: key.into(),
+            reason: reason.into(),
+        };
+        if self
+            .polling_period
+            .is_some_and(|p| !(p.is_finite() && p > 0.0))
+        {
+            return Err(invalid(
+                "polling_period",
+                "must be a positive number of seconds or None",
+            ));
+        }
+        if method == Method::Hmm && self.processor != ProcessorKind::Pitch {
+            return Err(invalid(
+                "processor",
+                "hmm needs the pitch processor (pitch list)",
+            ));
+        }
+        if method == Method::OuterHmm && !self.piano_range {
+            return Err(invalid(
+                "piano_range",
+                "outerhmm needs the 88-key piano range",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Level of [`Matchmaker::score_annotations`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnotationLevel {
+    /// Every whole beat from the first to the last onset.
+    Beat,
+    /// Every distinct onset.
+    Note,
+}
+
 /// Score follower pipeline for one score.
 pub struct Matchmaker {
     score: Score,
+    method: Method,
+    config: MethodConfig,
     tempo: f64,
-    polling_period: f64,
     processor: Box<dyn Processor>,
     follower: Box<dyn OnlineAlignment>,
     /// Messages of the window that is still open (push mode).
@@ -80,44 +244,67 @@ pub struct Matchmaker {
 }
 
 impl Matchmaker {
-    /// Load the score and build the method's processor and follower. `tempo` overrides the
-    /// score tempo; `unfold` is `unfold_score`.
+    /// Load the score and build the method's processor and follower with the method's default
+    /// configuration. `tempo` overrides the score tempo; `unfold` is `unfold_score`.
     pub fn new(
         score_path: impl AsRef<Path>,
         method: Method,
         tempo: Option<f64>,
         unfold: bool,
     ) -> Result<Self> {
+        Self::with_config(
+            score_path,
+            method,
+            MethodConfig::for_method(method),
+            tempo,
+            unfold,
+        )
+    }
+
+    /// Like [`Matchmaker::new`] with an explicit [`MethodConfig`].
+    pub fn with_config(
+        score_path: impl AsRef<Path>,
+        method: Method,
+        config: MethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        config.validate(method)?;
         let score = Score::load(score_path, unfold)?;
         let tempo = tempo.or(score.tempo).unwrap_or(DEFAULT_TEMPO);
-        let (polling_period, processor, follower): (
-            f64,
-            Box<dyn Processor>,
-            Box<dyn OnlineAlignment>,
-        ) = match method {
-            Method::Pthmm => (
-                0.01,
-                Box::new(PitchProcessor::new(true, false)),
-                Box::new(PitchHmm::new(&score, true, true)),
-            ),
-            Method::Hmm => (
-                0.01,
-                Box::new(PitchProcessor::new(true, true)),
-                Box::new(PitchIoiHmm::new(&score, PitchIoiHmmConfig::default())),
-            ),
-            Method::OuterHmm => (
-                0.001,
-                Box::new(PitchProcessor::new(true, false)),
+        let processor: Box<dyn Processor> = match config.processor {
+            ProcessorKind::Pitch => Box::new(PitchProcessor::new(
+                config.piano_range,
+                method == Method::Hmm,
+            )),
+            ProcessorKind::ChordOnset => Box::new(ChordOnsetProcessor::new(config.piano_range)),
+        };
+        let follower: Box<dyn OnlineAlignment> = match method {
+            Method::Pthmm => Box::new(PitchHmm::new(&score, true, config.piano_range)),
+            Method::Hmm => Box::new(PitchIoiHmm::new(
+                &score,
+                PitchIoiHmmConfig {
+                    piano_range: config.piano_range,
+                    ..PitchIoiHmmConfig::default()
+                },
+            )),
+            Method::OuterHmm => {
+                let defaults = OuterProductHmmConfig::default();
                 Box::new(OuterProductHmm::new(
                     &score,
-                    OuterProductHmmConfig::default(),
-                )),
-            ),
+                    OuterProductHmmConfig {
+                        patience: config.patience.unwrap_or(defaults.patience),
+                        other_prob: config.other_prob.unwrap_or(defaults.other_prob),
+                        ..defaults
+                    },
+                ))
+            }
         };
         Ok(Matchmaker {
             score,
+            method,
+            config,
             tempo,
-            polling_period,
             processor,
             follower,
             window_messages: Vec::new(),
@@ -147,11 +334,18 @@ impl Matchmaker {
             });
         }
         self.last_time = msg.time;
-        let pp = self.polling_period;
+        let Some(pp) = self.config.polling_period else {
+            // event-based: every message is its own frame at its own time
+            let frame = Frame {
+                time: msg.time,
+                messages: vec![msg],
+            };
+            return Ok(self.process_frame(&frame).into_iter().collect());
+        };
         let mut positions = Vec::new();
         // same comparisons as midi_messages_to_framed_midi: window k holds k*pp < t <= (k+1)*pp
         while msg.time > (self.window + 1) as f64 * pp {
-            positions.extend(self.close_window());
+            positions.extend(self.close_window(pp));
         }
         self.window_messages.push(msg);
         Ok(positions)
@@ -160,10 +354,12 @@ impl Matchmaker {
     /// End of stream: close the remaining windows (`ceil(last_time / pp)` in total) and flush
     /// the processor.
     pub fn finish(&mut self) -> Vec<f64> {
-        let n_frames = (self.last_time / self.polling_period).ceil();
         let mut positions = Vec::new();
-        while (self.window as f64) < n_frames {
-            positions.extend(self.close_window());
+        if let Some(pp) = self.config.polling_period {
+            let n_frames = (self.last_time / pp).ceil();
+            while (self.window as f64) < n_frames {
+                positions.extend(self.close_window(pp));
+            }
         }
         if let Some(obs) = self.processor.flush_remaining() {
             positions.extend(self.follow(&obs));
@@ -171,14 +367,17 @@ impl Matchmaker {
         positions
     }
 
-    fn close_window(&mut self) -> Option<f64> {
-        let pp = self.polling_period;
+    fn close_window(&mut self, pp: f64) -> Option<f64> {
         let frame = Frame {
             messages: std::mem::take(&mut self.window_messages),
             time: self.window as f64 * pp + 0.5 * pp,
         };
         self.window += 1;
-        let obs = self.processor.process(&frame)?;
+        self.process_frame(&frame)
+    }
+
+    fn process_frame(&mut self, frame: &Frame) -> Option<f64> {
+        let obs = self.processor.process(frame)?;
         self.follow(&obs)
     }
 
@@ -214,5 +413,46 @@ impl Matchmaker {
     /// Alignment path so far.
     pub fn alignment_path(&self) -> &AlignmentPath {
         self.follower.alignment_path()
+    }
+
+    /// The method this pipeline runs.
+    pub fn method(&self) -> Method {
+        self.method
+    }
+
+    /// The effective configuration.
+    pub fn config(&self) -> &MethodConfig {
+        &self.config
+    }
+
+    /// Window length of the stream in seconds; `None` for event-based streaming.
+    pub fn polling_period(&self) -> Option<f64> {
+        self.config.polling_period
+    }
+
+    /// Ascending score beat of every note onset (`Matchmaker.score_positions`).
+    pub fn score_positions(&self) -> Vec<f32> {
+        self.score.unique_onsets()
+    }
+
+    /// States of the follower in beats (with inserted states for `pthmm` and `hmm`).
+    pub fn follower_score_positions(&self) -> &[f32] {
+        self.follower.score_positions()
+    }
+
+    /// Port of `build_score_annotations(return_type="beats")`: whole beats from the first to
+    /// the last onset, or every distinct onset.
+    pub fn score_annotations(&self, level: AnnotationLevel) -> Vec<f32> {
+        let onsets = self.score.unique_onsets();
+        match (level, onsets.first(), onsets.last()) {
+            (AnnotationLevel::Note, ..) => onsets,
+            (AnnotationLevel::Beat, Some(first), Some(last)) => {
+                let (start, end) = (first.ceil(), last.floor());
+                (0..=((end - start) as i64).max(-1))
+                    .map(|k| start + k as f32)
+                    .collect()
+            }
+            _ => Vec::new(),
+        }
     }
 }

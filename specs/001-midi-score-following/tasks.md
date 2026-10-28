@@ -195,13 +195,13 @@ Cargo workspace per [plan.md](plan.md#source-code-repository-root): core crate a
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T062 [P] [US5] Write failing `crates/matchmaker-py/tests/test_drop_in.py`: README quickstart pattern for `pthmm`, `hmm`, `outerhmm` yields floats; `score_follower.alignment_path` is `float64` `(2, T)` equal to `tests/golden/<piece>/<method>/alignment_path.npy`; `mm.score_positions` = unique onsets; `method="arzt"` and `input_type="audio"` raise `ValueError` listing `['pthmm', 'hmm', 'outerhmm']`; non-MIDI performance raises the reference message
+- [X] T062 [P] [US5] Write failing `crates/matchmaker-py/tests/test_drop_in.py`: README quickstart pattern for `pthmm`, `hmm`, `outerhmm` yields floats; `score_follower.alignment_path` is `float64` `(2, T)` equal to `tests/golden/<piece>/<method>/alignment_path.npy`; `mm.score_positions` = unique onsets; `method="arzt"` and `input_type="audio"` raise `ValueError` listing `['pthmm', 'hmm', 'outerhmm']`; non-MIDI performance raises the reference message
 
 ### Implementation for User Story 5
 
-- [ ] T063 [US5] Implement `Matchmaker` pyclass in `crates/matchmaker-py/src/lib.rs` with the reference signature (`score_file, performance_file=None, input_type="audio", method=None, *, stream=None, processor=None, device_name_or_index=None, tempo=None, wait=False, unfold_score=True, kwargs=None`), `kwargs` mapping to `MethodConfig`, error mapping per [contracts/python-api.md](contracts/python-api.md#errors)
-- [ ] T064 [US5] Implement `run(verbose=True)` as a Python generator (yield positions, return alignment path), `score_follower` object (`alignment_path` ndarray, `_alignment_path` list, `score_positions` float32), `tempo`, `method`, `input_type`, `config`, `polling_period`, `score_positions`, `build_score_annotations`, `export`, module constants `AVAILABLE_METHODS`, `DEFAULT_KWARGS`, `__version__`, `__reference_version__` in `crates/matchmaker-py/src/lib.rs`
-- [ ] T065 [US5] Make `crates/matchmaker-py/tests/test_drop_in.py` pass on Python 3.10 and 3.13
+- [X] T063 [US5] Implement `Matchmaker` pyclass in `crates/matchmaker-py/src/lib.rs` with the reference signature (`score_file, performance_file=None, input_type="audio", method=None, *, stream=None, processor=None, device_name_or_index=None, tempo=None, wait=False, unfold_score=True, kwargs=None`), `kwargs` mapping to `MethodConfig`, error mapping per [contracts/python-api.md](contracts/python-api.md#errors)
+- [X] T064 [US5] Implement `run(verbose=True)` as a Python generator (yield positions, return alignment path), `score_follower` object (`alignment_path` ndarray, `_alignment_path` list, `score_positions` float32), `tempo`, `method`, `input_type`, `config`, `polling_period`, `score_positions`, `build_score_annotations`, `export`, module constants `AVAILABLE_METHODS`, `DEFAULT_KWARGS`, `__version__`, `__reference_version__` in `crates/matchmaker-py/src/lib.rs`
+- [X] T065 [US5] Make `crates/matchmaker-py/tests/test_drop_in.py` pass on Python 3.10 and 3.13
 
 **Checkpoint**: Python users can switch with one import change
 

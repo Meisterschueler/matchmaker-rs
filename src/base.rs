@@ -37,6 +37,9 @@ pub trait OnlineAlignment {
     /// The alignment path so far.
     fn alignment_path(&self) -> &AlignmentPath;
 
+    /// The follower's states in beats.
+    fn score_positions(&self) -> &[f32];
+
     /// Port of `run()`: feed observations while following, return the yielded positions.
     fn run(&mut self, observations: &mut dyn Iterator<Item = Observation>) -> Vec<f64> {
         let mut positions = Vec::new();

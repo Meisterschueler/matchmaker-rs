@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use matchmaker_rs::base::AlignmentPath;
-use matchmaker_rs::matchmaker::{Matchmaker, Method};
+use matchmaker_rs::matchmaker::{ConfigValue, Matchmaker, Method, MethodConfig, ProcessorKind};
 use matchmaker_rs::performance::Performance;
 use matchmaker_rs::score::Score;
 use matchmaker_rs::utils::eval::{GroundTruth, evaluate_alignment};
@@ -35,6 +35,12 @@ enum Command {
         /// Tempo in BPM (default: score marking, else 120)
         #[arg(long)]
         tempo: Option<f64>,
+        /// Feature processor: pitch, chord_onset (default: pitch)
+        #[arg(long)]
+        processor: Option<ProcessorKind>,
+        /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20)
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        set: Vec<String>,
         /// Do not unfold repeats
         #[arg(long)]
         no_unfold: bool,
@@ -89,6 +95,39 @@ fn write_path_tsv(path: &Path, ap: &AlignmentPath) -> Result<()> {
     std::fs::write(path, tsv).with_context(|| format!("cannot write {}", path.display()))
 }
 
+/// `--set KEY=VALUE` values: `none`, booleans, integers and floats, else a string.
+fn parse_config_value(text: &str) -> ConfigValue {
+    match text {
+        "none" | "None" | "null" => ConfigValue::None,
+        "true" | "True" => ConfigValue::Bool(true),
+        "false" | "False" => ConfigValue::Bool(false),
+        _ => text
+            .parse()
+            .map(ConfigValue::Int)
+            .or_else(|_| text.parse().map(ConfigValue::Float))
+            .unwrap_or_else(|_| ConfigValue::Str(text.to_string())),
+    }
+}
+
+/// Defaults of `method` with `--processor` and the `--set` entries applied.
+fn method_config(
+    method: Method,
+    processor: Option<ProcessorKind>,
+    set: &[String],
+) -> Result<MethodConfig> {
+    let mut config = MethodConfig::for_method(method);
+    if let Some(processor) = processor {
+        config.processor = processor;
+    }
+    for entry in set {
+        let (key, value) = entry
+            .split_once('=')
+            .with_context(|| format!("--set expects KEY=VALUE, got {entry:?}"))?;
+        config.set(method, key, &parse_config_value(value))?;
+    }
+    Ok(config)
+}
+
 fn main() -> Result<()> {
     let command = Cli::parse().command;
     // RUST_LOG=matchmaker_rs=debug logs positions and per-stage span timings (stderr); the
@@ -106,11 +145,14 @@ fn main() -> Result<()> {
             performance,
             method,
             tempo,
+            processor,
+            set,
             no_unfold,
             output,
             quiet,
         } => {
-            let mut mm = Matchmaker::new(&score, method, tempo, !no_unfold)?;
+            let config = method_config(method, processor, &set)?;
+            let mut mm = Matchmaker::with_config(&score, method, config, tempo, !no_unfold)?;
             let mut out = std::io::stdout().lock();
             let mut printed = 0;
             // print alignment-path entries as they are computed (US1-4)
