@@ -403,8 +403,6 @@ impl ScoreFollower {
 fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     m.add_class::<PyMatchmaker>()?;
-    m.add_class::<ScoreFollower>()?;
-    m.add_class::<Run>()?;
 
     let methods = PyDict::new(py);
     methods.set_item("midi", Method::AVAILABLE.to_vec())?;
@@ -417,10 +415,6 @@ fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
     }
     defaults.set_item("midi", midi)?;
     m.add("DEFAULT_KWARGS", defaults)?;
-
-    let default_method = PyDict::new(py);
-    default_method.set_item("midi", "pthmm")?;
-    m.add("DEFAULT_METHOD", default_method)?;
 
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__reference_version__", REFERENCE_VERSION)?;

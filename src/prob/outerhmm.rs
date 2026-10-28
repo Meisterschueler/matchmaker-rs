@@ -9,6 +9,7 @@
 //! `S[j] * r[i]`.
 //!
 //! ```no_run
+//! use matchmaker_rs::base::OnlineAlignment;
 //! use matchmaker_rs::prob::outerhmm::{OuterProductHmm, OuterProductHmmConfig};
 //! use matchmaker_rs::score::Score;
 //! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;
@@ -242,11 +243,6 @@ impl OuterProductHmm {
             finished: false,
             path: AlignmentPath::default(),
         }
-    }
-
-    /// Follower states in beats (the unique score onsets).
-    pub fn score_positions(&self) -> &[f32] {
-        &self.score_positions
     }
 
     /// Index of the current state.

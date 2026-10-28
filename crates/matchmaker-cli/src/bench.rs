@@ -136,9 +136,7 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) ->
             None => None,
         };
         for &method in methods {
-            let processor = match method {
-                Method::Pthmm | Method::Hmm | Method::OuterHmm => "pitch",
-            };
+            let processor = "pitch";
             for run in 0..runs {
                 let (feature, inference) = (Times::default(), Times::default());
                 let mut mm = Matchmaker::new(&score_path, method, None, true)?.wrap_stages(

@@ -8,9 +8,8 @@
 
 mod common;
 
-use common::{Ctx, assert_close, assert_exact, data, golden, npy};
+use common::{Ctx, assert_close, assert_exact, data, golden, golden_observations, npy};
 use matchmaker_rs::base::OnlineAlignment;
-use matchmaker_rs::features::Observation;
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
 use matchmaker_rs::prob::pthmm::PitchHmm;
 use matchmaker_rs::score::Score;
@@ -31,22 +30,6 @@ const PIECES: [(&str, &str); 5] = [
         "simple_mozart_k265_var1.musicxml",
     ),
 ];
-
-/// Observations of `<piece>/<method>/observations_*.npy` (rows of `width` values).
-pub fn golden_observations(dir: &std::path::Path) -> Vec<Observation> {
-    let features = npy(dir.join("observations_features.npy"));
-    let width = features.shape[1];
-    let times = npy(dir.join("observations_times.npy")).values();
-    features
-        .values()
-        .chunks(width)
-        .zip(times)
-        .map(|(row, perf_time)| Observation {
-            features: row.iter().map(|&v| v as f32).collect(),
-            perf_time,
-        })
-        .collect()
-}
 
 #[test]
 fn replayed_observations_equal_reference() {

@@ -87,11 +87,6 @@ impl PitchIoiHmm {
         }
     }
 
-    /// Follower states in beats.
-    pub fn score_positions(&self) -> &[f32] {
-        &self.score_positions
-    }
-
     /// Index of the current state.
     pub fn current_index(&self) -> usize {
         self.current_index

@@ -2,15 +2,14 @@
 //!
 //! `replayed_observations_equal_reference` feeds the reference's own observations (pitch lists,
 //! `-1`-padded in the files), so only the follower is tested; `end_to_end_equals_reference` runs
-//! the whole pipeline via `Matchmaker`. Tolerances: positions equal in at least 99.9 % of the
-//! steps, `beat_period` rtol 1e-9, forward variable rtol 1e-12 (plus `atol 1e-300` for
+//! the whole pipeline via `Matchmaker`. Tolerances: positions and alignment path `< 1e-6`
+//! beats, `beat_period` rtol 1e-9, forward variable rtol 1e-12 (plus `atol 1e-300` for
 //! subnormals), evaluation metrics within 0.01.
 
 mod common;
 
-use common::{Ctx, assert_close, assert_exact, data, golden, json, npy};
+use common::{Ctx, assert_close, assert_exact, data, golden, golden_observations, json, npy};
 use matchmaker_rs::base::OnlineAlignment;
-use matchmaker_rs::features::Observation;
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
 use matchmaker_rs::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
 use matchmaker_rs::score::Score;
@@ -32,53 +31,6 @@ const PIECES: [(&str, &str); 5] = [
         "simple_mozart_k265_var1.musicxml",
     ),
 ];
-
-/// Pitch lists of `observations_features.npy` without the `-1` padding.
-fn golden_observations(dir: &std::path::Path) -> Vec<Observation> {
-    let features = npy(dir.join("observations_features.npy"));
-    let width = features.shape[1];
-    let times = npy(dir.join("observations_times.npy")).values();
-    features
-        .values()
-        .chunks(width)
-        .zip(times)
-        .map(|(row, perf_time)| Observation {
-            features: row
-                .iter()
-                .filter(|&&v| v >= 0.0)
-                .map(|&v| v as f32)
-                .collect(),
-            perf_time,
-        })
-        .collect()
-}
-
-/// At most 0.1 % of the steps may differ (SC-002); names the first differing step.
-fn assert_mostly_equal(ctx: &Ctx, expected: &[f64], actual: &[f64]) {
-    assert_eq!(
-        expected.len(),
-        actual.len(),
-        "[{} / {} / {}] length",
-        ctx.method,
-        ctx.piece,
-        ctx.file
-    );
-    let differing: Vec<usize> = (0..expected.len())
-        .filter(|&i| (expected[i] - actual[i]).abs() > 1e-6)
-        .collect();
-    assert!(
-        differing.len() * 1000 <= expected.len(),
-        "[{} / {} / {}] {} of {} steps differ, first at step {}: expected {}, actual {}",
-        ctx.method,
-        ctx.piece,
-        ctx.file,
-        differing.len(),
-        expected.len(),
-        differing[0],
-        expected[differing[0]],
-        actual[differing[0]],
-    );
-}
 
 #[test]
 fn replayed_observations_equal_reference() {
@@ -125,15 +77,17 @@ fn replayed_observations_equal_reference() {
             1e-9,
             0.0,
         );
-        assert_mostly_equal(
+        assert_exact(
             &ctx("current_index.npy"),
             &npy(dir.join("current_index.npy")).values(),
             &indices,
         );
-        assert_mostly_equal(
+        assert_close(
             &ctx("positions.npy"),
             &npy(dir.join("positions.npy")).values(),
             &positions,
+            0.0,
+            1e-6,
         );
         let path = hmm.alignment_path();
         let actual_path = [path.perf_time.clone(), path.score_beat.clone()].concat();
@@ -155,10 +109,12 @@ fn end_to_end_equals_reference() {
         let mut mm = Matchmaker::new(data(score_file), Method::Hmm, None, true).unwrap();
         let performance = format!("{}.mid", piece.trim_end_matches("_midiscore"));
         let positions = mm.run_file(data(&performance)).unwrap();
-        assert_mostly_equal(
+        assert_close(
             &ctx("positions.npy"),
             &npy(dir.join("positions.npy")).values(),
             &positions,
+            0.0,
+            1e-6,
         );
 
         let evaluation = dir.join("evaluation.json");

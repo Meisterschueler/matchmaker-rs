@@ -5,6 +5,7 @@
 //! profiles; the forward algorithm with a Gumbel-shaped transition matrix picks the state.
 //!
 //! ```no_run
+//! use matchmaker_rs::base::OnlineAlignment;
 //! use matchmaker_rs::prob::pthmm::PitchHmm;
 //! use matchmaker_rs::score::Score;
 //! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;
@@ -53,11 +54,6 @@ impl PitchHmm {
             path: AlignmentPath::default(),
             score_positions,
         }
-    }
-
-    /// Follower states in beats.
-    pub fn score_positions(&self) -> &[f32] {
-        &self.score_positions
     }
 
     /// Index of the current state.

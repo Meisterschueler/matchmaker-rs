@@ -44,6 +44,26 @@ pub fn npy(path: impl AsRef<Path>) -> NpyArray {
         .unwrap_or_else(|e| panic!("cannot read golden file {}: {e}", path.display()))
 }
 
+/// Observations of `<piece>/<method>/observations_*.npy`; `hmm` pitch lists are `-1`-padded.
+pub fn golden_observations(dir: &Path) -> Vec<matchmaker_rs::features::Observation> {
+    let features = npy(dir.join("observations_features.npy"));
+    let width = features.shape[1];
+    let times = npy(dir.join("observations_times.npy")).values();
+    features
+        .values()
+        .chunks(width)
+        .zip(times)
+        .map(|(row, perf_time)| matchmaker_rs::features::Observation {
+            features: row
+                .iter()
+                .filter(|&&v| v >= 0.0)
+                .map(|&v| v as f32)
+                .collect(),
+            perf_time,
+        })
+        .collect()
+}
+
 /// Load a golden JSON file; Python's `NaN` becomes `null`.
 pub fn json(path: impl AsRef<Path>) -> serde_json::Value {
     let path = path.as_ref();
