@@ -401,7 +401,8 @@ def main() -> None:
     piece = "simple_mozart_k265_var1"
     po = out / f"{piece}_midiscore"
     dump_score(po, data / f"{piece}.mid")
-    dump_method(po, "pthmm", data / f"{piece}.mid", data / f"{piece}.mid", None)
+    for method in METHODS:
+        dump_method(po, method, data / f"{piece}.mid", data / f"{piece}.mid", None)
 
     print("simple_mozart_k265_var1_wrongnote")
     wrong = data / f"{piece}_wrongnote.mid"
@@ -409,7 +410,8 @@ def main() -> None:
         make_wrongnote_midi(data / f"{piece}.mid", wrong)
     po = out / f"{piece}_wrongnote"
     dump_stream(po, wrong)
-    dump_method(po, "outerhmm", data / f"{piece}.musicxml", wrong, None)
+    for method in METHODS:
+        dump_method(po, method, data / f"{piece}.musicxml", wrong, None)
 
     for fixture in sorted(data.glob("fixture_*.musicxml")):
         print(fixture.stem)

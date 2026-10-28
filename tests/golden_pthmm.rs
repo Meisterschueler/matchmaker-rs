@@ -15,7 +15,7 @@ use matchmaker_rs::matchmaker::{Matchmaker, Method};
 use matchmaker_rs::prob::pthmm::PitchHmm;
 use matchmaker_rs::score::Score;
 
-const PIECES: [(&str, &str); 4] = [
+const PIECES: [(&str, &str); 5] = [
     (
         "simple_mozart_k265_var1",
         "simple_mozart_k265_var1.musicxml",
@@ -25,6 +25,10 @@ const PIECES: [(&str, &str); 4] = [
     (
         "simple_mozart_k265_var1_midiscore",
         "simple_mozart_k265_var1.mid",
+    ),
+    (
+        "simple_mozart_k265_var1_wrongnote",
+        "simple_mozart_k265_var1.musicxml",
     ),
 ];
 

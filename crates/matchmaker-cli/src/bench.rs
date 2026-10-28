@@ -133,7 +133,7 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) ->
         };
         for &method in methods {
             let processor = match method {
-                Method::Pthmm => "pitch",
+                Method::Pthmm | Method::Hmm => "pitch",
             };
             for run in 0..runs {
                 let (feature, inference) = (Times::default(), Times::default());

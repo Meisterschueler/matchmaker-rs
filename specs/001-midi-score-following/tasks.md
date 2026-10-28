@@ -153,14 +153,14 @@ Cargo workspace per [plan.md](plan.md#source-code-repository-root): core crate a
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T052 [P] [US3] Write failing golden test `tests/golden_hmm.rs`: replayed observations and end to end; positions equal in ≥ 99.9 % of steps and evaluation within 0.01 (SC-002), `beat_period.npy` rtol 1e-9, `probabilities.npy` rtol 1e-12; report first differing step
+- [X] T052 [P] [US3] Write failing golden test `tests/golden_hmm.rs`: replayed observations and end to end; positions equal in ≥ 99.9 % of steps and evaluation within 0.01 (SC-002), `beat_period.npy` rtol 1e-9, `probabilities.npy` rtol 1e-12; report first differing step
 
 ### Implementation for User Story 3
 
-- [ ] T053 [P] [US3] Port `KalmanTempoModel` (`init_beat_period`, `init_score_onset`, `trans_par = 1`, `trans_var = 0.03`, `obs_var = 0.0213`, `init_var = 1`; first update only initialises) in `src/utils/tempo_models.rs`, mirroring per-operand precision from research R4 (`score_ioi`/gain in `f32`, `performed_ioi` in `f64`, `beat_period` Python-float then `f64`) with a comment naming the Python expression on each mixed-precision line
-- [ ] T054 [P] [US3] Add ACC pitch-IOI observation model to `src/prob/hmm_models.rs`: pitch list → binary vector (pitches outside 0..88 dropped, documented deviation), IOI term `sqrt(1/2π)·exp(−0.5·(beat_period·|s_cur − s_j| − ioi_obs)²)` with the IOI row computed on the fly in `f64` (research R3)
-- [ ] T055 [US3] Port `PitchIOIHMM` as `PitchIoiHmm` + `PitchIoiHmmConfig` (defaults per [data-model.md](data-model.md#follower-state-per-method)) in `src/prob/hmm.rs`: `ioi_obs` from previous observation time (0 first), tempo update only when `state > prev_index` and (no insertions or even state), `StepDebug.beat_period` (depends on T053, T054)
-- [ ] T056 [US3] Enable `Method::Hmm` in `src/matchmaker.rs` (processor `pitch` with `return_pitch_list = true`) and make `tests/golden_hmm.rs` pass
+- [X] T053 [P] [US3] Port `KalmanTempoModel` (`init_beat_period`, `init_score_onset`, `trans_par = 1`, `trans_var = 0.03`, `obs_var = 0.0213`, `init_var = 1`; first update only initialises) in `src/utils/tempo_models.rs`, mirroring per-operand precision from research R4 (`score_ioi`/gain in `f32`, `performed_ioi` in `f64`, `beat_period` Python-float then `f64`) with a comment naming the Python expression on each mixed-precision line
+- [X] T054 [P] [US3] Add ACC pitch-IOI observation model to `src/prob/hmm_models.rs`: pitch list → binary vector (pitches outside 0..88 dropped, documented deviation), IOI term `sqrt(1/2π)·exp(−0.5·(beat_period·|s_cur − s_j| − ioi_obs)²)` with the IOI row computed on the fly in `f64` (research R3)
+- [X] T055 [US3] Port `PitchIOIHMM` as `PitchIoiHmm` + `PitchIoiHmmConfig` (defaults per [data-model.md](data-model.md#follower-state-per-method)) in `src/prob/hmm.rs`: `ioi_obs` from previous observation time (0 first), tempo update only when `state > prev_index` and (no insertions or even state), `StepDebug.beat_period` (depends on T053, T054)
+- [X] T056 [US3] Enable `Method::Hmm` in `src/matchmaker.rs` (processor `pitch` with `return_pitch_list = true`) and make `tests/golden_hmm.rs` pass
 
 **Checkpoint**: `hmm` works independently of `outerhmm`
 

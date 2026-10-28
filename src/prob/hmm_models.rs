@@ -115,6 +115,42 @@ pub fn compute_discrete_pitch_profiles(
     rows
 }
 
+/// Binary pitch vector of `ACCPitchIOIObservationModel.compute_pitch_observation_probability`
+/// (`pitch_prof_obs[0, pitch_obs.astype(int)] = 1`). Pitches outside the vector are ignored
+/// (the reference wraps negative ones and raises for large ones, research R3).
+pub fn pitch_list_to_vector(pitches: &[f32], piano_range: bool) -> Vec<f32> {
+    let mut vector = vec![0.0f32; if piano_range { 88 } else { 128 }];
+    for &p in pitches {
+        let slot = (p as i64)
+            .try_into()
+            .ok()
+            .and_then(|i: usize| vector.get_mut(i));
+        if let Some(slot) = slot {
+            *slot = 1.0;
+        }
+    }
+    vector
+}
+
+/// `ACCPitchIOIObservationModel.compute_ioi_observation_probability` for state `state` when the
+/// follower was in `current_state`: `norm * exp(-0.5 * (tempo * |s_cur - s_j| - ioi_obs)^2 * precision)`
+/// with `norm = sqrt(0.5 * precision / pi)`. Row `current_state` of the reference's IOI matrix
+/// is `|s_cur - s_j|` in `f64` (`pdist`), so it is computed on the fly.
+pub fn ioi_observation_probability(
+    score_positions: &[f32],
+    current_state: usize,
+    state: usize,
+    tempo_est: f64,
+    ioi_obs: f64,
+    ioi_precision: f64,
+) -> f64 {
+    let norm_term = (0.5 * ioi_precision / std::f64::consts::PI).sqrt();
+    let ioi_score =
+        (f64::from(score_positions[current_state]) - f64::from(score_positions[state])).abs();
+    let diff = tempo_est * ioi_score - ioi_obs;
+    norm_term * (-0.5 * (diff * diff) * ioi_precision).exp()
+}
+
 /// Port of `compute_bernoulli_pitch_probabilities`: `prod(p^x * (1 - p)^(1 - x))` per state
 /// for a binary observation `x` (where `p^1 = p` and `p^0 = 1` exactly).
 pub fn bernoulli_pitch_probabilities(observation: &[f32], profiles: &[Vec<f64>]) -> Vec<f64> {

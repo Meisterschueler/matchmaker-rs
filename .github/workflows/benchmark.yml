@@ -24,7 +24,7 @@ env:
   RUNS_RUST: 5
   RUNS_PYTHON: 3
   # methods implemented in Rust so far
-  METHODS: pthmm
+  METHODS: pthmm,hmm
 
 jobs:
   bench:

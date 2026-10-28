@@ -25,7 +25,7 @@ fn bench_writes_records_and_path() {
         .arg(&manifest)
         .arg("--out")
         .arg(&out)
-        .args(["--runs", "2"])
+        .args(["--runs", "2", "--methods", "pthmm"])
         .status()
         .unwrap();
     assert!(status.success());
