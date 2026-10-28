@@ -142,16 +142,31 @@ def test_build_score_annotations():
     notes = mm.build_score_annotations(level="note")
     np.testing.assert_array_equal(notes, mm.score_positions)
     beats = mm.build_score_annotations()
-    assert beats.dtype == np.float32
+    assert beats.dtype == np.float64
     assert beats[0] == np.ceil(mm.score_positions.min()) and beats[-1] == np.floor(mm.score_positions.max())
     with pytest.raises(ValueError, match="Invalid score annotation level"):
         mm.build_score_annotations(level="bar")
     with pytest.raises(ValueError, match="Invalid return type"):
         mm.build_score_annotations(return_type="frames")
-    with pytest.raises(NotImplementedError):
-        mm.build_score_annotations(return_type="seconds")
-    with pytest.raises(NotImplementedError):
-        mm.build_score_annotations(musical_beat=True)
+
+
+@pytest.mark.parametrize(
+    "level,return_type,musical",
+    [
+        ("beat", "beats", False),
+        ("beat", "seconds", False),
+        ("note", "beats", False),
+        ("note", "seconds", False),
+        ("beat", "beats", True),
+        ("beat", "seconds", True),
+    ],
+)
+def test_annotations_match_reference(level, return_type, musical):
+    suffix = "_musical" if musical else ""
+    expected = np.load(GOLDEN / PIECE / "score" / "annotations" / f"{level}_{return_type}{suffix}.npy")
+    actual = make().build_score_annotations(level, musical, return_type)
+    assert actual.dtype == expected.dtype
+    np.testing.assert_array_equal(actual, expected)
 
 
 @pytest.mark.parametrize("method", METHODS)

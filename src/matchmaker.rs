@@ -222,15 +222,6 @@ impl MethodConfig {
     }
 }
 
-/// Level of [`Matchmaker::score_annotations`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AnnotationLevel {
-    /// Every whole beat from the first to the last onset.
-    Beat,
-    /// Every distinct onset.
-    Note,
-}
-
 /// One follower call of a recorded run.
 #[derive(Debug, Clone)]
 pub struct Step {
@@ -490,21 +481,5 @@ impl Matchmaker {
     /// States of the follower in beats (with inserted states for `pthmm` and `hmm`).
     pub fn follower_score_positions(&self) -> &[f32] {
         self.follower.score_positions()
-    }
-
-    /// Port of `build_score_annotations(return_type="beats")`: whole beats from the first to
-    /// the last onset, or every distinct onset.
-    pub fn score_annotations(&self, level: AnnotationLevel) -> Vec<f32> {
-        let onsets = self.score.unique_onsets();
-        match (level, onsets.first(), onsets.last()) {
-            (AnnotationLevel::Note, ..) => onsets,
-            (AnnotationLevel::Beat, Some(first), Some(last)) => {
-                let (start, end) = (first.ceil(), last.floor());
-                (0..=((end - start) as i64).max(-1))
-                    .map(|k| start + k as f32)
-                    .collect()
-            }
-            _ => Vec::new(),
-        }
     }
 }

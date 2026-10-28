@@ -27,7 +27,16 @@ use std::path::Path;
 
 use crate::error::{Error, Result};
 use part::Part;
-use timeline::TimeMap;
+use timeline::{TimeMap, Unit};
+
+/// Level of [`Score::annotations`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnotationLevel {
+    /// Every whole beat from the first to the last onset.
+    Beat,
+    /// Every distinct onset.
+    Note,
+}
 
 /// One row of partitura's `note_array()` (the fields score following and its tests use).
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +70,7 @@ pub struct Score {
     pub tempo: Option<f64>,
     /// Whether repeat unfolding was applied (it falls back to the folded score on failure).
     pub unfolded: bool,
+    part: Part,
 }
 
 impl Score {
@@ -103,7 +113,64 @@ impl Score {
             notes,
             tempo,
             unfolded,
+            part,
         })
+    }
+
+    /// Unique onsets in beats; `musical` counts beats like partitura's `use_musical_beat()`.
+    fn onsets(&self, musical: bool) -> Vec<f32> {
+        if !musical {
+            return self.unique_onsets();
+        }
+        let map = TimeMap::new(&self.part, Unit::MusicalBeat);
+        let beat = |n: &ScoreNote| {
+            map.as_ref()
+                .map_or(0.0, |m| m.eval(n.onset_div as f64).unwrap_or(f64::NAN)) as f32
+        };
+        let mut onsets: Vec<f32> = self.notes.iter().map(beat).collect();
+        onsets.sort_by(f32::total_cmp);
+        onsets.dedup();
+        onsets
+    }
+
+    /// Port of `build_score_annotations(return_type="beats")`: whole beats from the first to the
+    /// last onset, or every distinct onset. `musical_beat` only applies to `Beat`.
+    pub fn annotations(&self, level: AnnotationLevel, musical_beat: bool) -> Vec<f32> {
+        let onsets = self.onsets(musical_beat && level == AnnotationLevel::Beat);
+        match (level, onsets.first(), onsets.last()) {
+            (AnnotationLevel::Note, ..) => onsets,
+            (AnnotationLevel::Beat, Some(first), Some(last)) => {
+                let (start, end) = (first.ceil(), last.floor());
+                (0..=((end - start) as i64).max(-1))
+                    .map(|k| start + k as f32)
+                    .collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Port of `build_score_annotations(return_type="seconds")` at `tempo` quarter-note BPM.
+    pub fn annotations_seconds(
+        &self,
+        level: AnnotationLevel,
+        musical_beat: bool,
+        tempo: f64,
+    ) -> Vec<f64> {
+        let unit = if musical_beat && level == AnnotationLevel::Beat {
+            Unit::MusicalBeat
+        } else {
+            Unit::Beat
+        };
+        let inverse = TimeMap::new(&self.part, unit).map(|m| m.inverse());
+        self.annotations(level, musical_beat)
+            .iter()
+            .map(|&beat| {
+                let div = inverse
+                    .as_ref()
+                    .map_or(0.0, |m| m.eval(f64::from(beat)).unwrap_or(f64::NAN));
+                div / self.part.quarter_duration_at(div) * (60.0 / tempo)
+            })
+            .collect()
     }
 
     /// Sorted unique onsets in beats (`np.unique(note_array["onset_beat"])`).
@@ -152,7 +219,10 @@ fn build_part(parts: Vec<Part>, unfold: bool) -> std::result::Result<(Part, bool
 /// Port of `note_array_from_note_list` for the default fields, followed by the sort by
 /// pitch and then (stably) by onset.
 fn note_array(part: &Part) -> std::result::Result<Vec<ScoreNote>, String> {
-    let (beat_map, quarter_map) = (TimeMap::new(part, false), TimeMap::new(part, true));
+    let (beat_map, quarter_map) = (
+        TimeMap::new(part, Unit::Beat),
+        TimeMap::new(part, Unit::Quarter),
+    );
     let eval = |map: &Option<TimeMap>, t: i64| -> std::result::Result<f64, String> {
         match map {
             None => Ok(0.0),

@@ -9,9 +9,11 @@ Usage (from tools/golden):
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import sys
+import types
 from importlib.metadata import version
 from pathlib import Path
 
@@ -159,6 +161,24 @@ def coverage_report(name: str, score) -> dict:
     return features
 
 
+def dump_annotations(out: Path, part, tempo: float) -> None:
+    """``Matchmaker.build_score_annotations`` for every level, unit and musical-beat setting."""
+    for musical in (False, True):
+        for level in ("beat", "note"):
+            for return_type in ("beats", "seconds"):
+                if musical and level == "note":
+                    continue
+                # use_musical_beat() mutates the part, so every call gets its own copy
+                stub = types.SimpleNamespace(score_part=copy.deepcopy(part), tempo=tempo)
+                name = f"{level}_{return_type}{'_musical' if musical else ''}.npy"
+                try:
+                    result = Matchmaker.build_score_annotations(stub, level, musical, return_type)
+                except Exception as error:  # the reference cannot annotate every score
+                    print(f"  annotations {name}: skipped ({error})")
+                    continue
+                save(out / "score" / "annotations" / name, np.asarray(result))
+
+
 def dump_score(out: Path, score_path: Path) -> dict:
     score, part, unfolded = load_score_like_matchmaker(score_path)
     na = part.note_array()
@@ -169,11 +189,13 @@ def dump_score(out: Path, score_path: Path) -> dict:
     write_json(out / "score" / "note_ids.json", [str(i) for i in na["id"]])
     features = coverage_report(score_path.name, score)
     score_tempo = get_tempo_from_score(part, str(score_path))
+    tempo = float(score_tempo) if score_tempo is not None else float(DEFAULT_TEMPO)
+    dump_annotations(out, part, tempo)
     write_json(
         out / "score" / "meta.json",
         {
             "score_tempo": score_tempo,
-            "tempo": float(score_tempo) if score_tempo is not None else float(DEFAULT_TEMPO),
+            "tempo": tempo,
             "unfolded": unfolded,
             "features": features,
         },

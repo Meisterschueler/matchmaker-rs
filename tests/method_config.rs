@@ -5,9 +5,8 @@ mod common;
 
 use common::data;
 use matchmaker_rs::Error;
-use matchmaker_rs::matchmaker::{
-    AnnotationLevel, ConfigValue, Matchmaker, Method, MethodConfig, ProcessorKind,
-};
+use matchmaker_rs::matchmaker::{ConfigValue, Matchmaker, Method, MethodConfig, ProcessorKind};
+use matchmaker_rs::score::AnnotationLevel;
 
 const SCORE: &str = "simple_mozart_k265_var1.musicxml";
 const PERFORMANCE: &str = "simple_mozart_k265_var1.mid";
@@ -106,9 +105,9 @@ fn event_based_streaming_gives_one_observation_per_note() {
 fn score_annotations_cover_the_onsets() {
     let mm = Matchmaker::new(data(SCORE), Method::Pthmm, None, true).unwrap();
     let onsets = mm.score_positions();
-    assert_eq!(mm.score_annotations(AnnotationLevel::Note), onsets);
+    assert_eq!(mm.score().annotations(AnnotationLevel::Note, false), onsets);
 
-    let beats = mm.score_annotations(AnnotationLevel::Beat);
+    let beats = mm.score().annotations(AnnotationLevel::Beat, false);
     let (first, last) = (onsets[0], *onsets.last().unwrap());
     assert_eq!(beats.first().copied(), Some(first.ceil()));
     assert_eq!(beats.last().copied(), Some(last.floor()));

@@ -118,3 +118,44 @@ fn note_arrays_equal_reference() {
     }
     assert!(checked >= 8, "only {checked} golden scores found");
 }
+
+/// `build_score_annotations` for every level, unit and musical-beat setting (exact).
+#[test]
+fn annotations_equal_reference() {
+    use matchmaker_rs::score::AnnotationLevel;
+    let mut checked = 0;
+    for piece in golden_pieces() {
+        let Some(path) = score_file(&piece) else {
+            continue;
+        };
+        let dir = golden(&piece).join("score");
+        let tempo = json(dir.join("meta.json"))["tempo"].as_f64().unwrap();
+        let score = Score::load(&path, true).unwrap();
+        for entry in std::fs::read_dir(dir.join("annotations"))
+            .unwrap()
+            .flatten()
+        {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let stem = name.trim_end_matches(".npy");
+            let level = if stem.starts_with("beat") {
+                AnnotationLevel::Beat
+            } else {
+                AnnotationLevel::Note
+            };
+            let musical = stem.ends_with("_musical");
+            let actual: Vec<f64> = if stem.contains("seconds") {
+                score.annotations_seconds(level, musical, tempo)
+            } else {
+                score
+                    .annotations(level, musical)
+                    .into_iter()
+                    .map(f64::from)
+                    .collect()
+            };
+            let ctx = Ctx::new("score", &piece, &format!("annotations/{name}"));
+            common::assert_exact(&ctx, &npy(entry.path()).values(), &actual);
+            checked += 1;
+        }
+    }
+    assert!(checked >= 40, "only {checked} annotation files compared");
+}

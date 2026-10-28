@@ -1,11 +1,22 @@
-//! Beat map: port of `partitura.score.Part._time_interpolator` (`Part.beat_map`, `musical_beat`
-//! off).
+//! Time maps: port of `partitura.score.Part._time_interpolator` (`beat_map`, `quarter_map`,
+//! the musical-beat variant and their inverses).
 //!
 //! Maps score time in divisions to beats in units of the time-signature denominator.
 //! Evaluation follows `numpy.interp`, which `scipy.interpolate.interp1d` delegates to for 1-D
 //! `float64` data, so results are bit-identical to the reference.
 
 use super::part::{Part, Time};
+
+/// What a [`TimeMap`] measures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unit {
+    /// `beat_map`: beats of the time-signature denominator.
+    Beat,
+    /// `beat_map` after `use_musical_beat()` (e.g. two beats per bar in 6/8).
+    MusicalBeat,
+    /// `quarter_map`: quarter notes, independent of time signatures.
+    Quarter,
+}
 
 /// A piecewise-linear map from divisions to beats.
 #[derive(Debug, Clone)]
@@ -15,10 +26,10 @@ pub(crate) struct TimeMap {
 }
 
 impl TimeMap {
-    /// Build `part.beat_map` (`quarter`: `part.quarter_map`, which ignores time signatures).
+    /// Build the map for `unit`.
     ///
     /// Returns `None` when the part has fewer than two timepoints (partitura returns zeros).
-    pub fn new(part: &Part, quarter: bool) -> Option<Self> {
+    pub fn new(part: &Part, unit: Unit) -> Option<Self> {
         if part.points.len() < 2 {
             return None;
         }
@@ -30,8 +41,17 @@ impl TimeMap {
         for (t, q) in part.quarter_times.iter().zip(&part.quarter_durations) {
             keypoints.entry(*t).or_default()[0] = Some(*q as f64);
         }
-        for ts in part.time_signatures.iter().filter(|_| !quarter) {
-            keypoints.entry(ts.start).or_default()[1] = Some(ts.beat_type as f64 / 4.0);
+        for ts in part
+            .time_signatures
+            .iter()
+            .filter(|_| unit != Unit::Quarter)
+        {
+            let beat_type = ts.beat_type as f64 / 4.0;
+            keypoints.entry(ts.start).or_default()[1] = Some(if unit == Unit::MusicalBeat {
+                beat_type * (ts.musical_beats() as f64 / ts.beats as f64)
+            } else {
+                beat_type
+            });
         }
         let (mut cur_div, mut cur_bt) = (1.0, 1.0);
         let mut rows: Vec<[f64; 3]> = Vec::with_capacity(keypoints.len());
@@ -59,10 +79,10 @@ impl TimeMap {
             && let Some(ts) = part.time_signatures.iter().find(|ts| ts.start == m_start)
         {
             let actual_dur = map.eval(m_end as f64)? - map.eval(m_start as f64)?;
-            let normal_dur = if quarter {
-                ts.beats as f64 * 4.0 / ts.beat_type as f64
-            } else {
-                ts.beats as f64
+            let normal_dur = match unit {
+                Unit::Beat => ts.beats as f64,
+                Unit::MusicalBeat => ts.musical_beats() as f64,
+                Unit::Quarter => ts.beats as f64 * 4.0 / ts.beat_type as f64,
             };
             if actual_dur < normal_dur {
                 for v in &mut map.y {
@@ -71,6 +91,17 @@ impl TimeMap {
             }
         }
         Some(map)
+    }
+
+    /// `interp1d(y, x)` (`inv_beat_map`): the map from beats back to divisions, sorted by beat
+    /// with a stable sort like `interp1d`.
+    pub fn inverse(&self) -> TimeMap {
+        let mut order: Vec<usize> = (0..self.y.len()).collect();
+        order.sort_by(|&a, &b| self.y[a].total_cmp(&self.y[b]));
+        TimeMap {
+            x: order.iter().map(|&i| self.y[i]).collect(),
+            y: order.iter().map(|&i| self.x[i]).collect(),
+        }
     }
 
     /// Evaluate at `t` exactly like `numpy.interp`; `None` outside the keypoint range
@@ -125,7 +156,7 @@ mod tests {
     #[test]
     fn four_four() {
         let p = part(2, 4, 4, 8, 16);
-        let m = TimeMap::new(&p, false).unwrap();
+        let m = TimeMap::new(&p, Unit::Beat).unwrap();
         assert_eq!(m.eval(0.0), Some(0.0));
         assert_eq!(m.eval(3.0), Some(1.5));
         assert_eq!(m.eval(16.0), Some(8.0));
@@ -134,18 +165,27 @@ mod tests {
     #[test]
     fn six_eight_counts_eighths() {
         let p = part(2, 6, 8, 6, 12);
-        let m = TimeMap::new(&p, false).unwrap();
+        let m = TimeMap::new(&p, Unit::Beat).unwrap();
         assert_eq!(m.eval(6.0), Some(6.0));
-        // quarters ignore the time signature
-        assert_eq!(TimeMap::new(&p, true).unwrap().eval(6.0), Some(3.0));
+        // quarters ignore the time signature, musical beats count 6/8 as two beats per bar
+        assert_eq!(
+            TimeMap::new(&p, Unit::Quarter).unwrap().eval(6.0),
+            Some(3.0)
+        );
+        assert_eq!(
+            TimeMap::new(&p, Unit::MusicalBeat).unwrap().eval(6.0),
+            Some(2.0)
+        );
     }
 
     #[test]
     fn pickup_measure_starts_negative() {
         // 3/4 with a one-quarter pickup (divs = 2)
         let p = part(2, 3, 4, 2, 8);
-        let m = TimeMap::new(&p, false).unwrap();
+        let m = TimeMap::new(&p, Unit::Beat).unwrap();
         assert_eq!(m.eval(0.0), Some(-1.0));
         assert_eq!(m.eval(2.0), Some(0.0));
+        assert_eq!(m.inverse().eval(-1.0), Some(0.0));
+        assert_eq!(m.inverse().eval(0.0), Some(2.0));
     }
 }

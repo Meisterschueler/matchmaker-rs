@@ -10,10 +10,9 @@ use matchmaker_rs::Error;
 use matchmaker_rs::base::AlignmentPath;
 use matchmaker_rs::export::write_run;
 use matchmaker_rs::io::stream::MidiMessage;
-use matchmaker_rs::matchmaker::{
-    AnnotationLevel, ConfigValue, Matchmaker as Core, Method, MethodConfig,
-};
+use matchmaker_rs::matchmaker::{ConfigValue, Matchmaker as Core, Method, MethodConfig};
 use matchmaker_rs::performance::Performance;
+use matchmaker_rs::score::AnnotationLevel;
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::exceptions::{
@@ -306,7 +305,8 @@ impl PyMatchmaker {
         write_run(&recorded, directory).map_err(to_py_err)
     }
 
-    /// Score annotations in beats: whole beats (`level="beat"`) or every onset (`"note"`).
+    /// Score annotations: whole beats (`level="beat"`) or every onset (`"note"`), in beats
+    /// (float32) or seconds at the tempo (float64).
     #[pyo3(signature = (level="beat", musical_beat=false, return_type="beats"))]
     fn build_score_annotations<'py>(
         &self,
@@ -314,7 +314,7 @@ impl PyMatchmaker {
         level: &str,
         musical_beat: bool,
         return_type: &str,
-    ) -> PyResult<Bound<'py, PyArray1<f32>>> {
+    ) -> PyResult<Bound<'py, PyAny>> {
         let level_kind = match level {
             "beat" => AnnotationLevel::Beat,
             "note" => AnnotationLevel::Note,
@@ -324,16 +324,24 @@ impl PyMatchmaker {
                 )));
             }
         };
-        if musical_beat && level_kind == AnnotationLevel::Beat {
-            return Err(PyNotImplementedError::new_err(
-                "musical_beat=True is not supported",
-            ));
-        }
+        let score = self.inner.score();
         match return_type {
-            "beats" => Ok(self.inner.score_annotations(level_kind).into_pyarray(py)),
-            "seconds" => Err(PyNotImplementedError::new_err(
-                "return_type='seconds' is not supported; use 'beats'",
-            )),
+            // `np.arange` gives float64 for whole beats; note onsets stay float32
+            "beats" if level_kind == AnnotationLevel::Beat => Ok(score
+                .annotations(level_kind, musical_beat)
+                .into_iter()
+                .map(f64::from)
+                .collect::<Vec<_>>()
+                .into_pyarray(py)
+                .into_any()),
+            "beats" => Ok(score
+                .annotations(level_kind, musical_beat)
+                .into_pyarray(py)
+                .into_any()),
+            "seconds" => Ok(score
+                .annotations_seconds(level_kind, musical_beat, self.inner.tempo())
+                .into_pyarray(py)
+                .into_any()),
             _ => Err(PyValueError::new_err(format!(
                 "Invalid return type: {return_type}"
             ))),

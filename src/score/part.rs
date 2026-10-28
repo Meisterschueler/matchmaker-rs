@@ -39,6 +39,18 @@ pub(crate) struct TimeSignature {
     pub beat_type: i64,
 }
 
+impl TimeSignature {
+    /// `TimeSignature.musical_beats` with partitura's defaults (`MUSICAL_BEATS = {6: 2, 9: 3, 12: 4}`).
+    pub fn musical_beats(&self) -> i64 {
+        match self.beats {
+            6 => 2,
+            9 => 3,
+            12 => 4,
+            beats => beats,
+        }
+    }
+}
+
 /// `partitura.score.Tempo` (bpm and optional unit such as `"h."`).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Tempo {
@@ -133,6 +145,13 @@ impl Part {
                 quarters[i] = quarter;
             }
         }
+    }
+
+    /// `quarter_duration_map(t)`: divisions per quarter in effect at `t`
+    /// (`interp1d(kind="previous")`, clamped to the first and last value).
+    pub fn quarter_duration_at(&self, t: f64) -> f64 {
+        let i = self.quarter_times.partition_point(|&x| x as f64 <= t);
+        self.quarter_durations[i.saturating_sub(1)] as f64
     }
 
     /// Port of `Part.quarter_durations(start, end)`: entries with `start <= t < end`.
