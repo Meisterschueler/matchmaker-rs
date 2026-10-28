@@ -12,9 +12,11 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::base::{AlignmentPath, OnlineAlignment};
+use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::error::{Error, Result};
-use crate::features::{Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor};
+use crate::features::{
+    Observation, Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor,
+};
 use crate::io::stream::{Frame, MidiMessage};
 use crate::performance::Performance;
 use crate::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
@@ -229,6 +231,28 @@ pub enum AnnotationLevel {
     Note,
 }
 
+/// One follower call of a recorded run.
+#[derive(Debug, Clone)]
+pub struct Step {
+    /// What the follower received.
+    pub observation: Observation,
+    /// The position it returned.
+    pub position: f64,
+    /// Its state afterwards.
+    pub debug: StepDebug,
+}
+
+/// Intermediate data of a run, kept after [`Matchmaker::record`] (input of [`crate::export`]).
+#[derive(Debug, Clone, Default)]
+pub struct Recording {
+    /// Every stream frame, in order (empty windows included).
+    pub frames: Vec<Frame>,
+    /// Every processor output, also those after the follower stopped.
+    pub processor_outputs: Vec<Observation>,
+    /// Every follower call.
+    pub steps: Vec<Step>,
+}
+
 /// Score follower pipeline for one score.
 pub struct Matchmaker {
     score: Score,
@@ -237,6 +261,7 @@ pub struct Matchmaker {
     tempo: f64,
     processor: Box<dyn Processor>,
     follower: Box<dyn OnlineAlignment>,
+    recording: Option<Recording>,
     /// Messages of the window that is still open (push mode).
     window_messages: Vec<MidiMessage>,
     window: usize,
@@ -307,6 +332,7 @@ impl Matchmaker {
             tempo,
             processor,
             follower,
+            recording: None,
             window_messages: Vec::new(),
             window: 0,
             last_time: f64::NEG_INFINITY,
@@ -377,14 +403,40 @@ impl Matchmaker {
     }
 
     fn process_frame(&mut self, frame: &Frame) -> Option<f64> {
+        if let Some(recording) = &mut self.recording {
+            recording.frames.push(frame.clone());
+        }
         let obs = self.processor.process(frame)?;
         self.follow(&obs)
     }
 
-    fn follow(&mut self, obs: &crate::features::Observation) -> Option<f64> {
-        self.follower
-            .is_still_following()
-            .then(|| self.follower.call(obs))
+    fn follow(&mut self, obs: &Observation) -> Option<f64> {
+        if let Some(recording) = &mut self.recording {
+            recording.processor_outputs.push(obs.clone());
+        }
+        if !self.follower.is_still_following() {
+            return None;
+        }
+        let position = self.follower.call(obs);
+        if let Some(recording) = &mut self.recording {
+            recording.steps.push(Step {
+                observation: obs.clone(),
+                position,
+                debug: self.follower.debug_state(),
+            });
+        }
+        Some(position)
+    }
+
+    /// Keep the intermediate data of the run (memory grows with the performance; off by default).
+    pub fn record(mut self) -> Self {
+        self.recording = Some(Recording::default());
+        self
+    }
+
+    /// The recorded run, if [`Matchmaker::record`] was called.
+    pub fn recording(&self) -> Option<&Recording> {
+        self.recording.as_ref()
     }
 
     /// Replace processor and follower by wrappers around them, e.g. timing decorators of a

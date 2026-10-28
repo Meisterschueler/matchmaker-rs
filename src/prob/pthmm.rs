@@ -19,7 +19,7 @@ use super::hmm_models::{
     bernoulli_pitch_probabilities, compute_discrete_pitch_profiles, init_dist, score_states,
     stable_transition_matrix,
 };
-use crate::base::{AlignmentPath, OnlineAlignment};
+use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::features::Observation;
 use crate::score::Score;
 
@@ -95,5 +95,13 @@ impl OnlineAlignment for PitchHmm {
 
     fn score_positions(&self) -> &[f32] {
         &self.score_positions
+    }
+
+    fn debug_state(&self) -> StepDebug {
+        StepDebug {
+            current_index: self.current_index,
+            probabilities: self.forward_variable.clone().unwrap_or_default(),
+            ..StepDebug::default()
+        }
     }
 }

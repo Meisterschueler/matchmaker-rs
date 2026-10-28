@@ -1,6 +1,7 @@
 """Drop-in behaviour of ``matchmaker_rs.Matchmaker`` (T062): README quickstart pattern,
 reference-shaped attributes and errors, and equality with the golden data of pymatchmaker."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -151,3 +152,16 @@ def test_build_score_annotations():
         mm.build_score_annotations(return_type="seconds")
     with pytest.raises(NotImplementedError):
         mm.build_score_annotations(musical_beat=True)
+
+
+@pytest.mark.parametrize("method", METHODS)
+def test_export_writes_the_golden_layout(method, tmp_path):
+    mm = make(method)
+    mm.export(tmp_path)
+    for name in ("positions.npy", "current_index.npy", "alignment_path.npy"):
+        np.testing.assert_allclose(
+            np.load(tmp_path / method / name), golden(method, name), rtol=0, atol=1e-6
+        )
+    ids = [json.loads(p.read_text()) for p in (tmp_path / "score" / "note_ids.json", GOLDEN / PIECE / "score" / "note_ids.json")]
+    assert ids[0] == ids[1]
+    assert not mm._has_run  # exporting does not consume the run

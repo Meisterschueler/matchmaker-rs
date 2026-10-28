@@ -215,14 +215,14 @@ Cargo workspace per [plan.md](plan.md#source-code-repository-root): core crate a
 
 ### Tests for User Story 6 ⚠️
 
-- [ ] T066 [P] [US6] Write failing test `tests/export.rs`: `export::write_run` for each method writes every file listed in [contracts/golden-data.md](contracts/golden-data.md) with the documented dtypes/shapes, readable back with the test `.npy` reader, and equal to the golden files within tolerance
+- [X] T066 [P] [US6] Write failing test `tests/export.rs`: `export::write_run` for each method writes every file listed in [contracts/golden-data.md](contracts/golden-data.md) with the documented dtypes/shapes, readable back with the test `.npy` reader, and equal to the golden files within tolerance
 
 ### Implementation for User Story 6
 
-- [ ] T067 [US6] Implement `export::write_run(&Matchmaker, dir)` in `src/export.rs` (score, stream, processor, method files; `meta.json` with `{"implementation": "matchmaker-rs", "version"}`; `Error::Export` on failure), collecting `StepDebug` per step in `Matchmaker`
-- [ ] T068 [US6] Add `--export <DIR>` to CLI `follow` and `export(directory)` to the Python binding (`crates/matchmaker-cli/src/main.rs`, `crates/matchmaker-py/src/lib.rs`)
-- [ ] T069 [P] [US6] Write `tools/golden/compare.py <golden_dir> <export_dir>`: compare stages in order score → stream → processor → method with the documented tolerances, print the first differing stage, file and index or "all stages equal"
-- [ ] T070 [US6] Verify US6-2: with `RUST_LOG=matchmaker_rs=debug` the CLI logs per-stage span timings (`tracing-subscriber` `FmtSpan::CLOSE`) and the current position per observation; add an assertion test in `crates/matchmaker-cli/tests/logging.rs`
+- [X] T067 [US6] Implement `export::write_run(&Matchmaker, dir)` in `src/export.rs` (score, stream, processor, method files; `meta.json` with `{"implementation": "matchmaker-rs", "version"}`; `Error::Export` on failure), collecting `StepDebug` per step in `Matchmaker`
+- [X] T068 [US6] Add `--export <DIR>` to CLI `follow` and `export(directory)` to the Python binding (`crates/matchmaker-cli/src/main.rs`, `crates/matchmaker-py/src/lib.rs`)
+- [X] T069 [P] [US6] Write `tools/golden/compare.py <golden_dir> <export_dir>`: compare stages in order score → stream → processor → method with the documented tolerances, print the first differing stage, file and index or "all stages equal"
+- [X] T070 [US6] Verify US6-2: with `RUST_LOG=matchmaker_rs=debug` the CLI logs per-stage span timings (`tracing-subscriber` `FmtSpan::CLOSE`) and the current position per observation; add an assertion test in `crates/matchmaker-cli/tests/logging.rs`
 
 **Checkpoint**: All user stories independently functional
 

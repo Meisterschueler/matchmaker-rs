@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use matchmaker_rs::base::{AlignmentPath, OnlineAlignment};
+use matchmaker_rs::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use matchmaker_rs::features::{Observation, Processor};
 use matchmaker_rs::io::stream::Frame;
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
@@ -81,6 +81,10 @@ impl OnlineAlignment for TimedFollower {
 
     fn score_positions(&self) -> &[f32] {
         self.inner.score_positions()
+    }
+
+    fn debug_state(&self) -> StepDebug {
+        self.inner.debug_state()
     }
 }
 

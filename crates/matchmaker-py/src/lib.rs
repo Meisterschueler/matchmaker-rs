@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use matchmaker_rs::Error;
 use matchmaker_rs::base::AlignmentPath;
+use matchmaker_rs::export::write_run;
 use matchmaker_rs::io::stream::MidiMessage;
 use matchmaker_rs::matchmaker::{
     AnnotationLevel, ConfigValue, Matchmaker as Core, Method, MethodConfig,
@@ -95,6 +96,11 @@ fn pop<'py>(config: &Bound<'py, PyDict>, key: &str) -> PyResult<Option<Bound<'py
 struct PyMatchmaker {
     inner: Core,
     performance_path: PathBuf,
+    // what `export` needs to build a second, recording pipeline
+    method_kind: Method,
+    method_config: MethodConfig,
+    tempo_arg: Option<f64>,
+    unfold: bool,
     started: bool,
     #[pyo3(get)]
     score_file: String,
@@ -200,11 +206,17 @@ impl PyMatchmaker {
                 .map_err(to_py_err)?;
         }
 
-        let inner = Core::with_config(&score_file, method_kind, method_config, tempo, unfold_score)
-            .map_err(|err| match err {
-                Error::InvalidParameter { .. } => to_py_err(err),
-                _ => PyValueError::new_err(format!("Invalid score file: {err}")),
-            })?;
+        let inner = Core::with_config(
+            &score_file,
+            method_kind,
+            method_config.clone(),
+            tempo,
+            unfold_score,
+        )
+        .map_err(|err| match err {
+            Error::InvalidParameter { .. } => to_py_err(err),
+            _ => PyValueError::new_err(format!("Invalid score file: {err}")),
+        })?;
 
         let Some(performance_path) = performance_file else {
             return Err(PyNotImplementedError::new_err(
@@ -229,6 +241,10 @@ impl PyMatchmaker {
             score_file: score_file.to_string_lossy().into_owned(),
             performance_file: performance_path.to_string_lossy().into_owned(),
             performance_path,
+            method_kind,
+            method_config,
+            tempo_arg: tempo,
+            unfold: unfold_score,
             input_type: input_type.to_string(),
             method: method_name.to_string(),
             config: config.unbind(),
@@ -270,6 +286,24 @@ impl PyMatchmaker {
     #[getter]
     fn score_positions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
         self.inner.score_positions().into_pyarray(py)
+    }
+
+    /// Re-run the performance with recording and write the intermediate data in the layout of
+    /// the golden data (compare with `tools/golden/compare.py`).
+    fn export(&self, directory: PathBuf) -> PyResult<()> {
+        let mut recorded = Core::with_config(
+            &self.score_file,
+            self.method_kind,
+            self.method_config.clone(),
+            self.tempo_arg,
+            self.unfold,
+        )
+        .map_err(to_py_err)?
+        .record();
+        recorded
+            .run_file(&self.performance_path)
+            .map_err(to_py_err)?;
+        write_run(&recorded, directory).map_err(to_py_err)
     }
 
     /// Score annotations in beats: whole beats (`level="beat"`) or every onset (`"note"`).

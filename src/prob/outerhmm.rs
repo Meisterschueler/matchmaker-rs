@@ -21,7 +21,7 @@
 use std::collections::BTreeSet;
 
 use super::hidden_markov::argmax;
-use crate::base::{AlignmentPath, OnlineAlignment};
+use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::features::Observation;
 use crate::score::Score;
 
@@ -370,5 +370,14 @@ impl OnlineAlignment for OuterProductHmm {
 
     fn score_positions(&self) -> &[f32] {
         &self.score_positions
+    }
+
+    fn debug_state(&self) -> StepDebug {
+        StepDebug {
+            current_index: self.current_index,
+            probabilities: self.state_probabilities.clone(),
+            beat_period: None,
+            is_continuation: Some(self.is_continuation),
+        }
     }
 }

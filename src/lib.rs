@@ -7,6 +7,7 @@
 
 pub mod base;
 pub mod error;
+pub mod export;
 pub mod features;
 pub mod io;
 pub mod matchmaker;

@@ -47,6 +47,9 @@ enum Command {
         /// Write the alignment path as TSV (perf_sec, score_beat)
         #[arg(long)]
         output: Option<PathBuf>,
+        /// Write intermediate data in the golden layout (compare with tools/golden/compare.py)
+        #[arg(long)]
+        export: Option<PathBuf>,
         /// Do not print positions
         #[arg(long)]
         quiet: bool,
@@ -137,6 +140,7 @@ fn main() -> Result<()> {
             .with_env_filter(EnvFilter::from_default_env())
             .with_span_events(FmtSpan::CLOSE)
             .with_writer(std::io::stderr)
+            .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
             .init();
     }
     match command {
@@ -149,10 +153,14 @@ fn main() -> Result<()> {
             set,
             no_unfold,
             output,
+            export,
             quiet,
         } => {
             let config = method_config(method, processor, &set)?;
             let mut mm = Matchmaker::with_config(&score, method, config, tempo, !no_unfold)?;
+            if export.is_some() {
+                mm = mm.record();
+            }
             let mut out = std::io::stdout().lock();
             let mut printed = 0;
             // print alignment-path entries as they are computed (US1-4)
@@ -175,6 +183,9 @@ fn main() -> Result<()> {
 
             if let Some(path) = output {
                 write_path_tsv(&path, mm.alignment_path())?;
+            }
+            if let Some(dir) = export {
+                matchmaker_rs::export::write_run(&mm, dir)?;
             }
             Ok(())
         }

@@ -26,6 +26,19 @@ impl AlignmentPath {
     }
 }
 
+/// Inspectable follower state after a call, for the export of a run (FR-018).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StepDebug {
+    /// Index of the current state.
+    pub current_index: usize,
+    /// Forward variable / state distribution.
+    pub probabilities: Vec<f64>,
+    /// `hmm`: beat period of the tempo model in seconds.
+    pub beat_period: Option<f64>,
+    /// `outerhmm`: whether the call folded a note into the previous chord.
+    pub is_continuation: Option<bool>,
+}
+
 /// A score follower (`OnlineAlignment`).
 pub trait OnlineAlignment {
     /// One observation in, current score position (beats) out (`__call__`).
@@ -39,6 +52,9 @@ pub trait OnlineAlignment {
 
     /// The follower's states in beats.
     fn score_positions(&self) -> &[f32];
+
+    /// The state after the last call.
+    fn debug_state(&self) -> StepDebug;
 
     /// Port of `run()`: feed observations while following, return the yielded positions.
     fn run(&mut self, observations: &mut dyn Iterator<Item = Observation>) -> Vec<f64> {
