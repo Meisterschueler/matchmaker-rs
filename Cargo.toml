@@ -1,0 +1,9 @@
+[package]
+name = "matchmaker-rs"
+version = "0.1.0"
+edition = "2024"
+description = "Pure-Rust port of pymatchmaker (real-time music alignment / score following)"
+license = "Apache-2.0"
+repository = "https://github.com/Meisterschueler/matchmaker-rs"
+
+[dependencies]
