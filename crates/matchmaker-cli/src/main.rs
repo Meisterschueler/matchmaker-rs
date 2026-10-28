@@ -50,6 +50,9 @@ enum Command {
         /// Write intermediate data in the golden layout (compare with tools/golden/compare.py)
         #[arg(long)]
         export: Option<PathBuf>,
+        /// Ground truth (.match or TSV): with --export, also writes evaluation.json
+        #[arg(long, requires = "export")]
+        ground_truth: Option<PathBuf>,
         /// Do not print positions
         #[arg(long)]
         quiet: bool,
@@ -154,6 +157,7 @@ fn main() -> Result<()> {
             no_unfold,
             output,
             export,
+            ground_truth,
             quiet,
         } => {
             let config = method_config(method, processor, &set)?;
@@ -185,7 +189,14 @@ fn main() -> Result<()> {
                 write_path_tsv(&path, mm.alignment_path())?;
             }
             if let Some(dir) = export {
-                matchmaker_rs::export::write_run(&mm, dir)?;
+                matchmaker_rs::export::write_run(&mm, &dir)?;
+                if let Some(ground_truth) = ground_truth {
+                    let gt = GroundTruth::load(&ground_truth, mm.score(), Some(&performance))?;
+                    let result = evaluate_alignment(mm.alignment_path(), &gt);
+                    let file = dir.join(method.name()).join("evaluation.json");
+                    std::fs::write(&file, serde_json::to_string_pretty(&result)?)
+                        .with_context(|| format!("cannot write {}", file.display()))?;
+                }
             }
             Ok(())
         }

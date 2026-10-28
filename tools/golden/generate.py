@@ -252,6 +252,7 @@ def dump_processors(out: Path, stream: dict) -> None:
         "pitch_piano_vector": (lambda: PitchProcessor(True, False), f10, False),
         "pitch_piano_list": (lambda: PitchProcessor(True, True), f10, True),
         "pitch_full_vector": (lambda: PitchProcessor(False, False), f10, False),
+        "pitch_piano_vector_0.001": (lambda: PitchProcessor(True, False), f1, False),
         "chord_onset_piano": (lambda: ChordOnsetProcessor(piano_range=True), f1, False),
     }
     for name, (make, frames, padded) in configs.items():

@@ -15,6 +15,8 @@ struct Row {
     pitch: i64,
     id: String,
     duration_beat: f32,
+    onset_quarter: f32,
+    duration_quarter: f32,
     onset_div: i64,
     duration_div: i64,
     voice: i64,
@@ -52,6 +54,7 @@ fn note_arrays_equal_reference() {
         let ids: Vec<String> = serde_json::from_value(json(dir.join("note_ids.json"))).unwrap();
         let f = |name: &str| na.field(name);
         let (ob, db) = (f("onset_beat"), f("duration_beat"));
+        let (oq, dq) = (f("onset_quarter"), f("duration_quarter"));
         let (od, dd, pitch, voice) = (f("onset_div"), f("duration_div"), f("pitch"), f("voice"));
         let mut expected: Vec<Row> = (0..na.len())
             .map(|i| Row {
@@ -59,6 +62,8 @@ fn note_arrays_equal_reference() {
                 pitch: pitch[i] as i64,
                 id: ids[i].clone(),
                 duration_beat: db[i] as f32,
+                onset_quarter: oq[i] as f32,
+                duration_quarter: dq[i] as f32,
                 onset_div: od[i] as i64,
                 duration_div: dd[i] as i64,
                 voice: voice[i] as i64,
@@ -75,6 +80,8 @@ fn note_arrays_equal_reference() {
                 pitch: i64::from(n.pitch),
                 id: n.id.clone(),
                 duration_beat: n.duration_beat,
+                onset_quarter: n.onset_quarter,
+                duration_quarter: n.duration_quarter,
                 onset_div: n.onset_div,
                 duration_div: n.duration_div,
                 voice: i64::from(n.voice),

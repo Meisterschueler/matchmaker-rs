@@ -40,6 +40,10 @@ pub struct ScoreNote {
     pub onset_beat: f32,
     /// Duration in beats, including tied continuations.
     pub duration_beat: f32,
+    /// Onset in quarter notes.
+    pub onset_quarter: f32,
+    /// Duration in quarter notes (tied).
+    pub duration_quarter: f32,
     /// Onset in divisions of the merged part.
     pub onset_div: i64,
     /// Duration in divisions (tied).
@@ -148,9 +152,9 @@ fn build_part(parts: Vec<Part>, unfold: bool) -> std::result::Result<(Part, bool
 /// Port of `note_array_from_note_list` for the default fields, followed by the sort by
 /// pitch and then (stably) by onset.
 fn note_array(part: &Part) -> std::result::Result<Vec<ScoreNote>, String> {
-    let beat_map = TimeMap::new(part);
-    let eval = |t: i64| -> std::result::Result<f64, String> {
-        match &beat_map {
+    let (beat_map, quarter_map) = (TimeMap::new(part, false), TimeMap::new(part, true));
+    let eval = |map: &Option<TimeMap>, t: i64| -> std::result::Result<f64, String> {
+        match map {
             None => Ok(0.0),
             Some(m) => m.eval(t as f64).ok_or_else(|| {
                 format!("A value ({t}) in x_new is outside the interpolation range.")
@@ -161,12 +165,15 @@ fn note_array(part: &Part) -> std::result::Result<Vec<ScoreNote>, String> {
     for (i, n) in part.notes_tied() {
         let on = n.start;
         let off = on + part.duration_tied(i);
-        let (on_beat, off_beat) = (eval(on)?, eval(off)?);
+        let (on_beat, off_beat) = (eval(&beat_map, on)?, eval(&beat_map, off)?);
+        let (on_quarter, off_quarter) = (eval(&quarter_map, on)?, eval(&quarter_map, off)?);
         notes.push(ScoreNote {
             id: n.id.clone().unwrap_or_default(),
             pitch: n.midi_pitch,
             onset_beat: on_beat as f32,
             duration_beat: (off_beat - on_beat) as f32,
+            onset_quarter: on_quarter as f32,
+            duration_quarter: (off_quarter - on_quarter) as f32,
             onset_div: on,
             duration_div: off - on,
             voice: n.voice,

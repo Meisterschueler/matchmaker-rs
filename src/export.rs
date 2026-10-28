@@ -1,8 +1,6 @@
 //! Export of a recorded run in the layout of `contracts/golden-data.md`, so that
 //! `tools/golden/compare.py` can diff it against the reference stage by stage.
-//!
-//! Only the score fields this port computes are written (no `onset_quarter` /
-//! `duration_quarter`); `evaluation.json` needs ground truth and is not exported.
+//! `evaluation.json` needs ground truth and is written by the CLI (`--ground-truth`).
 //!
 //! ```no_run
 //! use matchmaker_rs::matchmaker::{Matchmaker, Method};
@@ -27,8 +25,9 @@ const MAX_PROBABILITY_VALUES: usize = 5_000_000;
 
 const MESSAGE_FIELDS: &str = "[('kind', '<i4'), ('channel', '<i4'), ('note', '<i4'), \
      ('velocity', '<i4'), ('control', '<i4'), ('value', '<i4'), ('program', '<i4'), ('time', '<f8')]";
-const NOTE_FIELDS: &str = "[('onset_beat', '<f4'), ('duration_beat', '<f4'), ('onset_div', '<i4'), \
-     ('duration_div', '<i4'), ('pitch', '<i4'), ('voice', '<i4')]";
+const NOTE_FIELDS: &str = "[('onset_beat', '<f4'), ('duration_beat', '<f4'), ('onset_quarter', '<f4'), \
+     ('duration_quarter', '<f4'), ('onset_div', '<i4'), ('duration_div', '<i4'), ('pitch', '<i4'), \
+     ('voice', '<i4')]";
 
 fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
@@ -144,9 +143,15 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
     let rows: Vec<u8> = notes
         .iter()
         .flat_map(|n| {
-            let mut row = Vec::with_capacity(24);
-            row.extend(n.onset_beat.to_le_bytes());
-            row.extend(n.duration_beat.to_le_bytes());
+            let mut row = Vec::with_capacity(32);
+            for v in [
+                n.onset_beat,
+                n.duration_beat,
+                n.onset_quarter,
+                n.duration_quarter,
+            ] {
+                row.extend(v.to_le_bytes());
+            }
             for v in [n.onset_div as i32, n.duration_div as i32, n.pitch, n.voice] {
                 row.extend(v.to_le_bytes());
             }

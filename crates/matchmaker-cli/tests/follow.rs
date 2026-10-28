@@ -37,3 +37,22 @@ fn unknown_method_lists_available() {
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("pthmm"));
 }
+
+#[test]
+fn export_with_ground_truth_writes_evaluation() {
+    let dir = std::env::temp_dir().join("matchmaker_cli_export");
+    let _ = std::fs::remove_dir_all(&dir);
+    let status = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .args(["follow", &data("simple_mozart_k265_var1.musicxml")])
+        .arg(data("simple_mozart_k265_var1.mid"))
+        .arg("--quiet")
+        .arg("--export")
+        .arg(&dir)
+        .arg("--ground-truth")
+        .arg(data("simple_mozart_k265_var1.match"))
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let evaluation = std::fs::read_to_string(dir.join("pthmm/evaluation.json")).unwrap();
+    assert!(evaluation.contains("\"accuracy_0.1b\""), "{evaluation}");
+}

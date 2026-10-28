@@ -15,10 +15,10 @@ pub(crate) struct TimeMap {
 }
 
 impl TimeMap {
-    /// Build `part.beat_map`.
+    /// Build `part.beat_map` (`quarter`: `part.quarter_map`, which ignores time signatures).
     ///
     /// Returns `None` when the part has fewer than two timepoints (partitura returns zeros).
-    pub fn new(part: &Part) -> Option<Self> {
+    pub fn new(part: &Part, quarter: bool) -> Option<Self> {
         if part.points.len() < 2 {
             return None;
         }
@@ -30,7 +30,7 @@ impl TimeMap {
         for (t, q) in part.quarter_times.iter().zip(&part.quarter_durations) {
             keypoints.entry(*t).or_default()[0] = Some(*q as f64);
         }
-        for ts in &part.time_signatures {
+        for ts in part.time_signatures.iter().filter(|_| !quarter) {
             keypoints.entry(ts.start).or_default()[1] = Some(ts.beat_type as f64 / 4.0);
         }
         let (mut cur_div, mut cur_bt) = (1.0, 1.0);
@@ -59,7 +59,12 @@ impl TimeMap {
             && let Some(ts) = part.time_signatures.iter().find(|ts| ts.start == m_start)
         {
             let actual_dur = map.eval(m_end as f64)? - map.eval(m_start as f64)?;
-            if actual_dur < ts.beats as f64 {
+            let normal_dur = if quarter {
+                ts.beats as f64 * 4.0 / ts.beat_type as f64
+            } else {
+                ts.beats as f64
+            };
+            if actual_dur < normal_dur {
                 for v in &mut map.y {
                     *v -= actual_dur;
                 }
@@ -120,7 +125,7 @@ mod tests {
     #[test]
     fn four_four() {
         let p = part(2, 4, 4, 8, 16);
-        let m = TimeMap::new(&p).unwrap();
+        let m = TimeMap::new(&p, false).unwrap();
         assert_eq!(m.eval(0.0), Some(0.0));
         assert_eq!(m.eval(3.0), Some(1.5));
         assert_eq!(m.eval(16.0), Some(8.0));
@@ -129,15 +134,17 @@ mod tests {
     #[test]
     fn six_eight_counts_eighths() {
         let p = part(2, 6, 8, 6, 12);
-        let m = TimeMap::new(&p).unwrap();
+        let m = TimeMap::new(&p, false).unwrap();
         assert_eq!(m.eval(6.0), Some(6.0));
+        // quarters ignore the time signature
+        assert_eq!(TimeMap::new(&p, true).unwrap().eval(6.0), Some(3.0));
     }
 
     #[test]
     fn pickup_measure_starts_negative() {
         // 3/4 with a one-quarter pickup (divs = 2)
         let p = part(2, 3, 4, 2, 8);
-        let m = TimeMap::new(&p).unwrap();
+        let m = TimeMap::new(&p, false).unwrap();
         assert_eq!(m.eval(0.0), Some(-1.0));
         assert_eq!(m.eval(2.0), Some(0.0));
     }

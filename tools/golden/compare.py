@@ -5,8 +5,8 @@ directory, stage by stage (score, stream, processor, method), and report the fir
     python -m uv run compare.py ../../tests/golden/<piece> <export_dir>
 
 Only files present on both sides are compared. Tolerances follow contracts/golden-data.md:
-positions and alignment path 1e-6, probabilities rtol 1e-12, beat_period rtol 1e-9, the rest
-exact; messages are compared as a multiset (the reference sorts them with an unstable argsort)
+positions and alignment path 1e-6, probabilities rtol 1e-12, beat_period rtol 1e-9, evaluation
+metrics 1e-4 (hmm: 0.01), the rest exact; messages are compared as a multiset (the reference sorts them with an unstable argsort)
 and note arrays on the fields both sides have.
 """
 
@@ -21,7 +21,7 @@ STAGES = ("score", "stream", "processor", *METHODS)
 # file name -> (rtol, atol); everything else must be equal
 TOLERANCES = {
     "probabilities.npy": (1e-12, 1e-300),
-    "beat_period.npy": (0.0, 1e-9),
+    "beat_period.npy": (1e-9, 0.0),
     "positions.npy": (0.0, 1e-6),
     "alignment_path.npy": (0.0, 1e-6),
 }
@@ -38,11 +38,27 @@ def first_difference(name, expected, actual):
     return f"first difference at index {index}: expected {expected[index]!r}, actual {actual[index]!r}"
 
 
-def compare_file(rel, expected_path, actual_path):
+def metric_difference(expected, actual, tolerance):
+    """NaN (Python) and null (Rust) both mean "no value"."""
+    missing = lambda v: v is None or v != v  # noqa: E731
+    for key, e in expected.items():
+        a = actual.get(key)
+        if missing(e) or missing(a):
+            same = missing(e) and missing(a)
+        else:
+            same = abs(e - a) <= tolerance
+        if not same:
+            return f"{key}: expected {e!r}, actual {a!r}"
+    return None
+
+
+def compare_file(stage, rel, expected_path, actual_path):
     if rel.suffix == ".json":
+        expected, actual = (json.loads(p.read_text()) for p in (expected_path, actual_path))
+        if rel.name == "evaluation.json":
+            return metric_difference(expected, actual, 0.01 if stage == "hmm" else 1e-4)
         if rel.name != "note_ids.json":
             return None
-        expected, actual = (json.loads(p.read_text()) for p in (expected_path, actual_path))
         if expected == actual:
             return None
         index = next((i for i, (e, a) in enumerate(zip(expected, actual)) if e != a), min(len(expected), len(actual)))
@@ -73,7 +89,7 @@ def main(golden_dir, export_dir):
             if not actual.is_file():
                 continue
             compared += 1
-            difference = compare_file(rel, expected, actual)
+            difference = compare_file(stage, rel, expected, actual)
             if difference:
                 print(f"first differing stage: {stage}, file {stage}/{rel.as_posix()}: {difference}")
                 return 1

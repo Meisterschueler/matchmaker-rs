@@ -22,7 +22,9 @@ numeric dtypes only (strings go to JSON), so they are easy to read from Rust.
 │   ├── frame_offsets.npy         i8, (n_frames + 1,) windowed only: frame k = messages[offsets[k]:offsets[k+1]]
 │   └── frame_times.npy           f8, (n_frames,) windowed only
 ├── processor/<name>/             pitch_piano_vector, pitch_piano_list, pitch_full_vector (windowed 0.01),
-│   │                             pitch_piano_vector_event (event), chord_onset_piano (windowed 0.001, incl. flush)
+│   │                             pitch_piano_vector_event (event), pitch_piano_vector_0.001 (windowed 0.001,
+│   │                             `outerhmm`), chord_onset_piano (windowed 0.001, incl. flush);
+│   │                             a Rust export with another window gets the suffix `_<polling_period>`
 │   ├── features.npy              f4, (T, 88|128) for vectors; pitch lists padded with -1, (T, max_len)
 │   └── times.npy                 f8, (T,)
 └── <method>/                     pthmm | hmm | outerhmm
@@ -35,7 +37,7 @@ numeric dtypes only (strings go to JSON), so they are easy to read from Rust.
     ├── beat_period.npy           f8, (K,)   hmm only
     ├── is_continuation.npy       bool, (K,) outerhmm only
     ├── alignment_path.npy        f8, (2, T)
-    ├── evaluation.json           EvaluationResult keys of the reference
+    ├── evaluation.json           EvaluationResult keys of the reference (Rust: `follow --export D --ground-truth GT`)
     └── meta.json                 see below
 ```
 

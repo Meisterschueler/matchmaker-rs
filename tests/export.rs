@@ -63,6 +63,8 @@ fn compare(ctx: &Ctx, rel: &str, exported: &Path, expected: &Path) {
         for field in [
             "onset_beat",
             "duration_beat",
+            "onset_quarter",
+            "duration_quarter",
             "onset_div",
             "duration_div",
             "pitch",
