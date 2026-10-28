@@ -50,3 +50,19 @@ fn evaluation_matches_reference() {
         }
     }
 }
+
+/// Without the streamed MIDI the onsets come from the match file's ticks; for the bundled
+/// piece both store the same notes, so they agree to within a tick.
+#[test]
+fn match_ticks_without_performance() {
+    let piece = "simple_mozart_k265_var1";
+    let score = Score::load(data(&format!("{piece}.musicxml")), true).unwrap();
+    let gt = |perf: Option<&std::path::Path>| {
+        GroundTruth::load(data(&format!("{piece}.match")), &score, perf).unwrap()
+    };
+    let (ticks, streamed) = (gt(None), gt(Some(&data(&format!("{piece}.mid")))));
+    assert_eq!(ticks.score_beat, streamed.score_beat);
+    for (t, s) in ticks.perf_sec.iter().zip(&streamed.perf_sec) {
+        assert!((t - s).abs() < 2e-3, "{t} vs {s}");
+    }
+}

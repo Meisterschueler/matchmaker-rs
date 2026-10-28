@@ -212,27 +212,22 @@ fn from_match(
         }
         None => None,
     };
-    let clock = match &streamed {
-        Some(_) => None,
-        None => {
-            let num = |key| info(key).and_then(|v| v.parse::<f64>().ok());
-            match (num("midiClockRate"), num("midiClockUnits")) {
-                (Some(mpq), Some(ppq)) => Some((mpq, ppq)),
-                _ => return Err(err("missing midiClockRate or midiClockUnits")),
-            }
-        }
-    };
+    let num = |key| info(key).and_then(|v| v.parse::<f64>().ok());
+    let clock = num("midiClockRate").zip(num("midiClockUnits"));
 
     let mut pairs = Vec::new();
     for (score_id, pid, _, onset) in &matches {
         let Some(&beat) = beat_at.get(score_id) else {
             continue;
         };
-        let sec = match (&streamed, clock) {
-            (Some(notes), _) => notes[pid].1,
-            // midi_ticks_to_seconds
-            (None, Some((mpq, ppq))) => mpq * onset / (1e6 * ppq),
-            (None, None) => unreachable!("clock is read when nothing is streamed"),
+        let sec = match &streamed {
+            Some(notes) => notes[pid].1,
+            None => {
+                let (mpq, ppq) =
+                    clock.ok_or_else(|| err("missing midiClockRate or midiClockUnits"))?;
+                // midi_ticks_to_seconds
+                mpq * onset / (1e6 * ppq)
+            }
         };
         pairs.push((sec, beat));
     }
