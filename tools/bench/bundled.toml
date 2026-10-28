@@ -1,0 +1,23 @@
+# Benchmark manifest of the bundled reference assets (paths relative to this file).
+# Usage: matchmaker bench tools/bench/bundled.toml --out target/bench/rust/records.json
+
+[[pieces]]
+dataset = "bundled"
+piece = "simple_mozart_k265_var1"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/simple_mozart_k265_var1.mid"
+ground_truth = "../../tests/data/simple_mozart_k265_var1.match"
+
+[[pieces]]
+dataset = "bundled"
+piece = "mozart_k265_var1"
+score = "../../tests/data/mozart_k265_var1.musicxml"
+performance = "../../tests/data/mozart_k265_var1.mid"
+ground_truth = "../../tests/data/mozart_k265_var1.match"
+
+[[pieces]]
+dataset = "bundled"
+piece = "Bach-fugue_bwv_858"
+score = "../../tests/data/Bach-fugue_bwv_858.musicxml"
+performance = "../../tests/data/Bach-fugue_bwv_858.mid"
+ground_truth = "../../tests/data/Bach-fugue_bwv_858.match"

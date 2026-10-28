@@ -37,10 +37,14 @@ reference, as a table or JSON (`--json`); NaN is printed as `null`.
 matchmaker bench <MANIFEST> --out <FILE.json> [--runs <N=5>] [--methods pthmm,hmm,outerhmm]
 ```
 
-`MANIFEST`: TOML listing pieces (`dataset`, `piece`, `score`, `performance`, `ground_truth`).
-Runs each method `N` times per piece, timing processor and follower calls per observation with a
-monotonic clock and **no tracing subscriber**; writes records per
-[benchmark-report.md](benchmark-report.md) with `implementation = "rust"`.
+`MANIFEST`: TOML with `[[pieces]]` entries (`dataset`, `piece`, `score`, `performance`,
+optional `ground_truth`; paths relative to the manifest), e.g. `tools/bench/bundled.toml`.
+Runs each method `N` times per piece (default: all available methods), timing processor and
+follower calls per observation with a monotonic clock and **no tracing subscriber**; writes
+records per [benchmark-report.md](benchmark-report.md) with `implementation = "rust"` and the
+alignment path of run 0 as `<out dir>/paths/<dataset>/<piece>/<method>.tsv`.
+`tools/bench/run_reference.py` does the same for the reference; `tools/bench/report.py`
+merges both.
 
 ## Exit codes
 

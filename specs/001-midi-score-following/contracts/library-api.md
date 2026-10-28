@@ -38,7 +38,8 @@ let path = mm.alignment_path();         // &AlignmentPath { perf_time, score_bea
 `"pthmm".parse::<Method>()`; unknown names → `Error::InvalidMethod` listing the supported
 names (US5-2). Methods are added as they are ported; method parameters and processor choice
 (FR-011) are added with the methods that need them. Accessors: `score()`, `tempo()`,
-`alignment_path()`.
+`alignment_path()`; `Method::name()`. `wrap_stages(|processor, follower| …)` replaces both
+stages by wrappers, which is how `matchmaker bench` times them without a clock in the library.
 
 ## Incremental (live-source) use — FR-005
 

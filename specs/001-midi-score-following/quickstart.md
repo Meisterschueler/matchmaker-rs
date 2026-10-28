@@ -77,14 +77,15 @@ listing `['pthmm', 'hmm', 'outerhmm']` (US5-2).
 ## 7. Benchmark (US2-3, US2-4)
 
 ```text
-cargo run --release -p matchmaker-cli -- bench tools/bench/bundled.toml --out rust.json
-cd tools/bench
-python -m uv run run_reference.py bundled.toml --out python.json
-python -m uv run report.py ../../rust.json python.json --out report/
+cargo run --release -p matchmaker-cli -- bench tools/bench/bundled.toml --out target/bench/rust/records.json
+cd tools/golden
+python -m uv run ../bench/run_reference.py ../bench/bundled.toml --out ../../target/bench/python/records.json
+python -m uv run ../bench/report.py ../../target/bench/rust/records.json ../../target/bench/python/records.json --out ../../target/bench/report
 ```
 
-Expected: `report/index.md` with Rust vs Python latency per stage, speed-up, real-time factor and
-metrics per method and piece; Rust inference latency ≥ 5× lower (SC-004 target). In CI the same
+Expected: `target/bench/report/index.md` with Rust vs Python latency per stage, speed-up,
+real-time factor, metrics and parity flags per method and piece; exit code 1 on a
+position-parity violation; Rust inference latency ≥ 5× lower (SC-004 target). In CI the same
 runs on the full datasets (`tools/datasets/fetch.py`) and the report is published; the README
 links to it (SC-006).
 

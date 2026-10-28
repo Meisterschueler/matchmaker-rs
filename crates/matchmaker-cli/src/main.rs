@@ -1,7 +1,9 @@
 //! `matchmaker` command-line interface (see `specs/001-midi-score-following/contracts/cli.md`).
 
+mod bench;
+
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -58,16 +60,47 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Time and evaluate methods on the pieces of a TOML manifest (benchmark records).
+    Bench {
+        /// TOML manifest: [[pieces]] with dataset, piece, score, performance, ground_truth
+        /// (paths relative to the manifest)
+        manifest: PathBuf,
+        /// Output JSON file (one record per method, piece and run)
+        #[arg(long)]
+        out: PathBuf,
+        /// Runs per method and piece
+        #[arg(long, default_value_t = 5)]
+        runs: usize,
+        /// Comma-separated methods (default: all available)
+        #[arg(long, value_delimiter = ',')]
+        methods: Vec<Method>,
+    },
+}
+
+/// Write an alignment path as TSV with header `perf_sec\tscore_beat`.
+fn write_path_tsv(path: &Path, ap: &AlignmentPath) -> Result<()> {
+    let mut tsv = String::from("perf_sec\tscore_beat\n");
+    for (t, b) in ap.perf_time.iter().zip(&ap.score_beat) {
+        tsv.push_str(&format!("{t}\t{b}\n"));
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, tsv).with_context(|| format!("cannot write {}", path.display()))
 }
 
 fn main() -> Result<()> {
-    // RUST_LOG=matchmaker_rs=debug logs positions and per-stage span timings (stderr)
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_span_events(FmtSpan::CLOSE)
-        .with_writer(std::io::stderr)
-        .init();
-    match Cli::parse().command {
+    let command = Cli::parse().command;
+    // RUST_LOG=matchmaker_rs=debug logs positions and per-stage span timings (stderr); the
+    // benchmark measures without a subscriber
+    if !matches!(command, Command::Bench { .. }) {
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .with_span_events(FmtSpan::CLOSE)
+            .with_writer(std::io::stderr)
+            .init();
+    }
+    match command {
         Command::Follow {
             score,
             performance,
@@ -99,13 +132,7 @@ fn main() -> Result<()> {
             print_new(&mm)?;
 
             if let Some(path) = output {
-                let ap = mm.alignment_path();
-                let mut tsv = String::from("perf_sec\tscore_beat\n");
-                for (t, b) in ap.perf_time.iter().zip(&ap.score_beat) {
-                    tsv.push_str(&format!("{t}\t{b}\n"));
-                }
-                std::fs::write(&path, tsv)
-                    .with_context(|| format!("cannot write {}", path.display()))?;
+                write_path_tsv(&path, mm.alignment_path())?;
             }
             Ok(())
         }
@@ -133,6 +160,22 @@ fn main() -> Result<()> {
                 }
             }
             Ok(())
+        }
+        Command::Bench {
+            manifest,
+            out,
+            runs,
+            methods,
+        } => {
+            let methods = if methods.is_empty() {
+                Method::AVAILABLE
+                    .iter()
+                    .map(|m| m.parse())
+                    .collect::<Result<_, _>>()?
+            } else {
+                methods
+            };
+            bench::run(&manifest, &out, runs, &methods)
         }
     }
 }

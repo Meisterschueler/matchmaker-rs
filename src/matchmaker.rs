@@ -33,6 +33,13 @@ pub enum Method {
 impl Method {
     /// Reference names of the supported methods.
     pub const AVAILABLE: [&'static str; 1] = ["pthmm"];
+
+    /// Reference name of the method.
+    pub fn name(self) -> &'static str {
+        match self {
+            Method::Pthmm => "pthmm",
+        }
+    }
 }
 
 impl FromStr for Method {
@@ -156,6 +163,19 @@ impl Matchmaker {
         self.follower
             .is_still_following()
             .then(|| self.follower.call(obs))
+    }
+
+    /// Replace processor and follower by wrappers around them, e.g. timing decorators of a
+    /// benchmark harness (the library itself never reads a clock, research R9).
+    pub fn wrap_stages(
+        mut self,
+        wrap: impl FnOnce(
+            Box<dyn Processor>,
+            Box<dyn OnlineAlignment>,
+        ) -> (Box<dyn Processor>, Box<dyn OnlineAlignment>),
+    ) -> Self {
+        (self.processor, self.follower) = wrap(self.processor, self.follower);
+        self
     }
 
     /// The loaded score.
