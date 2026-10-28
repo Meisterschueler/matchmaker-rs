@@ -32,8 +32,9 @@ that the alignment path covers the performance.
 
 1. **Given** the bundled MusicXML score and its performance MIDI, **When** the developer runs
    `pthmm` in simulation mode, **Then** a score position (in beats) is reported for every
-   observation and the final alignment path has one (performance time, score beat) pair per
-   observation.
+   consumed observation and the final alignment path has one (performance time, score beat)
+   pair per consumed observation; like the reference, the follower stops consuming once it
+   reaches the last score state.
 2. **Given** the same inputs as a MIDI score instead of MusicXML, **When** the follower runs,
    **Then** it produces positions on the same beat grid as the reference does for that MIDI
    score.
