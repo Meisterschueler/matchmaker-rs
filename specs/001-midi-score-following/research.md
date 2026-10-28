@@ -263,7 +263,7 @@ in CI would then link libpython into every test build.
 | `midly` | core | Unlicense | MIDI file parsing (pure Rust, no_std). **Requires adding `Unlicense` to `deny.toml`.** |
 | `musicxml` | core | MIT | MusicXML / `.mxl` parsing |
 | `ndarray` (no BLAS) | core | MIT/Apache-2.0 | readable NumPy-like arrays |
-| `ndarray-npy` (no default features) | core | MIT/Apache-2.0 | `.npy` export / golden loading |
+| `npyz` (feature `derive`) | core | MIT | `.npy` export / golden loading, incl. structured arrays with string ids (`ndarray-npy` cannot write those) |
 | `realfft` (+`rustfft`) | core | MIT (/Apache-2.0) | `rfft` for SPARC |
 | `thiserror` | core | MIT/Apache-2.0 | typed errors (IV) |
 | `tracing` | core | MIT | stage spans (III) |

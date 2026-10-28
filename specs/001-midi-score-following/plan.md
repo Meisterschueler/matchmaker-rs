@@ -21,7 +21,7 @@ forward step instead of the reference's dense `O(N²)` one (R2).
 
 **Language/Version**: Rust stable, edition 2024, MSRV 1.85 (`rust-version`); Python 3.10–3.13 for bindings and tooling
 
-**Primary Dependencies**: core: `midly`, `musicxml`, `ndarray`, `ndarray-npy`, `realfft`, `thiserror`, `tracing`, `serde`/`serde_json`; CLI: `clap`, `anyhow`, `tracing-subscriber`; bindings: `pyo3`, `numpy` (maturin). Justification per crate: [research.md R12](research.md#r12-dependencies-v)
+**Primary Dependencies**: core: `midly`, `musicxml`, `ndarray`, `npyz`, `realfft`, `thiserror`, `tracing`, `serde`/`serde_json`; CLI: `clap`, `anyhow`, `tracing-subscriber`; bindings: `pyo3`, `numpy` (maturin). Justification per crate: [research.md R12](research.md#r12-dependencies-v)
 
 **Storage**: Files only: inputs (MusicXML/`.mxl`/MIDI/`.match`/TSV), `.npy` + JSON outputs; golden data in `tests/golden/`; datasets in a CI cache
 
