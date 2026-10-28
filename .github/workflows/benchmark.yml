@@ -23,8 +23,8 @@ env:
   PIECES_PER_DATASET: 10
   RUNS_RUST: 5
   RUNS_PYTHON: 3
-  # methods implemented in Rust so far
-  METHODS: pthmm,hmm
+  # methods compared against the reference
+  METHODS: pthmm,hmm,outerhmm
 
 jobs:
   bench:

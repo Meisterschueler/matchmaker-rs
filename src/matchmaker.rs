@@ -18,6 +18,7 @@ use crate::features::{Processor, pitch::PitchProcessor};
 use crate::io::stream::{Frame, MidiMessage};
 use crate::performance::Performance;
 use crate::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
+use crate::prob::outerhmm::{OuterProductHmm, OuterProductHmmConfig};
 use crate::prob::pthmm::PitchHmm;
 use crate::score::Score;
 
@@ -31,17 +32,20 @@ pub enum Method {
     Pthmm,
     /// `hmm`: pitch + inter-onset-interval HMM with a Kalman tempo model.
     Hmm,
+    /// `outerhmm`: outer-product HMM following note by note with chord folding.
+    OuterHmm,
 }
 
 impl Method {
     /// Reference names of the supported methods.
-    pub const AVAILABLE: [&'static str; 2] = ["pthmm", "hmm"];
+    pub const AVAILABLE: [&'static str; 3] = ["pthmm", "hmm", "outerhmm"];
 
     /// Reference name of the method.
     pub fn name(self) -> &'static str {
         match self {
             Method::Pthmm => "pthmm",
             Method::Hmm => "hmm",
+            Method::OuterHmm => "outerhmm",
         }
     }
 }
@@ -53,6 +57,7 @@ impl FromStr for Method {
         match name {
             "pthmm" => Ok(Method::Pthmm),
             "hmm" => Ok(Method::Hmm),
+            "outerhmm" => Ok(Method::OuterHmm),
             _ => Err(Error::InvalidMethod {
                 method: name.to_string(),
                 available: Method::AVAILABLE.iter().map(|s| s.to_string()).collect(),
@@ -99,6 +104,14 @@ impl Matchmaker {
                 0.01,
                 Box::new(PitchProcessor::new(true, true)),
                 Box::new(PitchIoiHmm::new(&score, PitchIoiHmmConfig::default())),
+            ),
+            Method::OuterHmm => (
+                0.001,
+                Box::new(PitchProcessor::new(true, false)),
+                Box::new(OuterProductHmm::new(
+                    &score,
+                    OuterProductHmmConfig::default(),
+                )),
             ),
         };
         Ok(Matchmaker {

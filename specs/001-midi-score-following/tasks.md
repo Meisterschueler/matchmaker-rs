@@ -174,14 +174,14 @@ Cargo workspace per [plan.md](plan.md#source-code-repository-root): core crate a
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T057 [P] [US4] Write failing golden test `tests/golden_outerhmm.rs`: replayed observations and end to end; `positions`, `current_index`, `is_continuation`, `alignment_path` (< 1e-6) and `probabilities` (rtol 1e-12) for all pieces; plus a wrong-note case (one performed pitch shifted by a semitone, golden produced by `tools/golden/generate.py` variant `simple_mozart_k265_var1_wrongnote`) (US4-2)
+- [X] T057 [P] [US4] Write failing golden test `tests/golden_outerhmm.rs`: replayed observations and end to end; `positions`, `current_index`, `is_continuation`, `alignment_path` (< 1e-6) and `probabilities` (rtol 1e-12) for all pieces; plus a wrong-note case (one performed pitch shifted by a semitone, golden produced by `tools/golden/generate.py` variant `simple_mozart_k265_var1_wrongnote`) (US4-2)
 
 ### Implementation for User Story 4
 
 - [X] T058 [US4] Add the wrong-note variant to `tools/golden/generate.py` (shift the 5th note-on by +1 semitone in memory before streaming) and regenerate `tests/golden/simple_mozart_k265_var1_wrongnote/`
-- [ ] T059 [P] [US4] Port in `src/prob/outerhmm.rs`: `compute_OuterProductHMM_pitch_probabilities` (classes correct 0.9497, semitone 0.0145/2, whole tone 0.0224/2, octave 0.0047/2, within octave 0.0086/9/2, `other_prob = 1e-6`, divided by class sizes), `compute_transition_matrix` (1e-6 fill, deltas −3..3 with `DEFAULT_TRANSITIONS`, `+ f64::EPSILON`, row-normalise), `log_b = ln(max(b[:, 21..109], 1e-300))` precomputed
-- [ ] T060 [US4] Port `OuterProductHMM` as `OuterProductHmm` + config (`transitions`, `pitch_error_probs`, `S`, `r` default `1/N`, `other_prob`, `patience = 10`, `ioi_threshold = 0.035`) in `src/prob/outerhmm.rs`: Viterbi step (band `[i−3, i+3]` vs `r_i·max(S·p)`, `>=` tie rule, normalise or uniform), chord folding from `pre_chord_probs` without path entry, `is_still_following` always true, patience counter skipping continuations, `StepDebug.is_continuation` (depends on T059)
-- [ ] T061 [US4] Enable `Method::OuterHmm` in `src/matchmaker.rs` (stream `Windowed(0.001)`, processor `pitch` vector) and make `tests/golden_outerhmm.rs` pass
+- [X] T059 [P] [US4] Port in `src/prob/outerhmm.rs`: `compute_OuterProductHMM_pitch_probabilities` (classes correct 0.9497, semitone 0.0145/2, whole tone 0.0224/2, octave 0.0047/2, within octave 0.0086/9/2, `other_prob = 1e-6`, divided by class sizes), `compute_transition_matrix` (1e-6 fill, deltas −3..3 with `DEFAULT_TRANSITIONS`, `+ f64::EPSILON`, row-normalise), `log_b = ln(max(b[:, 21..109], 1e-300))` precomputed
+- [X] T060 [US4] Port `OuterProductHMM` as `OuterProductHmm` + config (`transitions`, `pitch_error_probs`, `S`, `r` default `1/N`, `other_prob`, `patience = 10`, `ioi_threshold = 0.035`) in `src/prob/outerhmm.rs`: Viterbi step (band `[i−3, i+3]` vs `r_i·max(S·p)`, `>=` tie rule, normalise or uniform), chord folding from `pre_chord_probs` without path entry, `is_still_following` always true, patience counter skipping continuations, `StepDebug.is_continuation` (depends on T059)
+- [X] T061 [US4] Enable `Method::OuterHmm` in `src/matchmaker.rs` (stream `Windowed(0.001)`, processor `pitch` vector) and make `tests/golden_outerhmm.rs` pass
 
 **Checkpoint**: All three methods work and match the reference
 
