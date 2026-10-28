@@ -5,10 +5,13 @@
 //! Every module names the Python code it ports; results are verified against the reference
 //! release with golden tests (see `tests/golden/`).
 
+pub mod base;
 pub mod error;
 pub mod features;
 pub mod io;
+pub mod matchmaker;
 pub mod performance;
+pub mod prob;
 pub mod score;
 
 pub use error::{Error, Result};

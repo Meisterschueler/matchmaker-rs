@@ -27,43 +27,32 @@ defined in [data-model.md](../data-model.md). Everything here builds for
 ## High-level entry point
 
 ```rust
-use matchmaker_rs::{Matchmaker, Method, MatchmakerOptions};
+use matchmaker_rs::matchmaker::{Matchmaker, Method};
 
-let mut mm = Matchmaker::new(
-    "tests/data/simple_mozart_k265_var1.musicxml",
-    MatchmakerOptions {
-        performance: Some("tests/data/simple_mozart_k265_var1.mid".into()),
-        method: Method::Pthmm,          // default for MIDI
-        ..Default::default()            // processor/piano_range/polling_period from method defaults
-    },
-)?;
-for beat in mm.run()? {                 // yields f64 score positions in beats
-    println!("{beat}");
-}
+// score, method, tempo override (None = score marking, else 120), unfold repeats
+let mut mm = Matchmaker::new("tests/data/simple_mozart_k265_var1.musicxml", Method::Pthmm, None, true)?;
+let positions = mm.run_file("tests/data/simple_mozart_k265_var1.mid")?;  // every yielded beat
 let path = mm.alignment_path();         // &AlignmentPath { perf_time, score_beat }
 ```
 
-`MatchmakerOptions` fields: `performance: Option<PathBuf>`, `method: Method`,
-`processor: Option<ProcessorKind>`, `tempo: Option<f64>`, `unfold_score: bool = true`,
-`config: MethodConfig` (overrides; unknown keys rejected with `Error::InvalidParameter`).
-`Method::from_str("pthmm" | "hmm" | "outerhmm")`; other names → `Error::InvalidMethod` listing
-the supported names (US5-2).
-
-Accessors: `score()`, `tempo()`, `score_positions()`, `alignment_path()`,
-`build_score_annotations(level, return_type)`, `follower()` (trait object, for debug state).
+`"pthmm".parse::<Method>()`; unknown names → `Error::InvalidMethod` listing the supported
+names (US5-2). Methods are added as they are ported; method parameters and processor choice
+(FR-011) are added with the methods that need them. Accessors: `score()`, `tempo()`,
+`alignment_path()`.
 
 ## Incremental (live-source) use — FR-005
 
 ```rust
-let mut mm = Matchmaker::new(score_path, MatchmakerOptions { performance: None, ..Default::default() })?;
-for (msg, time_s) in source {           // any live source
-    if let Some(beat) = mm.push(msg, time_s)? { /* new position */ }
+let mut mm = Matchmaker::new(score_path, Method::Pthmm, None, true)?;
+for msg in source {                     // any live source: MidiMessage { kind, channel, time }
+    for beat in mm.push(msg)? { /* new position */ }
 }
-mm.finish();                            // flushes processor (chord_onset) and closes windows
+mm.finish();                            // closes the last windows, flushes the processor
 ```
 
-`push` applies the method's stream mode (windows close when a message beyond the window end
-arrives or on `finish`). Timestamps must be non-decreasing (`Error::InvalidParameter` otherwise).
+`run_file` is `push` for every message of the file plus `finish`, so both give identical
+results. Windows close with the same comparisons as the reference's framing; timestamps must
+be non-decreasing (`Error::InvalidParameter` otherwise).
 
 ## Low-level pipeline (Stream → Processor → OnlineAlignment)
 

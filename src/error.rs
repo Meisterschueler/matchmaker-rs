@@ -51,6 +51,22 @@ pub enum Error {
         /// Why it cannot be used.
         reason: String,
     },
+    /// Unknown score-following method.
+    #[error("invalid method {method:?} for midi; available: {available:?}")]
+    InvalidMethod {
+        /// Requested method.
+        method: String,
+        /// Supported methods.
+        available: Vec<String>,
+    },
+    /// Invalid input value.
+    #[error("invalid {key}: {reason}")]
+    InvalidParameter {
+        /// What was invalid.
+        key: String,
+        /// Why.
+        reason: String,
+    },
 }
 
 impl Error {
