@@ -14,7 +14,7 @@ defined in [data-model.md](../data-model.md). Everything here builds for
 | `features::pitch` | `matchmaker.features.midi.PitchProcessor` |
 | `features::chord_onset` | `matchmaker.features.midi.ChordOnsetProcessor` |
 | `prob::hidden_markov` | `hiddenmarkov.HiddenMarkovModel.forward_algorithm_step`, `ConstantTransitionModel` |
-| `prob::hmm_models` | `matchmaker.prob.hmm` builders (`stable_transition_matrix`, `init_dist`, `compute_discrete_pitch_profiles`, `compute_ioi_matrix`, Bernoulli / ACC observation models) |
+| `prob::hmm_models` | `matchmaker.prob.hmm` builders (`stable_transition_matrix`, `init_dist`, `compute_discrete_pitch_profiles`, Bernoulli / ACC observation models; the IOI matrix is computed per step) |
 | `prob::pthmm` | `matchmaker.prob.hmm.PitchHMM` |
 | `prob::hmm` | `matchmaker.prob.hmm.PitchIOIHMM` |
 | `prob::outerhmm` | `matchmaker.prob.outer_product_hmm.OuterProductHMM` |
@@ -36,9 +36,11 @@ let path = mm.alignment_path();         // &AlignmentPath { perf_time, score_bea
 ```
 
 `"pthmm".parse::<Method>()`; unknown names → `Error::InvalidMethod` listing the supported
-names (US5-2). Methods are added as they are ported; method parameters and processor choice
-(FR-011) are added with the methods that need them. Accessors: `score()`, `tempo()`,
-`alignment_path()`; `Method::name()`. `wrap_stages(|processor, follower| …)` replaces both
+names (US5-2). `Matchmaker::with_config(.., MethodConfig, ..)` sets processor (`ProcessorKind`)
+and method parameters (FR-011): `MethodConfig::set(method, key, &ConfigValue)` rejects keys the
+method does not take with `Error::InvalidParameter`. `record()` keeps the intermediate data for
+`export`. Accessors: `score()`, `tempo()`, `method()`, `config()`, `alignment_path()`,
+`score_positions()`; `Method::name()`. `wrap_stages(|processor, follower| …)` replaces both
 stages by wrappers, which is how `matchmaker bench` times them without a clock in the library.
 
 ## Incremental (live-source) use — FR-005
@@ -62,7 +64,7 @@ let score = Score::load(score_path, true)?;   // true = unfold repeats
 let perf  = Performance::load(perf_path)?;
 let frames = io::stream::frames(&perf.messages(), StreamMode::Windowed { polling_period: 0.01 });
 let mut processor = PitchProcessor::new(true, false);
-let mut follower  = PitchHmm::new(&score, PitchHmmConfig::default())?;
+let mut follower  = PitchHmm::new(&score, true, true);   // has_insertions, piano_range
 for frame in &frames {
     if let Some(obs) = processor.process(frame) {
         follower.call(&obs);
@@ -81,13 +83,13 @@ let result: EvaluationResult = utils::eval::evaluate_alignment(path, &gt);
 ## Export — FR-018
 
 ```rust
-export::write_run(&mm, "out/simple_mozart/pthmm")?;   // .npy + meta.json, see golden-data.md
+export::write_run(&mm, "out/simple_mozart")?;   // dir/{score,stream,processor,<method>}/*.npy + meta.json, see golden-data.md
 ```
 
 ## Instrumentation — FR-017
 
 Spans (target `matchmaker_rs`): `stream` (per frame, `TRACE`), `feature` (per frame, `DEBUG`),
-`inference` (per observation, `DEBUG`, fields `index`, `perf_time`, `position`). The library
+`inference` (per observation, `DEBUG`; the event inside it logs `perf_time` and `position`). The library
 never reads a clock and installs no subscriber.
 
 ## Stability

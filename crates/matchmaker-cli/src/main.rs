@@ -74,7 +74,7 @@ enum Command {
     },
     /// Time and evaluate methods on the pieces of a TOML manifest (benchmark records).
     Bench {
-        /// TOML manifest: [[pieces]] with dataset, piece, score, performance, ground_truth
+        /// TOML manifest: `[[pieces]]` with dataset, piece, score, performance, ground_truth
         /// (paths relative to the manifest)
         manifest: PathBuf,
         /// Output JSON file (one record per method, piece and run)
@@ -91,6 +91,11 @@ enum Command {
 
 /// Write an alignment path as TSV with header `perf_sec\tscore_beat`.
 fn write_path_tsv(path: &Path, ap: &AlignmentPath) -> Result<()> {
+    anyhow::ensure!(
+        path.extension().is_none_or(|e| e != "npy"),
+        "--output writes TSV, not NPY: {}",
+        path.display()
+    );
     let mut tsv = String::from("perf_sec\tscore_beat\n");
     for (t, b) in ap.perf_time.iter().zip(&ap.score_beat) {
         tsv.push_str(&format!("{t}\t{b}\n"));

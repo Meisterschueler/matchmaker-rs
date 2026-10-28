@@ -10,15 +10,18 @@ Binary of `crates/matchmaker-cli`. Errors are printed with context (via `anyhow`
 matchmaker follow <SCORE> <PERFORMANCE>
     [--method pthmm|hmm|outerhmm]        default: pthmm
     [--tempo <BPM>] [--no-unfold]
-    [--output <FILE.tsv>]                alignment path (perf_sec<TAB>score_beat)
+    [--processor pitch|chord_onset]      default: pitch
+    [--set KEY=VALUE]...                 method parameter (FR-011); keys per method, e.g.
+                                         polling_period=0.02 or none, piano_range, patience, other_prob
+    [--output <FILE.tsv>]                alignment path (perf_sec<TAB>score_beat); `.npy` is rejected
     [--export <DIR>]                     intermediate data, layout of contracts/golden-data.md (US6)
+    [--ground-truth <FILE>]              with --export: also writes <DIR>/<method>/evaluation.json
     [--quiet]                            do not print positions
 ```
 
 stdout (unless `--quiet`): one line per alignment-path entry, `<perf_time_s>\t<score_beat>`,
-printed as computed (US1-4). Unknown method → exit 2 with the supported methods.
-`--processor` / `--set KEY=VALUE` (FR-011) are added together with the methods whose parameters
-they override.
+printed as computed (US1-4). Unknown method → exit 2 with the supported methods; unknown
+`--set` key or processor → exit 1 naming the allowed values.
 
 ## `matchmaker evaluate`
 

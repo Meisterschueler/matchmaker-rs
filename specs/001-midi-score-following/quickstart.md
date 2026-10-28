@@ -39,8 +39,8 @@ cargo run -p matchmaker-cli -- follow tests/data/mozart_k265_var1.musicxml tests
 cargo run -p matchmaker-cli -- follow tests/data/Bach-fugue_bwv_858.musicxml tests/data/Bach-fugue_bwv_858.mid --method outerhmm --export out/outerhmm
 ```
 
-Expected: `out/hmm/…/hmm/beat_period.npy` exists (US3-2); `outerhmm` export contains
-`is_continuation.npy`.
+Expected: `out/hmm/hmm/beat_period.npy` exists (US3-2); the `outerhmm` export contains
+`out/outerhmm/outerhmm/is_continuation.npy`.
 
 ## 4. Evaluation (US2-2)
 
@@ -56,7 +56,7 @@ within `1e-4`.
 
 ```text
 cd tools/golden
-python -m uv run compare.py ../../tests/golden/mozart_k265_var1 ../../out/hmm/mozart_k265_var1
+python -m uv run compare.py ../../tests/golden/mozart_k265_var1 ../../out/hmm
 ```
 
 Expected: "all stages equal" or the first differing stage (`score` → `stream` → `processor` →
@@ -92,7 +92,7 @@ runs on a subset of each dataset (`python tools/datasets/fetch.py --dest DIR --l
 ## 8. Platform gates
 
 ```text
-cargo build --target wasm32-unknown-unknown
+cargo build -p matchmaker-rs --target wasm32-unknown-unknown
 cargo deny check
 ```
 

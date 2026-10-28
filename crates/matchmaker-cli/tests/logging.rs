@@ -35,6 +35,15 @@ fn debug_log_has_positions_and_stage_timings() {
 }
 
 #[test]
+fn trace_log_has_stream_span() {
+    let log = follow(Some("matchmaker_rs=trace"));
+    assert!(
+        log.lines()
+            .any(|l| l.contains("stream") && l.contains("time.busy"))
+    );
+}
+
+#[test]
 fn silent_by_default() {
     assert_eq!(follow(None), "");
 }

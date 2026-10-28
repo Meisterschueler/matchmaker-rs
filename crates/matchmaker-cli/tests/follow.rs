@@ -29,6 +29,18 @@ fn follow_prints_and_writes_path() {
 }
 
 #[test]
+fn npy_output_is_rejected() {
+    let out = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .args(["follow", &data("simple_mozart_k265_var1.musicxml")])
+        .arg(data("simple_mozart_k265_var1.mid"))
+        .args(["--quiet", "--output", "path.npy"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("TSV"));
+}
+
+#[test]
 fn unknown_method_lists_available() {
     let out = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
         .args(["follow", "score.musicxml", "perf.mid", "--method", "arzt"])

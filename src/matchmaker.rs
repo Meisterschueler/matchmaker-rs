@@ -394,6 +394,7 @@ impl Matchmaker {
     }
 
     fn process_frame(&mut self, frame: &Frame) -> Option<f64> {
+        let _span = tracing::trace_span!("stream").entered();
         if let Some(recording) = &mut self.recording {
             recording.frames.push(frame.clone());
         }

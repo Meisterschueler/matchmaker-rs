@@ -10,11 +10,11 @@ Types: `f32`/`f64` follow [research.md R4](research.md#r4-numeric-types-and-prom
 | Field | Type | Source / rule |
 |---|---|---|
 | `id` | `String` | MusicXML note id (kept, `force_note_ids="keep"`), missing ids filled as partitura does; unfolded copies get `-<repetition>` |
-| `pitch` | `u8` | MIDI pitch from step/alter/octave (0–127) |
+| `pitch` | `i32` | MIDI pitch from step/alter/octave (0–127) |
 | `onset_beat` | `f32` | `beat_map(onset_div)` (computed in `f64`, stored as `f32`) |
 | `duration_beat` | `f32` | `beat_map(onset_div + duration_div) − onset_beat` |
-| `onset_quarter`, `duration_quarter` | — | not ported: no consumer (the golden files still contain them) |
-| `onset_div`, `duration_div` | `i32` | merged-part divisions (after `lcm` rescaling) |
+| `onset_quarter`, `duration_quarter` | `f32` | same with `quarter_map` (`Score::annotations` with musical beats) |
+| `onset_div`, `duration_div` | `i64` | merged-part divisions (after `lcm` rescaling) |
 | `voice` | `i32` | after `merge_parts` reassignment |
 
 Validation: `pitch ≤ 127`; `duration_div ≥ 0`; ids unique after unfolding (error otherwise).
@@ -26,7 +26,6 @@ Only the first note of a tie chain appears; grace notes appear (`duration_div` m
 |---|---|---|
 | `notes` | `Vec<ScoreNote>` | stable-sorted by `onset_beat`, then `pitch` |
 | `tempo` | `Option<f64>` | quarter-note BPM from R7; `None` → caller default 120 |
-| `source` | `PathBuf` | for error messages |
 | `unfolded` | `bool` | whether repeat unfolding was applied (it may fall back, as in the reference) |
 
 Derived (pure functions, no stored state):
@@ -116,9 +115,8 @@ fn debug_state(&self) -> StepDebug                      // for export (FR-018)
 | `outerhmm` | `OuterProductHmm` | `transitions = [(−3,.00509),(−2,.00516),(−1,.00886),(0,.01342),(1,.94531),(2,.00610),(3,.00073)]`, `D1 = D2 = 3`, pitch-error probs, `S = r = 1/N`, `other_prob = 1e-6`, `patience = 10`, `ioi_threshold = 0.035` | `state_probabilities`, `pre_chord_probs`, `current_chord: Vec<f32>`, `prev_perf_time`, `is_continuation`, `same_state_counter` |
 
 Shared building blocks (in `prob::hidden_markov` / `prob::hmm_models`):
-`BandedTransitionMatrix { rows: Vec<(start: usize, values: Vec<f64>)> }` (non-zero band per row,
-[R2](research.md#r2-hmm-forward-step-python-hiddenmarkov)), `init_probabilities: Vec<f64>`,
-`pitch_profiles: Array2<f64> (N × 88|128)`, `b_table`/`log_b: Array2<f64> (N × 128 | 88)`.
+`Banded { rows: Vec<(start: usize, values: Vec<f64>)> }` (non-zero band per row,
+[R2](research.md#r2-hmm-forward-step-python-hiddenmarkov)), `init_dist`, pitch profiles (N × 88|128, `compute_discrete_pitch_profiles`).
 
 ### `KalmanTempoModel` — port of `matchmaker.utils.tempo_models.KalmanTempoModel`
 
@@ -128,10 +126,12 @@ afterwards predict/update as in the reference.
 
 ### `MethodConfig` — what `Matchmaker(kwargs=…)` controls
 
-`method: Method { Pthmm, Hmm, OuterHmm }`, `processor: ProcessorKind { Pitch, ChordOnset }`,
-`piano_range: bool = true`, `stream_mode: StreamMode` (per-method default), method-specific
-overrides (e.g. `has_insertions`, `patience`, `transitions`, `pitch_error_probs`, Kalman
-parameters). Unknown keys → `Error::InvalidParameter { method, key, allowed }`.
+`processor: ProcessorKind { Pitch, ChordOnset }` (default `Pitch`), `piano_range: bool = true`,
+`polling_period: Option<f64>` (`None` = event-based; default 0.01, `outerhmm` 0.001), and for
+`outerhmm` `patience: Option<usize>`, `other_prob: Option<f64>`. `MethodConfig::set(method, key,
+&ConfigValue)` accepts only the keys of `Method::config_keys()`; anything else →
+`Error::InvalidParameter { key, reason }` naming the allowed keys. `Matchmaker::with_config`
+validates the combination (e.g. `hmm` needs the `pitch` processor).
 
 ## Results
 
@@ -142,7 +142,7 @@ performance. One entry per consumed non-continuation observation (R1).
 
 ### `StepDebug` — exported per step (FR-018)
 
-`perf_time: f64`, `position: f64`, `current_index: usize`, `probabilities: Option<Vec<f64>>`
+`perf_time: f64`, `position: f64`, `current_index: usize`, `probabilities: Vec<f64>`
 (forward variable / Viterbi distribution), `beat_period: Option<f64>` (`hmm`),
 `is_continuation: Option<bool>` (`outerhmm`).
 
@@ -174,10 +174,11 @@ duration, `EvaluationResult`. Schema: [contracts/benchmark-report.md](contracts/
 | `MusicXml { path, message }` | XML/`.mxl` cannot be parsed or is score-timewise-invalid |
 | `Midi { path, message }` | MIDI cannot be parsed |
 | `InvalidScore { path, reason }` | e.g. no notes, duplicate ids after unfolding |
-| `InvalidMethod { input_type, method, available }` | unknown method (lists options) |
-| `InvalidParameter { method, key, allowed }` | unknown or out-of-range parameter |
+| `InvalidMethod { method, available }` | unknown method (lists options) |
+| `InvalidParameter { key, reason }` | unknown or out-of-range parameter |
 | `GroundTruth { path, reason }` | missing columns, unsupported `.match` path (names the TSV converter) |
-| `Export { path, source }` | export directory/file cannot be written |
+
+Export write failures are `Io`.
 
 No public function panics on user input (IV).
 

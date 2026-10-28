@@ -61,8 +61,8 @@ For Rust exports `reference` is replaced by `{"implementation": "matchmaker-rs",
 `simple_mozart_k265_var1`, `mozart_k265_var1`, `Bach-fugue_bwv_858` (MusicXML + MIDI + `.match`
 from the reference's `matchmaker/assets`, copied to `tests/data/`). Variants:
 
-- `simple_mozart_k265_var1_midiscore` — the performance MIDI used as score (US1-2), `pthmm`.
-- `simple_mozart_k265_var1_wrongnote` — one note-on shifted by a semitone (US4-2), `outerhmm`.
+- `simple_mozart_k265_var1_midiscore` — the performance MIDI used as score (US1-2), all methods.
+- `simple_mozart_k265_var1_wrongnote` — one note-on shifted by a semitone (US4-2), all methods.
 - `fixture_<feature>` — minimal MusicXML scores for score features no bundled piece
   contains (repeats, voltas, grace notes, …); `score/` files only.
 
