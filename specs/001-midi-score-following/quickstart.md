@@ -80,14 +80,14 @@ listing `['pthmm', 'hmm', 'outerhmm']` (US5-2).
 cargo run --release -p matchmaker-cli -- bench tools/bench/bundled.toml --out target/bench/rust/records.json
 cd tools/golden
 python -m uv run ../bench/run_reference.py ../bench/bundled.toml --out ../../target/bench/python/records.json
-python -m uv run ../bench/report.py ../../target/bench/rust/records.json ../../target/bench/python/records.json --out ../../target/bench/report
+python -m uv run ../bench/report.py --rust ../../target/bench/rust/records.json --python ../../target/bench/python/records.json --out ../../target/bench/report
 ```
 
 Expected: `target/bench/report/index.md` with Rust vs Python latency per stage, speed-up,
 real-time factor, metrics and parity flags per method and piece; exit code 1 on a
 position-parity violation; Rust inference latency ≥ 5× lower (SC-004 target). In CI the same
-runs on the full datasets (`tools/datasets/fetch.py`) and the report is published; the README
-links to it (SC-006).
+runs on a subset of each dataset (`python tools/datasets/fetch.py --dest DIR --limit 10` writes
+`DIR/<dataset>.toml`) and the report is published; the README links to it (SC-006).
 
 ## 8. Platform gates
 

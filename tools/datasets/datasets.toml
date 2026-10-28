@@ -1,0 +1,25 @@
+# Benchmark datasets (T049). tools/datasets/fetch.py downloads them at the pinned commit (the
+# git commit hash verifies the content) into a cache directory. They are never committed or
+# uploaded as artifacts: their licenses differ from this repository's Apache-2.0. The benchmark
+# report only publishes derived metrics, with the attribution below (non-commercial use).
+
+[nasap]
+name = "(n)ASAP"
+repo = "https://github.com/CPJKU/asap-dataset"
+commit = "4097b45757bed854818cf87e77b92323ebf90615" # tag v2.1.1
+license = "CC BY-NC-SA 4.0"
+citation = "S. D. Peter et al., Automatic Note-Level Score-to-Performance Alignments in the ASAP Dataset, TISMIR 2023, doi:10.5334/tismir.149"
+
+[batik]
+name = "Batik-plays-Mozart"
+repo = "https://github.com/huispaty/batik_plays_mozart"
+commit = "9c5f7004c5ab1f15d64e959d011dbdf3b7863c3e"
+license = "CC BY-NC-SA 4.0"
+citation = "P. Hu and G. Widmer, The Batik-plays-Mozart Corpus, ISMIR 2023"
+
+[vienna4x22]
+name = "Vienna 4x22"
+repo = "https://github.com/CPJKU/vienna4x22"
+commit = "1033ade0899bfd03a89f370c9ad5d8443ddccd3e"
+license = "CC BY 4.0"
+citation = "W. Goebl, The Vienna 4x22 Piano Corpus, 1999, doi:10.21939/4X22"

@@ -16,7 +16,7 @@
 //! ```
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 use realfft::RealFftPlanner;
@@ -141,9 +141,11 @@ fn pnote_id(id: &str) -> String {
     }
 }
 
-/// Port of `gt_from_match` for match files of version 1.x whose score note ids are shared with
-/// the score (the bundled examples). Other files are converted with the reference by
-/// `tools/golden/match_to_tsv.py`.
+/// Port of `gt_from_match` for match files of version 1.x and the legacy versions 3.0-5.0
+/// ((n)ASAP). Score notes are found by shared note
+/// id, else (e.g. Vienna 4x22) by MIDI pitch and onset beat rounded to 4 decimals; the match
+/// score's onset beat is the snote's `OnsetInBeats`. Other files are converted with the
+/// reference by `tools/golden/match_to_tsv.py`.
 fn from_match(
     path: &Path,
     text: &str,
@@ -163,24 +165,39 @@ fn from_match(
                 .strip_prefix(',')
         })
     };
-    if !info("matchFileVersion").is_some_and(|v| v.starts_with("1.")) {
-        return Err(err("only match file version 1.x is supported"));
+    let version = info("matchFileVersion").unwrap_or_default();
+    // partitura reads "5.0" as legacy 0.5.0 and "1.0.0" as 1.0.0
+    let legacy = matches!(version, "3.0" | "4.0" | "5.0");
+    if !legacy && !(version.starts_with("1.") && version.matches('.').count() == 2) {
+        return Err(err(
+            "only match file versions 1.x.y and 3.0-5.0 are supported",
+        ));
     }
 
-    let mut snote_ids = HashSet::new();
+    // snote(Anchor,[NoteName,Modifier],Octave,Measure:Beat,Offset,Duration,OnsetInBeats,...)
+    let mut snotes = Vec::new();
     // snote-note lines: (score id, performance id, MIDI pitch, onset in ticks)
     let mut matches = Vec::new();
     for line in text.lines().map(str::trim) {
         let Some(rest) = line.strip_prefix("snote(") else {
             continue;
         };
-        let score_id = rest.split(',').next().unwrap_or_default();
-        snote_ids.insert(score_id);
+        let snote = rest.split(')').next().unwrap_or_default();
+        let score_id = snote.split(',').next().unwrap_or_default();
+        snotes.push((score_id, snote));
         if let Some((_, note)) = rest.split_once(")-note(") {
-            // note(Id, MidiPitch, Onset, Offset, Velocity, Channel, Track)
+            // 1.x: note(Id,MidiPitch,Onset,Offset,Velocity,Channel,Track)
+            // legacy: note(Id,[NoteName,Modifier],Octave,Onset,Offset,AdjOffset,Velocity)
             let fields: Vec<&str> = note.trim_end_matches(").").split(',').collect();
-            let pitch = fields.get(1).and_then(|p| p.parse::<i64>().ok());
-            let onset = fields.get(2).and_then(|o| o.parse::<f64>().ok());
+            let (pitch, onset) = if legacy {
+                let pitch = fields
+                    .get(1..4)
+                    .and_then(|f| spelled_pitch(f[0], f[1], f[2]));
+                (pitch, fields.get(4))
+            } else {
+                (fields.get(1).and_then(|p| p.parse().ok()), fields.get(2))
+            };
+            let onset = onset.and_then(|o| o.parse::<f64>().ok());
             let (Some(pitch), Some(onset)) = (pitch, onset) else {
                 return Err(err(&format!("cannot read the note in {line:?}")));
             };
@@ -188,12 +205,39 @@ fn from_match(
         }
     }
 
-    let mut beat_at = HashMap::new();
-    for note in &score.notes {
-        beat_at.insert(note.id.as_str(), f64::from(note.onset_beat));
+    let mut beat_of = HashMap::new();
+    let by_id: HashMap<&str, f64> = score
+        .notes
+        .iter()
+        .map(|n| (n.id.as_str(), f64::from(n.onset_beat)))
+        .collect();
+    if snotes.iter().any(|(id, _)| by_id.contains_key(id)) {
+        for (id, _) in &snotes {
+            if let Some(&beat) = by_id.get(id) {
+                beat_of.insert(*id, beat);
+            }
+        }
+    } else {
+        // `+ 0.0` turns -0.0 into 0.0, which Python's dict treats as equal
+        let key = |pitch: i64, beat: f64| (pitch, (round4(beat) + 0.0).to_bits());
+        let by_pitch_beat: HashMap<_, f64> = score
+            .notes
+            .iter()
+            .map(|n| {
+                let beat = f64::from(n.onset_beat);
+                (key(i64::from(n.pitch), beat), beat)
+            })
+            .collect();
+        for (id, snote) in &snotes {
+            let (pitch, beat) = snote_pitch_beat(snote)
+                .ok_or_else(|| err(&format!("cannot read snote({snote})")))?;
+            if let Some(&b) = by_pitch_beat.get(&key(pitch, beat)) {
+                beat_of.insert(*id, b);
+            }
+        }
     }
-    if !snote_ids.iter().any(|id| beat_at.contains_key(id)) {
-        return Err(err("the match file shares no note ids with the score"));
+    if beat_of.is_empty() {
+        return Err(err("no score note of the match file is found in the score"));
     }
 
     // _streamed_onsets: partitura numbers the notes of each MIDI track n0, n1, ...
@@ -217,7 +261,7 @@ fn from_match(
 
     let mut pairs = Vec::new();
     for (score_id, pid, _, onset) in &matches {
-        let Some(&beat) = beat_at.get(score_id) else {
+        let Some(&beat) = beat_of.get(score_id) else {
             continue;
         };
         let sec = match &streamed {
@@ -240,6 +284,38 @@ fn from_match(
         }
     }
     Ok(gt)
+}
+
+/// MIDI pitch and `OnsetInBeats` (through f32, like partitura's note array) of an snote.
+fn snote_pitch_beat(snote: &str) -> Option<(i64, f64)> {
+    let f: Vec<&str> = snote.split(',').collect();
+    let pitch = spelled_pitch(f.get(1)?, f.get(2)?, f.get(3)?)?;
+    let beat: f32 = f.get(7)?.parse().ok()?;
+    Some((pitch, f64::from(beat)))
+}
+
+/// MIDI pitch of the match fields `[NoteName`, `Modifier]`, `Octave`.
+fn spelled_pitch(name: &str, modifier: &str, octave: &str) -> Option<i64> {
+    let step = match name.trim_start_matches('[').to_ascii_uppercase().as_str() {
+        "C" => 0,
+        "D" => 2,
+        "E" => 4,
+        "F" => 5,
+        "G" => 7,
+        "A" => 9,
+        "B" => 11,
+        _ => return None,
+    };
+    let alter = match modifier.trim_end_matches(']') {
+        "n" | "" => 0,
+        "#" => 1,
+        "##" | "x" => 2,
+        "b" => -1,
+        "bb" => -2,
+        _ => return None,
+    };
+    let octave: i64 = octave.parse().ok()?;
+    Some(12 * (octave + 1) + step + alter)
 }
 
 /// `transfer_positions(wp, queries, frame_rate=1, domain="score")`: the last path entry per
@@ -498,6 +574,18 @@ mod tests {
             .collect();
         assert_eq!(rounded, [0.0312, 0.0938, -0.0312, 1.0001, 0.0]);
         assert!(round4(f64::NAN).is_nan());
+    }
+
+    #[test]
+    fn snote_pitch_and_onset_beat() {
+        // Vienna 4x22 Chopin_op10_no3_p01.match
+        let snote = "n1,[B,n],3,0:1,0,1/8,-0.5000,0.0000,[v1,staff1]";
+        assert_eq!(snote_pitch_beat(snote), Some((59, -0.5)));
+        let snote = "n3,[G,#],3,1:1,0,1/16,0.0000,0.2500,[v3,staff1]";
+        assert_eq!(snote_pitch_beat(snote), Some((56, 0.0)));
+        assert_eq!(snote_pitch_beat("n3,[H,#],3"), None);
+        // legacy 5.0 note of (n)ASAP Chopin/Barcarolle/Verbaite03.match
+        assert_eq!(spelled_pitch("[C", "#]", "1"), Some(25));
     }
 
     #[test]

@@ -169,5 +169,5 @@ and `performance.rs`, each naming its partitura source.
 |-----------|------------|-------------------------------------|
 | Banded transition storage instead of dense `N×N` (R2) | Memory/latency for large scores (SC-004); identical results because skipped entries are exact zeros | Dense matrix: up to hundreds of MB per piece, memory-bound |
 | Stable message sort instead of NumPy's unstable `argsort` (R5) | Unstable order is CPU-dependent and not reproducible | Emulating NumPy quicksort: cannot match across CPUs; no effect in default modes |
-| `.match` ground truth without shared ids converted by a reference script (R8) | Rebuilding a score from match `snote` lines is a large partitura port needed only for this fallback | Full port now: delays P1 stories; parity is kept because the reference produces the TSV |
+| `.match` ground truth: no match-score rebuild; the fallback join takes the snote's `OnsetInBeats`, other versions are converted by a reference script (R8) | Rebuilding a score from match `snote` lines is a large partitura port | Full port now: delays P1 stories; parity verified on Batik, Vienna 4x22 and (n)ASAP (T049) |
 | Timing in the harness instead of the library (R9) | `Instant` panics on wasm; the reference has no MIDI latency stats | In-library timing: breaks V and distorts measurements (III) |

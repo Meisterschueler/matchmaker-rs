@@ -26,8 +26,9 @@ they override.
 matchmaker evaluate <SCORE> <ALIGNMENT> <GROUND_TRUTH> [--performance <MIDI>] [--json]
 ```
 
-`ALIGNMENT`: `.tsv` written by `follow --output`. `GROUND_TRUTH`: `.match` (version 1.x with
-note ids shared with the score) or TSV with columns `perf_sec`, `score_beat`; other match files
+`ALIGNMENT`: `.tsv` written by `follow --output`. `GROUND_TRUTH`: `.match` (versions 1.x.y and
+legacy 3.0-5.0; score notes by shared id, else by pitch and onset beat like the reference) or
+TSV with columns `perf_sec`, `score_beat`; other match files
 are converted with `tools/golden/match_to_tsv.py`. Output: the `EvaluationResult` keys of the
 reference, as a table or JSON (`--json`); NaN is printed as `null`.
 

@@ -9,10 +9,11 @@ parity flags (contracts/benchmark-report.md):
   of the steps for hmm (SC-002); the first differing step is reported (SC-007)
 
 Exits with 1 on a position-parity violation. ``--baseline`` (the previous master report.json)
-flags Rust inference latency above 1.10 x the baseline. Standard library + NumPy only; the two
-records files must live in different directories (each has its own ``paths/``):
+flags Rust inference latency above 1.10 x the baseline. The page ends with the sources of the
+datasets in the report (tools/datasets/datasets.toml). Standard library + NumPy only; every
+records file has its own ``paths/`` directory next to it (one directory per shard and side):
 
-    python report.py rust/records.json python/records.json --out report
+    python report.py --rust rust/records.json --python python/records.json --out report
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import argparse
 import json
 import math
 import statistics
+import tomllib
 from pathlib import Path
 
 import numpy as np
@@ -29,13 +31,15 @@ METRIC_TOL = 1e-4
 POSITION_TOL = 1e-6
 HMM_MIN_SHARE = 0.999
 REGRESSION = 1.10
+DATASETS = Path(__file__).parent.parent / "datasets" / "datasets.toml"
 
 
-def load(path: Path) -> dict:
-    """Records grouped by (method, dataset, piece)."""
+def load(paths: list[Path]) -> dict:
+    """(records, directory of their paths/) grouped by (method, dataset, piece)."""
     groups: dict = {}
-    for r in json.loads(path.read_text(encoding="utf-8")):
-        groups.setdefault((r["method"], r["dataset"], r["piece"]), []).append(r)
+    for path in paths:
+        for r in json.loads(path.read_text(encoding="utf-8")):
+            groups.setdefault((r["method"], r["dataset"], r["piece"]), ([], path.parent))[0].append(r)
     return groups
 
 
@@ -71,8 +75,8 @@ def position_parity(method: str, rust: Path, python: Path) -> dict | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("rust", type=Path)
-    parser.add_argument("python", type=Path)
+    parser.add_argument("--rust", type=Path, nargs="+", required=True)
+    parser.add_argument("--python", type=Path, nargs="+", required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--baseline", type=Path, help="report.json of the latest master run")
     args = parser.parse_args()
@@ -86,9 +90,9 @@ def main() -> None:
     rows = []
     for key in sorted(set(rust) | set(python)):
         method, dataset, piece = key
-        side = {}
+        side, dirs = {}, {}
         for name, groups in (("rust", rust), ("python", python)):
-            records = groups.get(key, [])
+            records, dirs[name] = groups.get(key, ([], None))
             side[name] = {
                 "runs": len(records),
                 "feature_ms": median(records, "latency_ms", "feature", "median"),
@@ -103,6 +107,9 @@ def main() -> None:
             metric_parity = all(same(r["evaluation"].get(k), v) for k, v in p["evaluation"].items())
         rel = Path("paths") / dataset / piece / f"{method}.tsv"
         previous = baseline.get(key)
+        parity = None
+        if dirs["rust"] and dirs["python"]:
+            parity = position_parity(method, dirs["rust"] / rel, dirs["python"] / rel)
         rows.append(
             {
                 "method": method,
@@ -112,7 +119,7 @@ def main() -> None:
                 "python": p,
                 "speed_up": p["total_s"] / r["total_s"] if r["total_s"] and p["total_s"] else None,
                 "metric_parity": metric_parity,
-                "position_parity": position_parity(method, args.rust.parent / rel, args.python.parent / rel),
+                "position_parity": parity,
                 "regression": bool(previous and r["inference_ms"] and r["inference_ms"] > REGRESSION * previous),
             }
         )
@@ -143,6 +150,13 @@ def main() -> None:
             f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "
             f"| {pos_text} | {'REGRESSION' if row['regression'] else ''} |"
         )
+    datasets = tomllib.loads(DATASETS.read_text(encoding="utf-8"))
+    used = sorted({row["dataset"] for row in rows} & set(datasets))
+    if used:
+        lines += ["", "## Datasets", "", "Only derived metrics are published; the data is not redistributed.", ""]
+        for name in used:
+            d = datasets[name]
+            lines.append(f"- {d['name']}: {d['repo']} @ `{d['commit'][:10]}`, {d['license']}. {d['citation']}")
     (args.out / "index.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
 

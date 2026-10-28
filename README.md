@@ -48,8 +48,20 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 
 ## Benchmark datasets
 
-- (n)ASAP, Batik, Vienna4x22 (as in the paper), downloaded in CI.
-- The bundled Mozart K265 example for fast tests.
+The [Benchmark workflow](.github/workflows/benchmark.yml) compares Rust and the Python reference
+(latency, accuracy, alignment parity) and publishes the
+[report](https://meisterschueler.github.io/matchmaker-rs/) on GitHub Pages. Datasets are
+downloaded in CI at pinned commits ([tools/datasets/datasets.toml](tools/datasets/datasets.toml),
+[fetch.py](tools/datasets/fetch.py)); they are not part of this repository and keep their own
+licenses — only derived metrics are published:
+
+- [(n)ASAP](https://github.com/CPJKU/asap-dataset) (CC BY-NC-SA 4.0): S. D. Peter et al.,
+  TISMIR 2023, doi:10.5334/tismir.149
+- [Batik-plays-Mozart](https://github.com/huispaty/batik_plays_mozart) (CC BY-NC-SA 4.0):
+  P. Hu and G. Widmer, ISMIR 2023
+- [Vienna 4x22](https://github.com/CPJKU/vienna4x22) (CC BY 4.0): W. Goebl, 1999,
+  doi:10.21939/4X22
+- The bundled Mozart K265 examples for fast tests.
 
 ## Paper
 

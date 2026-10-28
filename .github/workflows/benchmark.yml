@@ -1,0 +1,115 @@
+name: Benchmark
+
+# Rust vs. Python reference on the bundled examples and a subset of nASAP, Batik and Vienna 4x22
+# (T049/T050). The datasets are cached between runs and never uploaded; only records, alignment
+# paths and the report (derived metrics) are. Pages needs Settings > Pages > Source: GitHub Actions.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    paths: ["src/**", "crates/**", "tools/bench/**", "tools/datasets/**", ".github/workflows/benchmark.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  PIECES_PER_DATASET: 10
+  RUNS_RUST: 5
+  RUNS_PYTHON: 3
+  # methods implemented in Rust so far
+  METHODS: pthmm
+
+jobs:
+  bench:
+    name: bench (${{ matrix.dataset }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: [bundled, nasap, batik, vienna4x22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Reference environment
+        working-directory: tools/golden
+        run: |
+          python -m pip install uv
+          python -m uv sync --locked
+      - name: Cache dataset
+        if: matrix.dataset != 'bundled'
+        uses: actions/cache@v4
+        with:
+          path: ~/datasets/${{ matrix.dataset }}
+          key: dataset-${{ matrix.dataset }}-${{ hashFiles('tools/datasets/datasets.toml') }}
+      - name: Manifest
+        run: |
+          if [ "${{ matrix.dataset }}" = bundled ]; then
+            echo "MANIFEST=$GITHUB_WORKSPACE/tools/bench/bundled.toml" >> "$GITHUB_ENV"
+          else
+            python tools/datasets/fetch.py --dest ~/datasets --datasets ${{ matrix.dataset }} --limit "$PIECES_PER_DATASET"
+            echo "MANIFEST=$HOME/datasets/${{ matrix.dataset }}.toml" >> "$GITHUB_ENV"
+          fi
+      - name: Rust
+        run: cargo run --release -p matchmaker-cli -- bench "$MANIFEST" --out out/rust/records.json --runs "$RUNS_RUST" --methods "$METHODS"
+      - name: Python reference
+        working-directory: tools/golden
+        run: python -m uv run ../bench/run_reference.py "$MANIFEST" --out "$GITHUB_WORKSPACE/out/python/records.json" --runs "$RUNS_PYTHON" --methods "$METHODS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.dataset }}
+          path: out/
+
+  report:
+    needs: bench
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bench-*
+          path: out
+      - name: Report
+        id: report
+        run: |
+          python -m pip install numpy
+          curl -fsSL "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/report.json" -o baseline.json || rm -f baseline.json
+          set +e
+          python tools/bench/report.py --rust out/*/rust/records.json --python out/*/python/records.json --baseline baseline.json --out site
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat site/index.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: site
+          destination: _site
+      - uses: actions/upload-pages-artifact@v3
+      # after the upload, so a failing report is still published
+      - name: Position parity
+        run: exit ${{ steps.report.outputs.status }}
+
+  deploy:
+    needs: report
+    if: ${{ !cancelled() && needs.report.result != 'skipped' && github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
