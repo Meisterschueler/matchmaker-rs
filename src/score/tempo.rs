@@ -56,10 +56,10 @@ pub(crate) fn get_tempo_from_score(part: &Part, xml: Option<&str>) -> Option<f64
     // 1. partitura Tempo objects (first in timeline order); any error skips this source
     let mut tempos: Vec<_> = part.tempos.iter().collect();
     tempos.sort_by_key(|t| t.start);
-    if let Some(first) = tempos.first() {
-        if let Some(bpm) = to_quarter_tempo(first.unit.as_deref().unwrap_or("q"), first.bpm) {
-            return Some(bpm);
-        }
+    if let Some(first) = tempos.first()
+        && let Some(bpm) = to_quarter_tempo(first.unit.as_deref().unwrap_or("q"), first.bpm)
+    {
+        return Some(bpm);
     }
     let doc = xml.and_then(|text| {
         let options = roxmltree::ParsingOptions {
@@ -73,10 +73,9 @@ pub(crate) fn get_tempo_from_score(part: &Part, xml: Option<&str>) -> Option<f64
         .descendants()
         .filter(|n| n.has_tag_name("sound"))
         .find_map(|n| n.attribute("tempo"))
+        && let Ok(bpm) = tempo.trim().parse::<f64>()
     {
-        if let Ok(bpm) = tempo.trim().parse::<f64>() {
-            return Some(bpm);
-        }
+        return Some(bpm);
     }
     // 3. text tempo marking
     extract_tempo_marking_from_musicxml(&doc)

@@ -454,13 +454,13 @@ impl PathState {
                 self.jumped = true;
                 let ids: Vec<String> = segments.keys().cloned().collect();
                 for id in ids {
-                    if let Some(seg) = segments.get_mut(&id) {
-                        if !seg.await_to.is_empty() {
-                            let mut to: Vec<String> =
-                                seg.to.iter().filter(|d| **d <= seg.id).cloned().collect();
-                            to.extend(seg.await_to.iter().cloned());
-                            seg.to = to;
-                        }
+                    if let Some(seg) = segments.get_mut(&id)
+                        && !seg.await_to.is_empty()
+                    {
+                        let mut to: Vec<String> =
+                            seg.to.iter().filter(|d| **d <= seg.id).cloned().collect();
+                        to.extend(seg.await_to.iter().cloned());
+                        seg.to = to;
                     }
                     self.used.insert(id, Vec::new());
                 }

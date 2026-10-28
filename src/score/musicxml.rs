@@ -308,15 +308,16 @@ fn handle_measure(
 fn handle_attributes(e: Node, position: Time, part: &mut Part) {
     let beats = value_from_tag::<i64>(e, "time/beats");
     let beat_type = value_from_tag::<i64>(e, "time/beat-type");
-    if let (Some(beats), Some(beat_type)) = (beats, beat_type) {
-        if beats != 0 && beat_type != 0 {
-            part.time_signatures.push(TimeSignature {
-                start: position,
-                beats,
-                beat_type,
-            });
-            part.add_point(position);
-        }
+    if let (Some(beats), Some(beat_type)) = (beats, beat_type)
+        && beats != 0
+        && beat_type != 0
+    {
+        part.time_signatures.push(TimeSignature {
+            start: position,
+            beats,
+            beat_type,
+        });
+        part.add_point(position);
     }
     let has_key = find(e, "key/fifths").is_some() || find(e, "key/mode").is_some();
     let has_transpose =
@@ -324,10 +325,10 @@ fn handle_attributes(e: Node, position: Time, part: &mut Part) {
     if has_key || has_transpose || child(e, "clef").is_some() {
         part.add_point(position);
     }
-    if let Some(divs) = value_from_tag::<i64>(e, "divisions") {
-        if divs != 0 {
-            part.set_quarter_duration(position, divs);
-        }
+    if let Some(divs) = value_from_tag::<i64>(e, "divisions")
+        && divs != 0
+    {
+        part.set_quarter_duration(position, divs);
     }
 }
 
@@ -519,11 +520,11 @@ fn handle_note(
         .or_else(|| e.attribute("ID"))
         .map(str::to_string);
 
-    if child(e, "chord").is_some() {
-        if let Some(prev) = prev_note {
-            position = prev.start;
-            duration = prev.duration;
-        }
+    if child(e, "chord").is_some()
+        && let Some(prev) = prev_note
+    {
+        position = prev.start;
+        duration = prev.duration;
     }
 
     let mut class = NoteClass::Rest;
@@ -542,20 +543,20 @@ fn handle_note(
         } else {
             NoteClass::Note
         };
-        if let (Some(step), Some(octave)) = (step, octave) {
-            if let Some(mp) = midi_pitch(&step, alter, octave) {
-                tie_pitch = Some(mp);
-                note_index = Some(part.notes.len());
-                part.notes.push(Note {
-                    id: note_id.clone(),
-                    midi_pitch: mp,
-                    voice,
-                    start: position,
-                    end: position + duration,
-                    tie_next: None,
-                    tie_prev: None,
-                });
-            }
+        if let (Some(step), Some(octave)) = (step, octave)
+            && let Some(mp) = midi_pitch(&step, alter, octave)
+        {
+            tie_pitch = Some(mp);
+            note_index = Some(part.notes.len());
+            part.notes.push(Note {
+                id: note_id.clone(),
+                midi_pitch: mp,
+                voice,
+                start: position,
+                end: position + duration,
+                tie_next: None,
+                tie_prev: None,
+            });
         }
     } else if child(e, "unpitched").is_some() {
         class = NoteClass::Unpitched;
@@ -574,18 +575,18 @@ fn handle_note(
         .filter(|n| n.has_tag_name("tie"))
         .filter_map(|n| n.attribute("type"))
         .collect();
-    if !tie_types.is_empty() {
-        if let (Some(pitch), Some(n)) = (tie_pitch, note_index) {
-            let ties = &mut ongoing.ties;
-            if !ties.pitches.contains(&pitch) {
-                ties.pitches.push(pitch);
-            }
-            if tie_types.contains(&"stop") {
-                ties.stop.insert((pitch, position), n);
-            }
-            if tie_types.contains(&"start") {
-                ties.start.insert((pitch, position + duration), n);
-            }
+    if !tie_types.is_empty()
+        && let (Some(pitch), Some(n)) = (tie_pitch, note_index)
+    {
+        let ties = &mut ongoing.ties;
+        if !ties.pitches.contains(&pitch) {
+            ties.pitches.push(pitch);
+        }
+        if tie_types.contains(&"stop") {
+            ties.stop.insert((pitch, position), n);
+        }
+        if tie_types.contains(&"start") {
+            ties.start.insert((pitch, position + duration), n);
         }
     }
     (
@@ -674,16 +675,16 @@ fn complete_endings_and_repeats(part: &mut Part) {
     for i in 0..part.endings.len() {
         let e = &part.endings[i];
         if e.start.is_none() {
-            if let Some(end) = e.end {
-                if let Some((s, _)) = measure_containing(part, end - 1) {
-                    part.endings[i].start = Some(s);
-                }
+            if let Some(end) = e.end
+                && let Some((s, _)) = measure_containing(part, end - 1)
+            {
+                part.endings[i].start = Some(s);
             }
-        } else if e.end.is_none() {
-            if let Some((_, end)) = measure_containing(part, e.start.unwrap_or(0)) {
-                part.endings[i].end = Some(end);
-                part.add_point(end);
-            }
+        } else if e.end.is_none()
+            && let Some((_, end)) = measure_containing(part, e.start.unwrap_or(0))
+        {
+            part.endings[i].end = Some(end);
+            part.add_point(end);
         }
     }
 

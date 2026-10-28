@@ -8,6 +8,15 @@ Pure-Rust port of [pymatchmaker](https://github.com/pymatchmaker/matchmaker), a 
 
 Status: work in progress, developed spec-driven with [Spec Kit](https://github.com/github/spec-kit) (see `specs/`).
 
+## Development
+
+Enable the pre-commit hook once per clone; it runs the CI lint gates (`cargo fmt --check`,
+`cargo clippy -D warnings`) before every commit:
+
+```text
+git config core.hooksPath .githooks
+```
+
 ## Reference implementation
 
 - pymatchmaker release: tag [`v0.4.0`](https://github.com/pymatchmaker/matchmaker/tree/v0.4.0).

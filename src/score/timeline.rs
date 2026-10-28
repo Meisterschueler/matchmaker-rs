@@ -55,13 +55,13 @@ impl TimeMap {
 
         // Anacrusis: if the first measure is shorter than its time signature, shift so that
         // the first full measure starts at 0.
-        if let Some((m_start, m_end)) = part.first_measure() {
-            if let Some(ts) = part.time_signatures.iter().find(|ts| ts.start == m_start) {
-                let actual_dur = map.eval(m_end as f64)? - map.eval(m_start as f64)?;
-                if actual_dur < ts.beats as f64 {
-                    for v in &mut map.y {
-                        *v -= actual_dur;
-                    }
+        if let Some((m_start, m_end)) = part.first_measure()
+            && let Some(ts) = part.time_signatures.iter().find(|ts| ts.start == m_start)
+        {
+            let actual_dur = map.eval(m_end as f64)? - map.eval(m_start as f64)?;
+            if actual_dur < ts.beats as f64 {
+                for v in &mut map.y {
+                    *v -= actual_dur;
                 }
             }
         }
