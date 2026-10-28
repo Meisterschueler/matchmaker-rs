@@ -19,7 +19,7 @@ forward step instead of the reference's dense `O(N²)` one (R2).
 
 ## Technical Context
 
-**Language/Version**: Rust stable, edition 2024, MSRV 1.85 (`rust-version`); Python 3.10–3.13 for bindings and tooling
+**Language/Version**: Rust stable, edition 2024, MSRV 1.88 (`rust-version`; required by zip 9); Python 3.10–3.13 for bindings and tooling
 
 **Primary Dependencies**: core: `midly`, `roxmltree`, `zip` (deflate), `realfft`, `thiserror`, `tracing`, `serde`/`serde_json`, own `npy` module; CLI: `clap`, `anyhow`, `tracing-subscriber`; bindings: `pyo3`, `numpy` (maturin). Justification per crate: [research.md R12](research.md#r12-dependencies-v)
 
