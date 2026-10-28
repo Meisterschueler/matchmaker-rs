@@ -3,6 +3,7 @@
 [![CI](https://github.com/Meisterschueler/matchmaker-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Meisterschueler/matchmaker-rs/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2FMeisterschueler%2Fmatchmaker-rs%2Fmaster%2FCargo.toml&query=%24.package.version&label=version)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Benchmark](https://img.shields.io/endpoint?url=https%3A%2F%2Fmeisterschueler.github.io%2Fmatchmaker-rs%2Fbadge.json)](https://meisterschueler.github.io/matchmaker-rs/)
 
 Pure-Rust port of [pymatchmaker](https://github.com/pymatchmaker/matchmaker), a library for real-time music alignment (score following).
 
@@ -50,7 +51,9 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 
 The [Benchmark workflow](.github/workflows/benchmark.yml) compares Rust and the Python reference
 (latency, accuracy, alignment parity) and publishes the
-[report](https://meisterschueler.github.io/matchmaker-rs/) on GitHub Pages. Datasets are
+[report](https://meisterschueler.github.io/matchmaker-rs/) on GitHub Pages; the benchmark badge
+above shows the median speed-up over all pieces of the latest `master` run (red on a parity
+violation). Datasets are
 downloaded in CI at pinned commits ([tools/datasets/datasets.toml](tools/datasets/datasets.toml),
 [fetch.py](tools/datasets/fetch.py)); they are not part of this repository and keep their own
 licenses — only derived metrics are published:

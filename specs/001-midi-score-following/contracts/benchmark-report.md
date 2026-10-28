@@ -3,7 +3,10 @@
 Both `matchmaker bench` (Rust) and `tools/bench/run_reference.py` (Python reference) write a
 JSON array of records with this schema. `tools/bench/report.py` merges them into
 `report.json` + `index.html`/`index.md`, published to GitHub Pages and linked from `README.md`
-(FR-016, FR-020, SC-006).
+(FR-016, FR-020, SC-006). It also writes `badge.json`, a
+[shields.io endpoint](https://shields.io/badges/endpoint-badge) (`label` "vs pymatchmaker",
+`message` = median speed-up over all rows, `color` red on a position-parity violation) shown
+as a badge in `README.md`.
 
 ## Record
 

@@ -1,4 +1,4 @@
-"""Merge Rust and Python benchmark records into report.json and index.md.
+"""Merge Rust and Python benchmark records into report.json, index.md and badge.json.
 
 Per method and piece: median latencies over runs, speed-up, real-time factor, metrics and two
 parity flags (contracts/benchmark-report.md):
@@ -161,6 +161,15 @@ def main() -> None:
     print("\n".join(lines))
 
     violations = [row for row in rows if row["position_parity"] and not row["position_parity"]["ok"]]
+    # shields.io endpoint for the README badge: median speed-up over all pieces, red on a parity violation
+    speed_ups = [row["speed_up"] for row in rows if row["speed_up"]]
+    badge = {
+        "schemaVersion": 1,
+        "label": "vs pymatchmaker",
+        "message": f"{statistics.median(speed_ups):.1f}x faster" if speed_ups else "n/a",
+        "color": "red" if violations else "brightgreen",
+    }
+    (args.out / "badge.json").write_text(json.dumps(badge) + "\n", encoding="utf-8")
     for row in violations:
         print(f"position parity violated: {row['method']} {row['dataset']}/{row['piece']}: {row['position_parity']}")
     raise SystemExit(1 if violations else 0)
