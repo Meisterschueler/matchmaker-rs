@@ -25,8 +25,9 @@ position in beats, and at the end the complete alignment path (performance time 
 reference. Everything else (comparison, bindings) builds on it.
 
 **Independent Test**: Run the follower on the bundled example `simple_mozart_k265_var1`
-(score + performance MIDI) and check that positions are produced, are valid score onsets, and
-that the alignment path covers the performance.
+(score + performance MIDI) and check that positions are produced, are follower states (score
+onsets or, with insertion states, the midpoints between consecutive onsets), and that the
+alignment path covers the performance.
 
 **Acceptance Scenarios**:
 
@@ -98,10 +99,11 @@ methods reuse.
 ### User Story 4 - Follow note by note with `outerhmm` (Priority: P2)
 
 A developer uses the `outerhmm` method (outer-product HMM after Nakamura 2014), which
-processes one performed note at a time and models pitch errors, repeats and skips.
+processes performed notes as they arrive (1 ms polling windows by default), folds notes less
+than 35 ms apart into one chord, and models pitch errors, repeats and skips.
 
-**Why this priority**: Third MIDI method of the reference; event-based instead of
-polling-based, so it also covers the message-by-message stream mode.
+**Why this priority**: Third MIDI method of the reference; note-level instead of 10 ms
+frames, with its own chord folding and stop rule.
 
 **Independent Test**: Run `outerhmm` on the bundled example and compare to the reference
 outputs.
@@ -196,16 +198,18 @@ next to the reference's data.
 - **FR-008**: System MUST provide the `hmm` score follower (pitch + inter-onset-interval HMM
   with Kalman tempo model) with reference defaults.
 - **FR-009**: System MUST provide the `outerhmm` score follower (outer-product HMM with
-  pitch-error, repeat and skip modelling; event-based, one note per observation) with
-  reference defaults.
-- **FR-010**: For every observation, the follower MUST report the current score position in
-  beats; at the end it MUST return the alignment path as (performance time, score beat)
-  pairs.
+  pitch-error, repeat and skip modelling; 1 ms polling windows and 35 ms chord folding)
+  with reference defaults.
+- **FR-010**: For every observation the follower consumes, it MUST report the current score
+  position in beats; at the end it MUST return the alignment path as (performance time,
+  score beat) pairs. When the follower stops consuming and which observations add a path
+  entry follow the reference's run loop of each method (see research R1).
 - **FR-011**: Methods and processors MUST be selectable by the reference names (`pthmm`,
   `hmm`, `outerhmm`, `pitch`, `chord_onset`), with the reference defaults per method;
   method-specific parameters MUST be overridable.
-- **FR-012**: System MUST evaluate an alignment path against ground truth (annotation text
-  files and `.match` files) with the reference metrics and mapping function.
+- **FR-012**: System MUST evaluate an alignment path against ground truth (tab-separated
+  files with header columns `perf_sec` and `score_beat`, and `.match` files) with the
+  reference metrics and mapping function.
 - **FR-013**: System MUST provide a CLI to run a follower (score, performance, method,
   processor, parameters), print positions, write the alignment path, and run evaluation.
 - **FR-014**: System MUST provide a Python package exposing the `Matchmaker` entry point
@@ -237,8 +241,8 @@ next to the reference's data.
 - **Score follower**: method (`pthmm`/`hmm`/`outerhmm`), its parameters, and its current
   state (position, probabilities, tempo estimate).
 - **Alignment path**: ordered pairs (performance time in seconds, score position in beats).
-- **Ground truth**: annotated pairs (performance time, score beat) from annotation or
-  `.match` files.
+- **Ground truth**: annotated pairs (performance time, score beat) from TSV (`perf_sec`,
+  `score_beat`) or `.match` files.
 - **Evaluation result**: the reference metric set for one alignment.
 - **Benchmark report**: per implementation, method and piece: latencies, real-time factor,
   evaluation result.
@@ -281,3 +285,8 @@ next to the reference's data.
   consumers (MIDI `arzt`/`dixon`) come in a later feature.
 - Results are deterministic for fixed inputs; no random seeds are needed for `pthmm`, `hmm`
   or `outerhmm`.
+- `.match` ground truth is read natively when its score note ids match the loaded score;
+  other `.match` files are converted to TSV with the reference's own `resolve_gt` (tooling
+  script), so the evaluation stays identical to the reference.
+- The bundled headerless `*_annotations.txt` files are audio annotations and are not used
+  for MIDI evaluation, as in the reference.

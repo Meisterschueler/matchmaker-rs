@@ -51,8 +51,12 @@ For Rust exports `reference` is replaced by `{"implementation": "matchmaker-rs",
 ## Pieces
 
 `simple_mozart_k265_var1`, `mozart_k265_var1`, `Bach-fugue_bwv_858` (MusicXML + MIDI + `.match`
-from the reference's `matchmaker/assets`, copied to `tests/data/`). A MIDI-score variant of
-`simple_mozart_k265_var1` covers US1-2.
+from the reference's `matchmaker/assets`, copied to `tests/data/`). Variants:
+
+- `simple_mozart_k265_var1_midiscore` — the performance MIDI used as score (US1-2), `pthmm`.
+- `simple_mozart_k265_var1_wrongnote` — one note-on shifted by a semitone (US4-2), `outerhmm`.
+- `fixture_<feature>` — minimal MusicXML scores for score features no bundled piece
+  contains (repeats, voltas, grace notes, …); `score/` files only.
 
 ## Tolerances (documented next to each test, Principle I)
 
@@ -75,7 +79,7 @@ expected and actual value (SC-007).
 ```text
 cd tools/golden
 python -m uv sync --locked
-python -m uv run generate.py --assets <pymatchmaker-checkout>/matchmaker/assets --out ../../tests/golden
+python -m uv run generate.py --data ../../tests/data --out ../../tests/golden
 ```
 
 Moving to a newer reference release = bump the tag in `pyproject.toml`, `uv lock`, regenerate,

@@ -87,6 +87,11 @@ results — violates I).
 
 **Decision**: Direct convolution; IOI row computed on the fly as `|s_i − s_j|` in `f64`;
 `log_b` precomputed once (the reference recomputes it per call with identical values).
+**Documented deviation (`hmm`)**: the reference turns the pitch list into a binary vector by
+indexing with `pitch − 21`; a pitch below 21 wraps around to the end of the vector (NumPy
+negative index) and a pitch above 108 raises `IndexError`. Rust ignores pitches outside the
+88-key range instead. Piano performances (all bundled and dataset inputs) never contain
+such pitches, so golden results are unaffected; an edge-case test documents the behaviour.
 **Rationale**: `scipy.signal.convolve` picks direct convolution for a 5-tap kernel; on-the-fly
 `|a − b|` equals `pdist` exactly (`sqrt(RN(x²)) = |x|` in binary floating point).
 **Alternatives considered**: Full IOI matrix (`O(N²)` memory for one used row); FFT
