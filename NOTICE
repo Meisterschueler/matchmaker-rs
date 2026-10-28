@@ -1,0 +1,6 @@
+matchmaker-rs
+Copyright 2026 The matchmaker-rs contributors
+
+This product is a Rust port of pymatchmaker
+(https://github.com/pymatchmaker/matchmaker), Copyright the Matchmaker
+Development Team, licensed under the Apache License, Version 2.0.
