@@ -1,0 +1,31 @@
+{
+  "config": {
+    "method": "hmm",
+    "piano_range": true,
+    "polling_period": 0.01,
+    "processor": "PitchProcessor",
+    "return_pitch_list": true,
+    "tempo": 70.0
+  },
+  "generator": "tools/golden/generate.py",
+  "inputs": {
+    "ground_truth": "Bach-fugue_bwv_858.match",
+    "performance": "Bach-fugue_bwv_858.mid",
+    "score": "Bach-fugue_bwv_858.musicxml"
+  },
+  "reference": {
+    "lockfile_sha256": "5bd952bf8f214c4deb2203c33edaa544b6c3abffda5bb019b29ef0e7af1d0b28",
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "version": "0.4.0"
+  },
+  "tolerances": {
+    "beat_period_rtol": 1e-09,
+    "f32_rtol": 1e-06,
+    "metrics_abs": 0.0001,
+    "positions": 1e-06,
+    "probabilities_rtol": 1e-12
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "accuracy_0.05b": 1.0,
+  "accuracy_0.1b": 1.0,
+  "accuracy_0.3b": 1.0,
+  "accuracy_0.5b": 1.0,
+  "accuracy_1b": 1.0,
+  "accuracy_2b": 1.0,
+  "kurtosis": NaN,
+  "mean_b": 0.0,
+  "median_b": 0.0,
+  "skewness": NaN,
+  "smoothness": -8.8134,
+  "std_b": 0.0
+}

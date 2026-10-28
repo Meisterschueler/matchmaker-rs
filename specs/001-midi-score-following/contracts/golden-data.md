@@ -3,20 +3,26 @@
 One layout for both the reference outputs (`tests/golden/`, written by
 `tools/golden/generate.py`) and the Rust export (`--export <DIR>`), so
 `tools/golden/compare.py <golden_dir> <export_dir>` can diff them stage by stage (US6, SC-007).
-All arrays are `.npy` (NumPy format 1.0, little-endian), loadable with `numpy.load`.
+All arrays are `.npy` (NumPy format 1.0, little-endian), loadable with `numpy.load`; they contain
+numeric dtypes only (strings go to JSON), so they are easy to read from Rust.
 
 ## Directory layout
 
 ```text
 <root>/<piece>/
 ├── score/
-│   ├── note_array.npy            structured: id <U256, pitch <i4, onset_beat <f4, duration_beat <f4,
-│   │                             onset_quarter <f4, duration_quarter <f4, onset_div <i4, duration_div <i4, voice <i4
-│   └── meta.json                 {"tempo": 120.0, "unfolded": true}
+│   ├── note_array.npy            structured: onset_beat <f4, duration_beat <f4, onset_quarter <f4,
+│   │                             duration_quarter <f4, onset_div <i4, duration_div <i4, pitch <i4, voice <i4
+│   ├── note_ids.json             ["n1-1", …] note ids in note_array order
+│   └── meta.json                 {"score_tempo": 90.0 | null, "tempo": 90.0, "unfolded": true, "features": {…}}
 ├── stream/<mode>/                mode = event | windowed_0.01 | windowed_0.001
-│   ├── messages.npy              structured: kind <U16, channel <i4, note <i4, velocity <i4, control <i4, value <i4, time <f8
-│   └── frame_times.npy           f8 (windowed only)
-├── processor/<processor>_<flags>/   e.g. pitch_piano_vector, pitch_piano_list, chord_onset_piano
+│   ├── messages.npy              structured: kind <i4 (0 note_on, 1 note_off, 2 control_change, 3 program_change),
+│   │                             channel, note, velocity, control, value, program <i4 (-1 if n/a), time <f8;
+│   │                             windowed: messages in frame order
+│   ├── frame_offsets.npy         i8, (n_frames + 1,) windowed only: frame k = messages[offsets[k]:offsets[k+1]]
+│   └── frame_times.npy           f8, (n_frames,) windowed only
+├── processor/<name>/             pitch_piano_vector, pitch_piano_list, pitch_full_vector (windowed 0.01),
+│   │                             pitch_piano_vector_event (event), chord_onset_piano (windowed 0.001, incl. flush)
 │   ├── features.npy              f4, (T, 88|128) for vectors; pitch lists padded with -1, (T, max_len)
 │   └── times.npy                 f8, (T,)
 └── <method>/                     pthmm | hmm | outerhmm

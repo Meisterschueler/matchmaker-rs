@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list>
+    <part-group type="start" number="1"><group-symbol>bracket</group-symbol></part-group>
+    <score-part id="P1"><part-name>Violin</part-name></score-part>
+    <score-part id="P2"><part-name>Cello</part-name></score-part>
+    <part-group type="stop" number="1"/>
+  </part-list>
+  <part id="P1">
+    <measure number="0" implicit="yes">
+      <attributes>
+        <divisions>2</divisions>
+        <key><fifths>-1</fifths></key>
+        <time><beats>3</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note id="v0"><pitch><step>A</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+    <measure number="1">
+      <note id="v1"><pitch><step>D</step><octave>5</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><dot/></note>
+      <note id="v2"><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type></note>
+      <note id="v3"><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+    <measure number="2">
+      <attributes><time><beats>6</beats><beat-type>8</beat-type></time></attributes>
+      <note id="v4"><pitch><step>A</step><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><dot/></note>
+      <note id="v5"><pitch><step>F</step><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><dot/></note>
+    </measure>
+    <measure number="3">
+      <note id="v6"><pitch><step>D</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/></note>
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="0" implicit="yes">
+      <attributes>
+        <divisions>3</divisions>
+        <key><fifths>-1</fifths></key>
+        <time><beats>3</beats><beat-type>4</beat-type></time>
+        <clef><sign>F</sign><line>4</line></clef>
+      </attributes>
+      <note id="c0"><pitch><step>F</step><octave>3</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+    <measure number="1">
+      <note id="c1"><pitch><step>D</step><octave>3</octave></pitch><duration>9</duration><voice>1</voice><type>half</type><dot/></note>
+    </measure>
+    <measure number="2">
+      <attributes><time><beats>6</beats><beat-type>8</beat-type></time></attributes>
+      <note id="c2"><pitch><step>C</step><octave>3</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>
+      <note id="c3"><pitch><step>D</step><octave>3</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>
+      <note id="c4"><pitch><step>E</step><octave>3</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>
+      <note id="c5"><pitch><step>F</step><octave>3</octave></pitch><duration>6</duration><voice>1</voice><type>half</type></note>
+    </measure>
+    <measure number="3">
+      <note id="c6"><pitch><step>D</step><octave>2</octave></pitch><duration>9</duration><voice>1</voice><type>half</type><dot/></note>
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>
+    </measure>
+  </part>
+</score-partwise>

@@ -1,0 +1,16 @@
+{
+  "features": {
+    "endings": false,
+    "grace_notes": true,
+    "multiple_parts": false,
+    "multiple_voices": true,
+    "pickup_measure": false,
+    "repeats": false,
+    "segno_coda_dacapo": false,
+    "ties": true,
+    "time_signature_changes": false
+  },
+  "score_tempo": 80.0,
+  "tempo": 80.0,
+  "unfolded": true
+}
