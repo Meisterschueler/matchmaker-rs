@@ -4,6 +4,14 @@
 //! The pipeline mirrors pymatchmaker: `Stream` → `Processor` → `OnlineAlignment`.
 //! Every module names the Python code it ports; results are verified against the reference
 //! release with golden tests (see `tests/golden/`).
+//!
+//! ```
+//! use matchmaker_rs::matchmaker::{Matchmaker, Method};
+//! let mut mm = Matchmaker::new("tests/data/simple_mozart_k265_var1.musicxml", Method::Pthmm, None, true)?;
+//! let positions = mm.run_file("tests/data/simple_mozart_k265_var1.mid")?;
+//! assert!(!positions.is_empty());
+//! # Ok::<(), matchmaker_rs::Error>(())
+//! ```
 
 pub mod base;
 pub mod error;

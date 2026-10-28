@@ -1,6 +1,13 @@
 //! Typed errors of the library (constitution IV).
 //!
 //! Every error names what failed and with which input. No public function panics on user input.
+//!
+//! ```
+//! use matchmaker_rs::{Error, score::Score};
+//! let err = Score::load("no-such-file.musicxml", true).unwrap_err();
+//! assert!(matches!(err, Error::Io { .. }));
+//! assert!(err.to_string().contains("no-such-file.musicxml"));
+//! ```
 
 use std::path::PathBuf;
 

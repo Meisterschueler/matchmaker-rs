@@ -7,7 +7,7 @@
 //! score when unfolding fails), merge all parts (`partitura.score.merge_parts`), and produce
 //! the note array (`Part.note_array()`).
 //!
-//! ```no_run
+//! ```
 //! use matchmaker_rs::score::Score;
 //! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;
 //! println!("{} notes, {} onsets", score.notes.len(), score.unique_onsets().len());

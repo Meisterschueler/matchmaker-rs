@@ -2,7 +2,7 @@
 //! `default_bpm=120`, `merge_tracks=False`) and of
 //! `matchmaker.utils.symbolic.midi_messages_from_performance`.
 //!
-//! ```no_run
+//! ```
 //! use matchmaker_rs::performance::Performance;
 //! let perf = Performance::load("tests/data/simple_mozart_k265_var1.mid")?;
 //! let messages = perf.messages(); // time-ordered note on/off, control and program changes

@@ -2,12 +2,12 @@
 //! `tools/golden/compare.py` can diff it against the reference stage by stage.
 //! `evaluation.json` needs ground truth and is written by the CLI (`--ground-truth`).
 //!
-//! ```no_run
+//! ```
 //! use matchmaker_rs::matchmaker::{Matchmaker, Method};
 //! let mut mm = Matchmaker::new("tests/data/simple_mozart_k265_var1.musicxml", Method::Pthmm, None, true)?
 //!     .record();
 //! mm.run_file("tests/data/simple_mozart_k265_var1.mid")?;
-//! matchmaker_rs::export::write_run(&mm, "out/simple_mozart_k265_var1")?;
+//! matchmaker_rs::export::write_run(&mm, std::env::temp_dir().join("matchmaker_doc_export"))?;
 //! # Ok::<(), matchmaker_rs::Error>(())
 //! ```
 

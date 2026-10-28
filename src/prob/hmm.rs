@@ -4,7 +4,7 @@
 //! observation. The inter-onset-interval term compares it with the score IOI scaled by the beat
 //! period of a Kalman tempo model, which is updated whenever the follower advances to a new onset.
 //!
-//! ```no_run
+//! ```
 //! use matchmaker_rs::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
 //! use matchmaker_rs::score::Score;
 //! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;

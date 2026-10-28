@@ -4,7 +4,7 @@
 //! Each observation (binary pitch vector) is scored with a Bernoulli model against pitch
 //! profiles; the forward algorithm with a Gumbel-shaped transition matrix picks the state.
 //!
-//! ```no_run
+//! ```
 //! use matchmaker_rs::base::OnlineAlignment;
 //! use matchmaker_rs::prob::pthmm::PitchHmm;
 //! use matchmaker_rs::score::Score;

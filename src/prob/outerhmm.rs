@@ -8,7 +8,7 @@
 //! Transitions combine a band of neighbouring chords with arbitrary skips factorised as
 //! `S[j] * r[i]`.
 //!
-//! ```no_run
+//! ```
 //! use matchmaker_rs::base::OnlineAlignment;
 //! use matchmaker_rs::prob::outerhmm::{OuterProductHmm, OuterProductHmmConfig};
 //! use matchmaker_rs::score::Score;

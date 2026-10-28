@@ -230,8 +230,8 @@ Cargo workspace per [plan.md](plan.md#source-code-repository-root): core crate a
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T071 [P] Edge-case tests in `tests/edge_cases.rs`: empty performance / no note-ons → empty path, no error; `hmm` with a pitch outside 21–108 ignores it (documented deviation, research R3); performance longer than score → positions within score; velocity-0 note-on treated as note-off; score without tempo → 120 BPM; corrupt/unsupported score and performance files → typed errors naming the file; no panics (US1 edge cases in [spec.md](spec.md#edge-cases))
-- [ ] T072 [P] Doc examples: one runnable example per public module (`score`, `performance`, `io::stream`, `features::*`, `prob::*`, `utils::*`, `export`, `matchmaker`) and crate-level docs in `src/lib.rs`; `cargo test --doc` passes
+- [X] T071 [P] Edge-case tests in `tests/edge_cases.rs`: empty performance / no note-ons → empty path, no error; `hmm` with a pitch outside 21–108 ignores it (documented deviation, research R3); performance longer than score → positions within score; velocity-0 note-on treated as note-off; score without tempo → 120 BPM; corrupt/unsupported score and performance files → typed errors naming the file; no panics (US1 edge cases in [spec.md](spec.md#edge-cases))
+- [X] T072 [P] Doc examples: one runnable example per public module (`score`, `performance`, `io::stream`, `features::*`, `prob::*`, `utils::*`, `export`, `matchmaker`) and crate-level docs in `src/lib.rs`; `cargo test --doc` passes
 - [ ] T073 [P] Verify `cargo build -p matchmaker-rs --target wasm32-unknown-unknown`, `cargo deny check`, MSRV `cargo +1.88 check`; fix any dependency feature that pulls `std::time`/C code into the core
 - [ ] T074 [P] Update `README.md`: quickstart (3 commands, SC-005), methods/processors table, benchmark report link and badge (SC-006), Python install, golden-data regeneration, dataset sources
 - [ ] T075 Run all [quickstart.md](quickstart.md) scenarios and fix deviations

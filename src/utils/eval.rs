@@ -1,7 +1,7 @@
 //! Port of `matchmaker.utils.eval`: ground truth, beat-error metrics and SPARC smoothness
 //! (research R8).
 //!
-//! ```no_run
+//! ```
 //! use std::path::Path;
 //! use matchmaker_rs::matchmaker::{Matchmaker, Method};
 //! use matchmaker_rs::utils::eval::{GroundTruth, evaluate_alignment};

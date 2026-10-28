@@ -1,4 +1,19 @@
 //! Port of `matchmaker.features.midi.ChordOnsetProcessor` (processor key `chord_onset`).
+//!
+//! ```
+//! use matchmaker_rs::features::{Processor, chord_onset::ChordOnsetProcessor};
+//! use matchmaker_rs::io::stream::{Frame, MidiMessage, MidiMessageKind};
+//! let on = |note, time| MidiMessage {
+//!     kind: MidiMessageKind::NoteOn { note, velocity: 64 },
+//!     channel: 0,
+//!     time,
+//! };
+//! // 60 and 64 are 10 ms apart and form a chord; the 0.5 s gap before 67 emits it
+//! let frame = Frame { messages: vec![on(60, 0.0), on(64, 0.01), on(67, 0.5)], time: 0.5 };
+//! let chord = ChordOnsetProcessor::new(true).process(&frame).unwrap();
+//! assert_eq!(chord.perf_time, 0.0);
+//! assert_eq!(chord.features.iter().filter(|&&v| v == 1.0).count(), 2);
+//! ```
 
 use super::{Observation, Processor};
 use crate::io::stream::Frame;
