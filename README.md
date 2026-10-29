@@ -9,6 +9,50 @@ Pure-Rust port of [pymatchmaker](https://github.com/pymatchmaker/matchmaker), a 
 
 Status: work in progress, developed spec-driven with [Spec Kit](https://github.com/github/spec-kit) (see `specs/`).
 
+## Quickstart
+
+```text
+git clone https://github.com/Meisterschueler/matchmaker-rs
+cd matchmaker-rs
+cargo run --release -p matchmaker-cli -- follow tests/data/simple_mozart_k265_var1.musicxml tests/data/simple_mozart_k265_var1.mid --output path.tsv
+```
+
+Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.tsv`.
+`cargo test --workspace --exclude matchmaker-py` checks parity with the reference;
+[quickstart.md](specs/001-midi-score-following/quickstart.md) has all scenarios.
+
+## Methods and processors
+
+| Method | Processor | Note |
+|---|---|---|
+| `pthmm` (default) | `pitch`, `chord_onset` | pitch-vector HMM, MIDI score |
+| `hmm` | `pitch`, `chord_onset` | pitch lists, tempo-aware (`beat_period`) |
+| `outerhmm` | `pitch`, `chord_onset` | outer-product HMM with pitch-error model |
+
+Select with `--method` and `--processor`; override parameters with `--set KEY=VALUE`.
+Audio methods are not implemented yet (see Roadmap).
+
+## Python
+
+Drop-in `Matchmaker` for MIDI input (needs Python 3.10–3.13 and `maturin`):
+
+```text
+cd crates/matchmaker-py
+python -m uv run --with maturin maturin develop --release
+```
+
+```python
+from matchmaker_rs import Matchmaker
+mm = Matchmaker("score.musicxml", "performance.mid", input_type="midi", method="pthmm")
+positions = list(mm.run(verbose=False))
+```
+
+## Parity and accuracy
+
+Golden tests compare against the reference with documented tolerances; each comparison reports
+its class (`EXACT`, `WITHIN_TOL`, `EXCEEDS`) and the maximum deviation, see
+[golden-data.md](specs/001-midi-score-following/contracts/golden-data.md#deviation-classes).
+
 ## Development
 
 Enable the pre-commit hook once per clone; it runs the CI lint gates (`cargo fmt --check`,
