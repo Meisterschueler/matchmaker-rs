@@ -82,6 +82,31 @@ from the reference's `matchmaker/assets`, copied to `tests/data/`). Variants:
 A failing comparison reports: method, piece, file, index of the first differing element,
 expected and actual value (SC-007).
 
+## Deviation classes
+
+Every comparison in `tests/common/mod.rs::assert_close` prints one `DEVIATION` line (visible with
+`cargo test -- --nocapture`): method, piece, file, class, max absolute deviation, max relative
+deviation (elements `>= 1e-200`; below that only the absolute deviation is meaningful), length.
+
+| Class | Meaning |
+|---|---|
+| `EXACT` | bit-equal to the golden data |
+| `WITHIN_TOL` | differs, but inside the tolerance above (numpy-vs-non-numpy summation order: numpy sums pairwise with BLAS, the port sequentially) |
+| `EXCEEDS` | outside the tolerance; the test fails |
+
+Measured maxima (release build, all pieces and variants; `probabilities.npy` is compared per step):
+
+| Method | File | Class | max abs | max rel |
+|---|---|---|---|---|
+| `pthmm` | `probabilities.npy` | `WITHIN_TOL` | 7.8e-16 | 1.8e-13 |
+| `hmm` | `probabilities.npy` | `WITHIN_TOL` | 8.9e-16 | 9.3e-14 |
+| `outerhmm` | `probabilities.npy` | `WITHIN_TOL` (6 of 1261 steps `EXACT`) | 1.8e-14 | 1.7e-13 |
+| all | `positions`, `alignment_path`, `current_index`, `beat_period`, scores, stream, processors | `EXACT` | 0 | 0 |
+
+The tolerance `rtol 1e-12` leaves about a factor of 6 headroom over the largest measured relative
+deviation (1.8e-13). The benchmark report classifies the run-0 alignment path per piece and method
+the same way (`EXACT`, `WITHIN_TOL`, `TIE`, `SHARE` for `hmm`, `EXCEEDS`) with the maximum position difference.
+
 ## Regeneration
 
 ```text

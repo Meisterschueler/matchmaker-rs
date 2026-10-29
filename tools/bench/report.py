@@ -68,7 +68,9 @@ def position_parity(method: str, rust: Path, python: Path) -> dict | None:
     r = np.loadtxt(rust, delimiter="\t", skiprows=1, ndmin=2)
     p = np.loadtxt(python, delimiter="\t", skiprows=1, ndmin=2)
     n = min(len(r), len(p))
-    close = np.all(np.abs(r[:n] - p[:n]) <= POSITION_TOL, axis=1)
+    diff = np.abs(r[:n] - p[:n])
+    close = np.all(diff <= POSITION_TOL, axis=1)
+    strict = bool(close.all()) and len(r) == len(p)
     # a step where Rust's best state leads by less than TIE_GAP is a numerical tie (repeated score
     # chords have exactly equal probabilities; the reference's BLAS rounding picks one of them)
     gaps = rust.with_suffix(".gap.tsv")
@@ -78,7 +80,20 @@ def position_parity(method: str, rust: Path, python: Path) -> dict | None:
     first = int(differing[0]) if len(differing) else (n if len(r) != len(p) else None)
     share = float(close.sum()) / max(len(r), len(p), 1)
     ok = share >= HMM_MIN_SHARE if method == "hmm" else first is None
-    return {"ok": bool(ok), "share": share, "first_differing_step": first, "steps": [len(r), len(p)]}
+    max_diff = float(diff.max()) if diff.size else 0.0
+    # EXACT: bit-equal; WITHIN_TOL: all steps < POSITION_TOL; TIE: otherwise only tie steps differ;
+    # SHARE: hmm only, >= HMM_MIN_SHARE of the steps agree; EXCEEDS: parity violated
+    cls = "EXACT" if strict and max_diff == 0 else "WITHIN_TOL" if strict else "EXCEEDS"
+    if ok and not strict:
+        cls = "TIE" if first is None else "SHARE"
+    return {
+        "ok": bool(ok),
+        "class": cls,
+        "max_diff": max_diff,
+        "share": share,
+        "first_differing_step": first,
+        "steps": [len(r), len(p)],
+    }
 
 
 def main() -> None:
@@ -148,7 +163,7 @@ def main() -> None:
     for row in rows:
         r, p, ev = row["rust"], row["python"], row["rust"]["evaluation"] or row["python"]["evaluation"] or {}
         pos = row["position_parity"]
-        pos_text = "-" if pos is None else flag(pos["ok"]) + (
+        pos_text = "-" if pos is None else flag(pos["ok"]) + f" {pos['class']} max {pos['max_diff']:.2e}" + (
             "" if pos["first_differing_step"] is None else f" (step {pos['first_differing_step']})"
         )
         lines.append(

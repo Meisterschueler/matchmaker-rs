@@ -92,8 +92,41 @@ impl Ctx {
 }
 
 /// Compare sequences element by element with `|a - e| <= atol + rtol * |e|`; panic at the first
-/// difference with method, piece, file, index, expected and actual value.
+/// difference with method, piece, file, index, expected and actual value. Always prints one
+/// `DEVIATION` line (see `golden-data.md`): class `EXACT` (bit-equal), `WITHIN_TOL` (differs,
+/// inside the documented tolerance = summation-order noise) or `EXCEEDS` (about to panic), with
+/// the maximum absolute deviation and the maximum relative deviation (elements `>= 1e-200`) over
+/// the whole sequence.
 pub fn assert_close(ctx: &Ctx, expected: &[f64], actual: &[f64], rtol: f64, atol: f64) {
+    let (mut max_abs, mut max_rel) = (0.0f64, 0.0f64);
+    for (e, a) in expected.iter().zip(actual) {
+        if e == a || (e.is_nan() && a.is_nan()) {
+            continue;
+        }
+        let abs = (a - e).abs();
+        max_abs = max_abs.max(abs);
+        // below 1e-200 the values are near-subnormal: only the absolute deviation is meaningful
+        if e.abs() >= 1e-200 {
+            max_rel = max_rel.max(abs / e.abs());
+        }
+    }
+    let within = expected.len() == actual.len()
+        && expected
+            .iter()
+            .zip(actual)
+            .all(|(e, a)| (e.is_nan() && a.is_nan()) || (a - e).abs() <= atol + rtol * e.abs());
+    let class = match (within, max_abs == 0.0) {
+        (true, true) => "EXACT",
+        (true, false) => "WITHIN_TOL",
+        _ => "EXCEEDS",
+    };
+    println!(
+        "DEVIATION\t{}\t{}\t{}\t{class}\t{max_abs:e}\t{max_rel:e}\t{}",
+        ctx.method,
+        ctx.piece,
+        ctx.file,
+        expected.len()
+    );
     assert_eq!(
         expected.len(),
         actual.len(),
