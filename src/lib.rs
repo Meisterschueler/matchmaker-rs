@@ -3,7 +3,8 @@
 //!
 //! The pipeline mirrors pymatchmaker: `Stream` → `Processor` → `OnlineAlignment`.
 //! Every module names the Python code it ports; results are verified against the reference
-//! release with golden tests (see `tests/golden/`).
+//! release with golden tests (see `tests/golden/`). Pinned upstream versions, the module map and
+//! the procedure for following upstream changes are in `UPSTREAM.md`.
 //!
 //! ```
 //! use matchmaker_rs::matchmaker::{Matchmaker, Method};

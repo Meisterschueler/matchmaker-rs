@@ -1,6 +1,8 @@
 //! Port of `hiddenmarkov.forward_algorithm_step` and `ConstantTransitionModel`
 //! (python-hiddenmarkov), as used by the MIDI HMMs with `log_probabilities=False`.
 //!
+//! Upstream: `hiddenmarkov/__init__.py` (package `python-hiddenmarkov`, not pymatchmaker).
+//!
 //! Transition rows are stored as their band of entries that are not exactly zero (research
 //! R2): skipping exact zeros does not change any product or sum.
 //!

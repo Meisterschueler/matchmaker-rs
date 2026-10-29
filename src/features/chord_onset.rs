@@ -1,5 +1,7 @@
 //! Port of `matchmaker.features.midi.ChordOnsetProcessor` (processor key `chord_onset`).
 //!
+//! Upstream: `matchmaker/features/midi.py`.
+//!
 //! ```
 //! use matchmaker_rs::features::{Processor, chord_onset::ChordOnsetProcessor};
 //! use matchmaker_rs::io::stream::{Frame, MidiMessage, MidiMessageKind};

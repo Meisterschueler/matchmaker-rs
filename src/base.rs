@@ -1,5 +1,7 @@
 //! Port of `matchmaker.base.OnlineAlignment`: the follower interface and its run loop.
 //!
+//! Upstream: `matchmaker/base.py`.
+//!
 //! ```
 //! use matchmaker_rs::base::AlignmentPath;
 //! let mut path = AlignmentPath::default();

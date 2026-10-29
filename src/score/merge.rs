@@ -1,5 +1,7 @@
 //! Port of `partitura.score.merge_parts(parts, reassign="voice")`.
 //!
+//! Upstream: `partitura/score.py` (partitura, not pymatchmaker).
+//!
 //! All parts are rescaled to the least common multiple of their divisions. Measures, time
 //! signatures, tempos, endings and `DaCapo`/`Fine` markers are taken from the first part only;
 //! voices of later parts are shifted by the maximum voice numbers of the preceding parts.

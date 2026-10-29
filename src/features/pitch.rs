@@ -1,4 +1,6 @@
 //! Port of `matchmaker.features.midi.PitchProcessor` (processor key `pitch`).
+//!
+//! Upstream: `matchmaker/features/midi.py`.
 
 use super::{Observation, Processor};
 use crate::io::stream::Frame;

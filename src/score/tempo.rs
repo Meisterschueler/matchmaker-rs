@@ -1,6 +1,8 @@
 //! Port of `matchmaker.utils.misc.get_tempo_from_score` (with
 //! `extract_tempo_marking_from_musicxml`) and `partitura.utils.music.to_quarter_tempo`.
 //!
+//! Upstream: `matchmaker/utils/misc.py`, `partitura/utils/music.py`.
+//!
 //! Sources in order: the first partitura `Tempo` object, the first MusicXML `<sound tempo>`,
 //! a text tempo marking such as "Allegro". `None` means the caller's default (120 BPM).
 

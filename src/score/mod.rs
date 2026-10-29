@@ -7,6 +7,9 @@
 //! score when unfolding fails), merge all parts (`partitura.score.merge_parts`), and produce
 //! the note array (`Part.note_array()`).
 //!
+//! Upstream: `matchmaker/matchmaker.py` (`Matchmaker.__init__`); the partitura files are listed
+//! in the submodules.
+//!
 //! ```
 //! use matchmaker_rs::score::Score;
 //! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;

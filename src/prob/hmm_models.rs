@@ -2,6 +2,8 @@
 //! `stable_transition_matrix`, `init_dist`, `compute_discrete_pitch_profiles`,
 //! `compute_bernoulli_pitch_probabilities` and the inserted-state positions.
 //!
+//! Upstream: `matchmaker/prob/hmm.py`.
+//!
 //! ```
 //! use matchmaker_rs::prob::hmm_models::gumbel_l_pdf;
 //! assert!((gumbel_l_pdf(0.0, 0.0, 1.0) - (-1.0f64).exp()).abs() < 1e-15);

@@ -2,6 +2,8 @@
 //! following), called by pymatchmaker as
 //! `load_musicxml(path, ignore_invisible_objects=True, force_note_ids="keep")`.
 //!
+//! Upstream: `partitura/io/importmusicxml.py`.
+//!
 //! The structure follows the Python functions (`_parse_partlist`, `_parse_parts`,
 //! `_handle_measure`, `_handle_note`, `_handle_direction`, `_handle_sound`, …) so both can be
 //! read side by side. Objects partitura creates but score following never reads (beams,

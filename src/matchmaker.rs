@@ -1,6 +1,8 @@
 //! Port of `matchmaker.matchmaker.Matchmaker` for MIDI input: score + stream + processor +
 //! follower, with the per-method defaults of the reference's `methods.yaml` (research R1).
 //!
+//! Upstream: `matchmaker/matchmaker.py`, `matchmaker/methods.yaml`.
+//!
 //! ```
 //! use matchmaker_rs::matchmaker::{Matchmaker, Method};
 //! let mut mm = Matchmaker::new("tests/data/simple_mozart_k265_var1.musicxml", Method::Pthmm, None, true)?;

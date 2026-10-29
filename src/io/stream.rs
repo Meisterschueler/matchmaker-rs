@@ -1,6 +1,8 @@
 //! MIDI stream simulation: port of `matchmaker.io.midi.MidiStream` (file mode) and of the
 //! framing in `matchmaker.utils.symbolic` (`Buffer`, `midi_messages_to_framed_midi`).
 //!
+//! Upstream: `matchmaker/io/midi.py`, `matchmaker/utils/symbolic.py`.
+//!
 //! ```
 //! use matchmaker_rs::io::stream::{frames, MidiMessage, MidiMessageKind, StreamMode};
 //! let msgs = vec![

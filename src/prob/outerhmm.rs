@@ -2,6 +2,8 @@
 //! Nakamura et al. (2014), "Outer-product hidden Markov model and polyphonic MIDI score
 //! following".
 //!
+//! Upstream: `matchmaker/prob/outer_product_hmm.py`.
+//!
 //! States are the score chords. Performed notes arrive one at a time; a note less than 35 ms
 //! after the previous one is folded into the current chord observation and the Viterbi step is
 //! redone from the distribution before the chord (a continuation, no alignment path entry).

@@ -1,5 +1,7 @@
 //! Port of `matchmaker.prob.hmm.PitchHMM` (method key `pthmm`, the MIDI default).
 //!
+//! Upstream: `matchmaker/prob/hmm.py`.
+//!
 //! States are the score onsets plus, with insertions, one state between consecutive onsets.
 //! Each observation (binary pitch vector) is scored with a Bernoulli model against pitch
 //! profiles; the forward algorithm with a Gumbel-shaped transition matrix picks the state.

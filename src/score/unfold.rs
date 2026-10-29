@@ -3,6 +3,8 @@
 //! `new_part_from_path` (`ScoreVariant.create_variant_part`) and
 //! `update_note_ids_after_unfolding`.
 //!
+//! Upstream: `partitura/score.py`.
+//!
 //! Segment ids, destination lists and their string sorting follow the Python code exactly,
 //! because they decide the order in which repeats, voltas and jumps are taken.
 

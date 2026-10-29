@@ -1,6 +1,8 @@
 //! Feature processors (port of `matchmaker.features`): turn a stream [`Frame`] into an
 //! [`Observation`] for the score follower.
 //!
+//! Upstream: `matchmaker/features/processor.py`, `matchmaker/features/midi.py`.
+//!
 //! ```
 //! use matchmaker_rs::features::{pitch::PitchProcessor, Processor};
 //! use matchmaker_rs::io::stream::{Frame, MidiMessage, MidiMessageKind};

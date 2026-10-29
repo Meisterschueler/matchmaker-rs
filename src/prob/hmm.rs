@@ -1,5 +1,7 @@
 //! Port of `matchmaker.prob.hmm.PitchIOIHMM` (method key `hmm`).
 //!
+//! Upstream: `matchmaker/prob/hmm.py`.
+//!
 //! Like `pthmm`, but each observation is a pitch list plus the time since the previous
 //! observation. The inter-onset-interval term compares it with the score IOI scaled by the beat
 //! period of a Kalman tempo model, which is updated whenever the follower advances to a new onset.

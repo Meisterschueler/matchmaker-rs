@@ -1,5 +1,7 @@
 //! The subset of `partitura.score.Part` that score following needs.
 //!
+//! Upstream: `partitura/score.py` (`Part`, `Part.note_array`), `partitura/utils/music.py`.
+//!
 //! partitura keeps every musical object on a timeline of integer "divs". This port keeps only
 //! the objects that influence the note array (`onset_beat`, ids, voices), the repeat structure
 //! used for unfolding, and the tempo: notes, measures, time signatures, tempos, divisions,

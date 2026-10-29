@@ -2,6 +2,8 @@
 //! `default_bpm=120`, `merge_tracks=False`) and of
 //! `matchmaker.utils.symbolic.midi_messages_from_performance`.
 //!
+//! Upstream: `partitura/io/importmidi.py`, `matchmaker/utils/symbolic.py`.
+//!
 //! ```
 //! use matchmaker_rs::performance::Performance;
 //! let perf = Performance::load("tests/data/simple_mozart_k265_var1.mid")?;

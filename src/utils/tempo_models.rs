@@ -4,6 +4,8 @@
 //! precision alternate between operands (research R4). Every mixed-precision line names the
 //! Python expression it mirrors.
 //!
+//! Upstream: `matchmaker/utils/tempo_models.py`.
+//!
 //! ```
 //! use matchmaker_rs::utils::tempo_models::KalmanTempoModel;
 //! let mut tempo = KalmanTempoModel::new(0.6, 0.0);

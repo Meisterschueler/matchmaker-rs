@@ -1,6 +1,8 @@
 //! Port of `matchmaker.utils.eval`: ground truth, beat-error metrics and SPARC smoothness
 //! (research R8).
 //!
+//! Upstream: `matchmaker/utils/eval.py`.
+//!
 //! ```
 //! use std::path::Path;
 //! use matchmaker_rs::matchmaker::{Matchmaker, Method};

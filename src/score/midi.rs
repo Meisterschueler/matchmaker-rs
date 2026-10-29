@@ -1,6 +1,8 @@
 //! Port of `partitura.io.importmidi.load_score_midi` with its defaults
 //! (`part_voice_assign_mode=0`, no quantization, `assign_note_ids=True`).
 //!
+//! Upstream: `partitura/io/importmidi.py`.
+//!
 //! One part per track that contains notes, voices by channel (in order of first use), note
 //! ids `n<i>` over all notes in `(track, channel)` order, `set_tempo` events as tempos of the
 //! first part, time signatures from tracks or global tracks. Notes of zero duration become

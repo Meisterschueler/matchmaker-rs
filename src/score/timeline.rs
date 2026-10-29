@@ -1,6 +1,8 @@
 //! Time maps: port of `partitura.score.Part._time_interpolator` (`beat_map`, `quarter_map`,
 //! the musical-beat variant and their inverses).
 //!
+//! Upstream: `partitura/score.py` (`Part._time_interpolator`).
+//!
 //! Maps score time in divisions to beats in units of the time-signature denominator.
 //! Evaluation follows `numpy.interp`, which `scipy.interpolate.interp1d` delegates to for 1-D
 //! `float64` data, so results are bit-identical to the reference.
