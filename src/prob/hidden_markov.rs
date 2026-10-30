@@ -29,6 +29,10 @@ impl Banded {
     pub fn transpose_dot(&self, v: &[f64]) -> Vec<f64> {
         let mut out = vec![0.0; self.rows.len()];
         for ((start, values), &vi) in self.rows.iter().zip(v) {
+            // exact zeros add nothing; fv is zero beyond the states reached so far (research R2)
+            if vi == 0.0 {
+                continue;
+            }
             for (o, &t) in out[*start..].iter_mut().zip(values) {
                 *o += t * vi;
             }

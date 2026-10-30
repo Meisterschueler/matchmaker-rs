@@ -67,6 +67,10 @@ memory from `O(N²)` (≈ 290 MB at N = 6000) to `O(N·752)` and is the main lev
 slower than NumPy's BLAS for large N); truncating at a probability threshold (would change
 results — violates I).
 
+**Implementation optimization (bit-identical, measured 2026-10-28)**: states not reached yet
+have exact-zero entries in `fv`. `transpose_dot` skips those rows; this omits only additions of
+exact zero and leaves the forward variable unchanged. The reference visits all `N` rows.
+
 ## R3. Observation models
 
 - `compute_discrete_pitch_profiles`: chord matrix `(n_chords, 128)` convolved along pitch with
