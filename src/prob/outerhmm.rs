@@ -280,7 +280,31 @@ impl OuterProductHmm {
             })
             .collect();
         let max = log_em.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        log_em.iter_mut().for_each(|v| *v = (*v - max).exp());
+        // `log_em` takes few distinct values (pitch classes x chord sizes): one `exp` per value
+        const SLOTS: usize = 2048;
+        let mut table = [(0u64, f64::NAN); SLOTS];
+        let mut used = 0;
+        for v in &mut log_em {
+            let x = *v - max;
+            let bits = x.to_bits();
+            let hash = bits.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let mut slot = (hash >> (64 - SLOTS.trailing_zeros())) as usize;
+            *v = loop {
+                let (key, value) = table[slot];
+                if value.is_nan() {
+                    let value = x.exp();
+                    if used < SLOTS / 2 {
+                        table[slot] = (bits, value);
+                        used += 1;
+                    }
+                    break value;
+                }
+                if key == bits {
+                    break value;
+                }
+                slot = (slot + 1) % SLOTS;
+            };
+        }
         log_em
     }
 
