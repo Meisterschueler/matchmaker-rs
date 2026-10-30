@@ -6,7 +6,9 @@ parity flags (contracts/benchmark-report.md):
 - metric parity: every evaluation metric of Rust within 1e-4 of the reference (golden tolerance)
 - position parity: alignment paths (``paths/<dataset>/<piece>/<method>.tsv`` next to each
   records file) agree within 1e-6 at every step for pthmm/outerhmm (SC-001) and at >= 99.9 %
-  of the steps for hmm (SC-002); the first differing step is reported (SC-007)
+  of the steps for hmm (SC-002); the first differing step is reported (SC-007). Steps where
+  Rust's best state leads by less than 1e-9 (relative; ``<method>.gap.tsv``) are numerical ties
+  and count as equal
 
 Exits with 1 on a position-parity violation. ``--baseline`` (the previous master report.json)
 flags Rust inference latency above 1.10 x the baseline. The page ends with the sources of the
@@ -29,6 +31,7 @@ import numpy as np
 
 METRIC_TOL = 1e-4
 POSITION_TOL = 1e-6
+TIE_GAP = 1e-9
 HMM_MIN_SHARE = 0.999
 REGRESSION = 1.10
 DATASETS = Path(__file__).parent.parent / "datasets" / "datasets.toml"
@@ -66,6 +69,11 @@ def position_parity(method: str, rust: Path, python: Path) -> dict | None:
     p = np.loadtxt(python, delimiter="\t", skiprows=1, ndmin=2)
     n = min(len(r), len(p))
     close = np.all(np.abs(r[:n] - p[:n]) <= POSITION_TOL, axis=1)
+    # a step where Rust's best state leads by less than TIE_GAP is a numerical tie (repeated score
+    # chords have exactly equal probabilities; the reference's BLAS rounding picks one of them)
+    gaps = rust.with_suffix(".gap.tsv")
+    if gaps.exists():
+        close |= np.loadtxt(gaps, ndmin=1)[:n] < TIE_GAP
     differing = np.flatnonzero(~close)
     first = int(differing[0]) if len(differing) else (n if len(r) != len(p) else None)
     share = float(close.sum()) / max(len(r), len(p), 1)

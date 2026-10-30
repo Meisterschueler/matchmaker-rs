@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use matchmaker_rs::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use matchmaker_rs::features::{Observation, Processor};
-use matchmaker_rs::io::stream::Frame;
+use matchmaker_rs::io::stream::{Frame, MidiMessage};
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
 use matchmaker_rs::performance::Performance;
 use matchmaker_rs::score::Score;
@@ -107,8 +107,37 @@ fn latency(times: &[Duration]) -> Value {
     })
 }
 
+/// Writes the relative margin of the best state over the runner-up per path entry of one
+/// untimed run: states of repeated score chords tie exactly, and the reference's BLAS rounding
+/// decides which one it reports (tools/bench/report.py treats such steps as equal).
+fn write_gaps(file: &Path, score: &Path, method: Method, messages: &[MidiMessage]) -> Result<()> {
+    let mut mm = Matchmaker::new(score, method, None, true)?.record();
+    for &msg in messages {
+        mm.push(msg)?;
+    }
+    mm.finish();
+    let steps = mm.recording().map_or(&[][..], |r| &r.steps[..]);
+    let gaps: String = steps
+        .iter()
+        // continuations of a chord add no path entry
+        .filter(|s| s.debug.is_continuation != Some(true))
+        .map(|s| {
+            let (mut best, mut second) = (0.0f64, 0.0f64);
+            for &p in &s.debug.probabilities {
+                if p > best {
+                    (best, second) = (p, best);
+                } else if p > second {
+                    second = p;
+                }
+            }
+            format!("{}\n", (best - second) / best)
+        })
+        .collect();
+    std::fs::write(file, gaps).with_context(|| format!("cannot write {}", file.display()))
+}
+
 /// Run the benchmark and write the records (JSON array) to `out`; the alignment path of run 0
-/// goes to `<out dir>/paths/<dataset>/<piece>/<method>.tsv`.
+/// goes to `<out dir>/paths/<dataset>/<piece>/<method>.tsv` (margins in `<method>.gap.tsv`).
 pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) -> Result<()> {
     let text = std::fs::read_to_string(manifest_path)
         .with_context(|| format!("cannot read {}", manifest_path.display()))?;
@@ -175,6 +204,12 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) ->
                         .join(&p.piece)
                         .join(format!("{}.tsv", method.name()));
                     crate::write_path_tsv(&path, mm.alignment_path())?;
+                    write_gaps(
+                        &path.with_extension("gap.tsv"),
+                        &score_path,
+                        method,
+                        &messages,
+                    )?;
                 }
                 records.push(json!({
                     "implementation": "rust",

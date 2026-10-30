@@ -43,6 +43,6 @@ subscriber active; median over `runs ≥ 5` is the reported value.
 
 Per method and piece, side by side: Rust vs Python feature/inference latency (median of runs),
 speed-up factor, real-time factor, all evaluation metrics, parity flag (metrics within the
-golden tolerances). Per method and dataset: aggregate (mean of per-piece medians, mean metrics).
+golden tolerances). Position parity compares the run-0 alignment paths (`paths/<dataset>/<piece>/<method>.tsv`); a step where Rust's best state leads the runner-up by less than 1e-9 (relative, `<method>.gap.tsv`) is a numerical tie and counts as equal, because the reference's BLAS rounding picks one of exactly tied states. Per method and dataset: aggregate (mean of per-piece medians, mean metrics).
 Regression flag: Rust latency > 1.10 × the latest `master` report for the same method/piece.
 Cached Python reference results are marked with the cache key and date.
