@@ -18,7 +18,7 @@
 
 use super::hidden_markov::{Banded, argmax, forward_algorithm_step};
 use super::hmm_models::{
-    bernoulli_pitch_probabilities, compute_discrete_pitch_profiles, init_dist, score_states,
+    bernoulli_pitch_probability, compute_discrete_pitch_profiles, init_dist, score_states,
     stable_transition_matrix,
 };
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
@@ -30,6 +30,7 @@ use crate::score::Score;
 pub struct PitchHmm {
     score_positions: Vec<f32>,
     pitch_profiles: Vec<Vec<f64>>,
+    has_insertions: bool,
     transition: Banded,
     init: Vec<f64>,
     forward_variable: Option<Vec<f64>>,
@@ -49,6 +50,7 @@ impl PitchHmm {
                 piano_range,
                 has_insertions,
             ),
+            has_insertions,
             transition: stable_transition_matrix(n, 1.0, has_insertions),
             init: init_dist(n),
             forward_variable: None,
@@ -72,7 +74,15 @@ impl PitchHmm {
 impl OnlineAlignment for PitchHmm {
     fn call(&mut self, obs: &Observation) -> f64 {
         let _span = tracing::debug_span!("inference", method = "pthmm").entered();
-        let observation_prob = bernoulli_pitch_probabilities(&obs.features, &self.pitch_profiles);
+        // inserted states (odd indices) share one uniform profile: evaluate it once (research R2)
+        let inserted = (self.has_insertions && self.pitch_profiles.len() > 1)
+            .then(|| bernoulli_pitch_probability(&obs.features, &self.pitch_profiles[1]));
+        let observation_prob: Vec<f64> = (0..self.pitch_profiles.len())
+            .map(|i| match inserted {
+                Some(p) if i % 2 == 1 => p,
+                _ => bernoulli_pitch_probability(&obs.features, &self.pitch_profiles[i]),
+            })
+            .collect();
         let fv = forward_algorithm_step(
             &observation_prob,
             &self.transition,

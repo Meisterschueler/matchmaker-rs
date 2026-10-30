@@ -17,7 +17,7 @@
 
 use super::hidden_markov::{Banded, argmax, forward_algorithm_step};
 use super::hmm_models::{
-    bernoulli_pitch_probabilities, compute_discrete_pitch_profiles, init_dist,
+    bernoulli_pitch_probability, compute_discrete_pitch_profiles, init_dist,
     ioi_observation_probability, pitch_list_to_vector, score_states, stable_transition_matrix,
 };
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
@@ -114,12 +114,16 @@ impl OnlineAlignment for PitchIoiHmm {
 
         let pitches = pitch_list_to_vector(&obs.features, self.config.piano_range);
         let has_insertions = self.config.has_insertions;
+        // inserted states (odd indices) share one uniform profile: evaluate it once (research R2)
+        let inserted = (has_insertions && self.pitch_profiles.len() > 1)
+            .then(|| bernoulli_pitch_probability(&pitches, &self.pitch_profiles[1]));
         let (tempo_est, current) = (self.tempo.beat_period(), self.current_index);
-        let pitch_probabilities = bernoulli_pitch_probabilities(&pitches, &self.pitch_profiles);
-        let observation_prob: Vec<f64> = pitch_probabilities
-            .iter()
-            .enumerate()
-            .map(|(i, &pitch_prob)| {
+        let observation_prob: Vec<f64> = (0..self.pitch_profiles.len())
+            .map(|i| {
+                let pitch_prob = match inserted {
+                    Some(p) if i % 2 == 1 => p,
+                    _ => bernoulli_pitch_probability(&pitches, &self.pitch_profiles[i]),
+                };
                 pitch_prob
                     * ioi_observation_probability(
                         &self.score_positions,

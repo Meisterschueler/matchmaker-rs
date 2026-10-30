@@ -71,6 +71,20 @@ results — violates I).
 have exact-zero entries in `fv`. `transpose_dot` skips those rows; this omits only additions of
 exact zero and leaves the forward variable unchanged. The reference visits all `N` rows.
 
+**Independent observation-model optimization**: with insertions, every odd state has the same
+uniform pitch profile (R3). `PitchHmm` and the pitch factor in `PitchIoiHmm` therefore evaluate
+that Bernoulli product once per observation rather than `N/2` times; the product uses the same
+profile values in the same order. `PitchIoiHmm` still evaluates its state-dependent IOI factor
+separately for every state.
+
+The two optimizations together made `pthmm` inference 1.3–3× faster than the banded port alone
+(median of 3 runs), i.e. Rust vs. Python 8.6–16× (before: 3.8–9.9×); e.g. Batik kv333 20.6 ms →
+1.5 ms. Behind the current position `fv` stays non-zero (only a few entries underflow), so the
+zero-row optimization mainly saves work for the not-yet-reached part of the score.
+**Rejected**: column-wise (gather) storage with dot products over the non-zero range of `fv`,
+also with 4-lane partial sums — slower than the row-wise scatter (0.7–1.6× vs. baseline),
+because that range spans nearly all reached states.
+
 ## R3. Observation models
 
 - `compute_discrete_pitch_profiles`: chord matrix `(n_chords, 128)` convolved along pitch with

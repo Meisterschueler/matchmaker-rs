@@ -153,16 +153,12 @@ pub fn ioi_observation_probability(
     norm_term * (-0.5 * (diff * diff) * ioi_precision).exp()
 }
 
-/// Port of `compute_bernoulli_pitch_probabilities`: `prod(p^x * (1 - p)^(1 - x))` per state
+/// Port of `compute_bernoulli_pitch_probabilities` for one state: `prod(p^x * (1 - p)^(1 - x))`
 /// for a binary observation `x` (where `p^1 = p` and `p^0 = 1` exactly).
-pub fn bernoulli_pitch_probabilities(observation: &[f32], profiles: &[Vec<f64>]) -> Vec<f64> {
-    profiles
+pub fn bernoulli_pitch_probability(observation: &[f32], profile: &[f64]) -> f64 {
+    profile
         .iter()
-        .map(|p| {
-            p.iter()
-                .zip(observation)
-                .map(|(&p, &x)| if x > 0.5 { p } else { 1.0 - p })
-                .product()
-        })
-        .collect()
+        .zip(observation)
+        .map(|(&p, &x)| if x > 0.5 { p } else { 1.0 - p })
+        .product()
 }
