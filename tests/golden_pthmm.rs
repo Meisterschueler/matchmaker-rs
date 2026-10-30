@@ -3,12 +3,14 @@
 //! `replayed_observations_equal_reference` feeds the reference's own observations, so only the
 //! follower is tested; `end_to_end_equals_reference` runs the whole pipeline via `Matchmaker`.
 //! Tolerances: score positions exact (`float32`), positions and alignment path `< 1e-6` beats,
-//! current index exact, forward variable `rtol 1e-12` (summation order, research R4) plus
-//! `atol 1e-300` because subnormal values carry fewer significant bits.
+//! current index exact, forward variable `probabilities_rtol` (summation order, research R4)
+//! plus `atol 1e-300` because subnormal values carry fewer significant bits.
 
 mod common;
 
-use common::{Ctx, assert_close, assert_exact, data, golden, golden_observations, npy};
+use common::{
+    Ctx, assert_close, assert_exact, data, golden, golden_observations, npy, probabilities_rtol,
+};
 use matchmaker_rs::base::OnlineAlignment;
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
 use matchmaker_rs::prob::pthmm::PitchHmm;
@@ -63,7 +65,7 @@ fn replayed_observations_equal_reference() {
                     &ctx(&format!("probabilities.npy step {k}")),
                     &all[k * n..(k + 1) * n],
                     fv,
-                    1e-12,
+                    probabilities_rtol("pthmm"),
                     1e-300,
                 );
             }

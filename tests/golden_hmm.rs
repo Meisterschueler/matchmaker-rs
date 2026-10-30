@@ -3,12 +3,15 @@
 //! `replayed_observations_equal_reference` feeds the reference's own observations (pitch lists,
 //! `-1`-padded in the files), so only the follower is tested; `end_to_end_equals_reference` runs
 //! the whole pipeline via `Matchmaker`. Tolerances: positions and alignment path `< 1e-6`
-//! beats, `beat_period` rtol 1e-9, forward variable rtol 1e-12 (plus `atol 1e-300` for
+//! beats, `beat_period` exact, forward variable `probabilities_rtol` (plus `atol 1e-300` for
 //! subnormals), evaluation metrics within 0.01.
 
 mod common;
 
-use common::{Ctx, assert_close, assert_exact, data, golden, golden_observations, json, npy};
+use common::{
+    Ctx, assert_close, assert_exact, data, golden, golden_observations, json, npy,
+    probabilities_rtol,
+};
 use matchmaker_rs::base::OnlineAlignment;
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
 use matchmaker_rs::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
@@ -65,18 +68,12 @@ fn replayed_observations_equal_reference() {
                     &ctx(&format!("probabilities.npy step {k}")),
                     &all[k * n..(k + 1) * n],
                     hmm.forward_variable().unwrap(),
-                    1e-12,
+                    probabilities_rtol("hmm"),
                     1e-300,
                 );
             }
         }
-        assert_close(
-            &ctx("beat_period.npy"),
-            &expected_periods,
-            &periods,
-            1e-9,
-            0.0,
-        );
+        assert_exact(&ctx("beat_period.npy"), &expected_periods, &periods);
         assert_exact(
             &ctx("current_index.npy"),
             &npy(dir.join("current_index.npy")).values(),

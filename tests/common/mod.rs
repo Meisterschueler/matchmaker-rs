@@ -25,6 +25,16 @@ pub fn golden(piece: &str) -> PathBuf {
         .join(piece)
 }
 
+/// `rtol` for the per-step probabilities of `method`: the largest deviation measured with the
+/// NumPy-compatible sum (golden-data.md, Deviation classes) plus about 40 % headroom.
+pub fn probabilities_rtol(method: &str) -> f64 {
+    match method {
+        "pthmm" => 1.5e-13,
+        "hmm" => 1e-13,
+        _ => 1e-14,
+    }
+}
+
 /// All golden piece directories.
 pub fn golden_pieces() -> Vec<String> {
     let mut pieces: Vec<String> = std::fs::read_dir(golden(""))

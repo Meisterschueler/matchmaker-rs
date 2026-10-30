@@ -75,8 +75,8 @@ from the reference's `matchmaker/assets`, copied to `tests/data/`). Variants:
 | messages, frame times | exact | same formulas (R5); order compared per timestamp as multiset |
 | processor features | exact | binary / integer values |
 | `positions`, `alignment_path` | `< 1e-6` (SC-001); `hmm`: ≥ 99.9 % of steps (SC-002) | |
-| `probabilities` | `rtol 1e-12` | summation order (R4) |
-| `beat_period` | `rtol 1e-9` | mixed `f32`/`f64` (R4) |
+| `probabilities` | `rtol` per method: `pthmm` 1.5e-13, `hmm` 1e-13, `outerhmm` 1e-14 | remaining non-sum effects: BLAS dot products, C-runtime `exp`, FFT convolution of the pitch profiles (R4) |
+| `beat_period` | exact | same `f32`/`f64` mix as the reference (R4) |
 | `evaluation.json` | `abs 1e-4`; `hmm` `abs 0.01` (SC-002) | 4-decimal rounding, FFT |
 
 A failing comparison reports: method, piece, file, index of the first differing element,
@@ -91,20 +91,21 @@ deviation (elements `>= 1e-200`; below that only the absolute deviation is meani
 | Class | Meaning |
 |---|---|
 | `EXACT` | bit-equal to the golden data |
-| `WITHIN_TOL` | differs, but inside the tolerance above (numpy-vs-non-numpy summation order: numpy sums pairwise with BLAS, the port sequentially) |
+| `WITHIN_TOL` | differs, but inside the tolerance above (BLAS, `exp` and FFT rounding that the port does not reproduce; sums use `utils::np_sum`, NumPy's pairwise sum) |
 | `EXCEEDS` | outside the tolerance; the test fails |
 
 Measured maxima (release build, all pieces and variants; `probabilities.npy` is compared per step):
 
 | Method | File | Class | max abs | max rel |
 |---|---|---|---|---|
-| `pthmm` | `probabilities.npy` | `WITHIN_TOL` | 7.8e-16 | 1.8e-13 |
-| `hmm` | `probabilities.npy` | `WITHIN_TOL` | 8.9e-16 | 9.3e-14 |
-| `outerhmm` | `probabilities.npy` | `WITHIN_TOL` (6 of 1261 steps `EXACT`) | 1.8e-14 | 1.7e-13 |
+| `pthmm` | `probabilities.npy` | `WITHIN_TOL` | 1.2e-15 | 1.0e-13 |
+| `hmm` | `probabilities.npy` | `WITHIN_TOL` | 8.9e-16 | 7.0e-14 |
+| `outerhmm` | `probabilities.npy` | `WITHIN_TOL` (83 of 1261 steps `EXACT`) | 1.7e-16 | 7.4e-15 |
 | all | `positions`, `alignment_path`, `current_index`, `beat_period`, scores, stream, processors | `EXACT` | 0 | 0 |
 
-The tolerance `rtol 1e-12` leaves about a factor of 6 headroom over the largest measured relative
-deviation (1.8e-13). The benchmark report classifies the run-0 alignment path per piece and method
+The tolerances are set just above the largest deviation over all elements above `atol` (including
+values below 1e-200, which the table's max rel leaves out): 70 % of each tolerance already fails a
+golden test. The benchmark report classifies the run-0 alignment path per piece and method
 the same way (`EXACT`, `WITHIN_TOL`, `TIE`, `SHARE` for `hmm`, `EXCEEDS`) with the maximum position difference.
 
 ## Regeneration

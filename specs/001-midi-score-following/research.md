@@ -115,8 +115,8 @@ convolution (adds rounding noise).
 **Decision**: Mirror dtypes per operation (`f32` where NumPy computes in `float32`, `f64`
 elsewhere) and note the Python expression next to each such line. Use sequential summation
 first; switch to a NumPy-compatible pairwise sum only if a golden test shows a flipped argmax.
-Golden tolerances: positions `< 1e-6` beats (SC-001), intermediate `f64` arrays `rtol 1e-12`,
-`f32` arrays `rtol 1e-6`.
+Golden tolerances: positions `< 1e-6` beats (SC-001), intermediate `f64` arrays `rtol` per method
+(`pthmm` 1.5e-13, `hmm` 1e-13, `outerhmm` 1e-14; `beat_period` exact), `f32` arrays `rtol 1e-6`.
 **Rationale**: Positions are argmax decisions; tiny summation-order differences only matter at
 exact ties, which the golden tests will reveal (SC-007 names the first differing step).
 **Alternatives considered**: Bit-exact emulation of NumPy/BLAS reduction order everywhere —

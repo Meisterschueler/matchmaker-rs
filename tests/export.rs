@@ -2,14 +2,14 @@
 //! each file equals its golden counterpart where the reference has one.
 //!
 //! Tolerances as in the contract: positions and alignment path `< 1e-6`, probabilities
-//! `rtol 1e-12`, `beat_period` `rtol 1e-9`, everything else exact. Messages are compared as a
+//! `probabilities_rtol`, everything else exact (`beat_period` included). Messages are compared as a
 //! multiset (the reference sorts them with an unstable `argsort`, research R5).
 
 mod common;
 
 use std::path::{Path, PathBuf};
 
-use common::{Ctx, NpyArray, assert_close, data, golden, json, npy};
+use common::{Ctx, NpyArray, assert_close, data, golden, json, npy, probabilities_rtol};
 use matchmaker_rs::Error;
 use matchmaker_rs::export::write_run;
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
@@ -82,8 +82,7 @@ fn compare(ctx: &Ctx, rel: &str, exported: &Path, expected: &Path) {
         }
     } else {
         let (rtol, atol) = match rel.rsplit('/').next().unwrap() {
-            "probabilities.npy" => (1e-12, 1e-300),
-            "beat_period.npy" => (1e-9, 0.0),
+            "probabilities.npy" => (probabilities_rtol(&ctx.method), 1e-300),
             "positions.npy" | "alignment_path.npy" => (0.0, 1e-6),
             _ => (0.0, 0.0),
         };

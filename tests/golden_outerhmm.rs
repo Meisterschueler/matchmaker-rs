@@ -3,12 +3,14 @@
 //! `replayed_observations_equal_reference` feeds the reference's own observations, so only the
 //! follower is tested; `end_to_end_equals_reference` runs the whole pipeline via `Matchmaker`.
 //! Every call (chord starts and continuations) is compared: positions and alignment path
-//! `< 1e-6` beats, current index and `is_continuation` exact, state probabilities `rtol 1e-12`
-//! (plus `atol 1e-300` for subnormals).
+//! `< 1e-6` beats, current index and `is_continuation` exact, state probabilities
+//! `probabilities_rtol` (plus `atol 1e-300` for subnormals).
 
 mod common;
 
-use common::{Ctx, assert_close, assert_exact, data, golden, golden_observations, npy};
+use common::{
+    Ctx, assert_close, assert_exact, data, golden, golden_observations, npy, probabilities_rtol,
+};
 use matchmaker_rs::base::OnlineAlignment;
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
 use matchmaker_rs::prob::outerhmm::{OuterProductHmm, OuterProductHmmConfig};
@@ -68,7 +70,7 @@ fn replayed_observations_equal_reference() {
                     &ctx(&format!("probabilities.npy step {k}")),
                     &all[k * n..(k + 1) * n],
                     hmm.state_probabilities(),
-                    1e-12,
+                    probabilities_rtol("outerhmm"),
                     1e-300,
                 );
             }

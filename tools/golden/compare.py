@@ -5,7 +5,8 @@ directory, stage by stage (score, stream, processor, method), and report the fir
     python -m uv run compare.py ../../tests/golden/<piece> <export_dir>
 
 Only files present on both sides are compared. Tolerances follow contracts/golden-data.md:
-positions and alignment path 1e-6, probabilities rtol 1e-12, beat_period rtol 1e-9, evaluation
+positions and alignment path 1e-6, probabilities rtol per method (pthmm 1.5e-13, hmm 1e-13,
+outerhmm 1e-14), beat_period exact, evaluation
 metrics 1e-4 (hmm: 0.01), the rest exact; messages are compared as a multiset (the reference sorts them with an unstable argsort)
 and note arrays on the fields both sides have.
 """
@@ -18,19 +19,21 @@ import numpy as np
 
 METHODS = ("pthmm", "hmm", "outerhmm")
 STAGES = ("score", "stream", "processor", *METHODS)
-# file name -> (rtol, atol); everything else must be equal
+# file name -> (rtol, atol); everything else must be equal (`beat_period.npy` included)
 TOLERANCES = {
-    "probabilities.npy": (1e-12, 1e-300),
-    "beat_period.npy": (1e-9, 0.0),
     "positions.npy": (0.0, 1e-6),
     "alignment_path.npy": (0.0, 1e-6),
 }
+# rtol of probabilities.npy per method (tests/common/mod.rs::probabilities_rtol)
+PROBABILITIES_RTOL = {"pthmm": 1.5e-13, "hmm": 1e-13, "outerhmm": 1e-14}
 
 
-def first_difference(name, expected, actual):
+def first_difference(name, expected, actual, stage=None):
     if expected.shape != actual.shape:
         return f"shape differs: expected {expected.shape}, actual {actual.shape}"
     rtol, atol = TOLERANCES.get(name, (0.0, 0.0))
+    if name == "probabilities.npy":
+        rtol, atol = PROBABILITIES_RTOL[stage], 1e-300
     bad = ~np.isclose(actual, expected, rtol=rtol, atol=atol, equal_nan=True)
     if not bad.any():
         return None
@@ -65,13 +68,13 @@ def compare_file(stage, rel, expected_path, actual_path):
         return f"note ids differ at index {index} ({len(expected)} expected, {len(actual)} actual)"
     expected, actual = np.load(expected_path), np.load(actual_path)
     if expected.dtype.names is None:
-        return first_difference(rel.name, expected, actual)
+        return first_difference(rel.name, expected, actual, stage)
     fields = [f for f in expected.dtype.names if f in actual.dtype.names]
     if rel.name == "messages.npy":
         order = ["time", *(f for f in fields if f != "time")]
         expected, actual = np.sort(expected, order=order), np.sort(actual, order=order)
     for field in fields:
-        difference = first_difference(rel.name, expected[field], actual[field])
+        difference = first_difference(rel.name, expected[field], actual[field], stage)
         if difference:
             return f"field {field}: {difference}"
     return None
