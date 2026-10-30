@@ -113,8 +113,9 @@ convolution (adds rounding noise).
   SIMD-dispatched (results for ties can depend on the CPU).
 
 **Decision**: Mirror dtypes per operation (`f32` where NumPy computes in `float32`, `f64`
-elsewhere) and note the Python expression next to each such line. Use sequential summation
-first; switch to a NumPy-compatible pairwise sum only if a golden test shows a flipped argmax.
+elsewhere) and note the Python expression next to each such line. Sums use `utils::np_sum`, a
+port of NumPy's pairwise sum: sequential sums flipped the argmax at exact ties on real pieces
+(Batik-plays-Mozart, `outerhmm`).
 Golden tolerances: positions `< 1e-6` beats (SC-001), intermediate `f64` arrays `rtol` per method
 (`pthmm` 1.5e-13, `hmm` 1e-13, `outerhmm` 1e-14; `beat_period` exact), `f32` arrays `rtol 1e-6`.
 **Rationale**: Positions are argmax decisions; tiny summation-order differences only matter at

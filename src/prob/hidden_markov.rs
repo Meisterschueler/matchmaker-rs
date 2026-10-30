@@ -13,6 +13,8 @@
 //! assert_eq!(argmax(&[0.2, 0.7, 0.7]), 1);
 //! ```
 
+use crate::utils::np_sum::np_sum;
+
 /// A square matrix stored as one `(first column, values)` band per row.
 #[derive(Debug, Clone)]
 pub struct Banded {
@@ -54,7 +56,7 @@ pub fn forward_algorithm_step(
         .zip(&prior)
         .map(|(o, p)| o * p)
         .collect();
-    let sum = fv.iter().sum::<f64>().max(1e-6);
+    let sum = np_sum(&fv).max(1e-6);
     fv.iter_mut().for_each(|v| *v /= sum);
     fv
 }
