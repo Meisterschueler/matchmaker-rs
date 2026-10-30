@@ -11,7 +11,7 @@
 
 use std::collections::BTreeSet;
 
-use super::hidden_markov::Banded;
+use super::hidden_markov::KernelTransition;
 
 /// `scipy.stats.gumbel_l.pdf(x, loc, scale) = exp(z - exp(z)) / scale`, `z = (x - loc) / scale`.
 pub fn gumbel_l_pdf(x: f64, loc: f64, scale: f64) -> f64 {
@@ -22,27 +22,25 @@ pub fn gumbel_l_pdf(x: f64, loc: f64, scale: f64) -> f64 {
 /// Port of `stable_transition_matrix(n_states, mp_trans_state=1, dist=gumbel_l, scale,
 /// inserted_states)`: row `i` is `gumbel_l.pdf(arange(n), loc, scale)` normalised, with
 /// `loc = i + 2` for onset states and `i + 1` otherwise.
-pub fn stable_transition_matrix(n: usize, scale: f64, inserted_states: bool) -> Banded {
+pub fn stable_transition_matrix(n: usize, scale: f64, inserted_states: bool) -> KernelTransition {
     // gumbel_l.pdf is exactly 0 for z > ~6.6 and z < ~-745; only that band is evaluated
     let (below, above) = ((760.0 * scale) as usize, (10.0 * scale) as usize + 1);
-    let rows = (0..n)
+    let kernel: Vec<f64> = (0..below + above)
+        .map(|k| gumbel_l_pdf(k as f64 - below as f64, 0.0, scale))
+        .collect();
+    let row_sum = (0..n)
         .map(|i| {
             let loc = if inserted_states && i % 2 == 0 {
                 i + 2
             } else {
                 i + 1
             };
-            let start = loc.saturating_sub(below).min(n);
-            let end = (loc + above).min(n);
-            let mut values: Vec<f64> = (start..end)
-                .map(|j| gumbel_l_pdf(j as f64, loc as f64, scale))
-                .collect();
-            let sum: f64 = values.iter().sum();
-            values.iter_mut().for_each(|v| *v /= sum);
-            (start, values)
+            let start = (loc.saturating_sub(below).min(n) + below).saturating_sub(loc);
+            let end = ((loc + above).min(n) + below).saturating_sub(loc);
+            kernel[start..end.max(start)].iter().sum::<f64>()
         })
         .collect();
-    Banded::from_bands(rows)
+    KernelTransition::new(&kernel, below, row_sum, inserted_states)
 }
 
 /// Port of `init_dist(n_states, dist=gumbel_l, loc=0, scale=10)` (not normalised).
@@ -165,4 +163,37 @@ pub fn bernoulli_pitch_probabilities(observation: &[f32], profiles: &[Vec<f64>])
                 .product()
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{gumbel_l_pdf, stable_transition_matrix};
+
+    #[test]
+    fn kernel_transition_equals_the_explicit_matrix() {
+        for (n, inserted) in [(40, true), (40, false), (900, true), (900, false)] {
+            let v: Vec<f64> = (0..n).map(|i| 1.0 / (1.0 + (i % 7) as f64)).collect();
+            let mut expected = vec![0.0; n];
+            for (i, &vi) in v.iter().enumerate() {
+                let loc = if inserted && i % 2 == 0 { i + 2 } else { i + 1 };
+                let row: Vec<f64> = (0..n)
+                    .map(|j| {
+                        if j + 760 >= loc && j < loc + 11 {
+                            gumbel_l_pdf(j as f64, loc as f64, 1.0)
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect();
+                let sum: f64 = row.iter().sum();
+                for (o, r) in expected.iter_mut().zip(&row) {
+                    *o += r / sum * vi;
+                }
+            }
+            let actual = stable_transition_matrix(n, 1.0, inserted).transpose_dot(&v);
+            for (a, e) in actual.iter().zip(&expected) {
+                assert!((a - e).abs() <= 1e-13 * e + 1e-300, "n = {n}: {a} vs {e}");
+            }
+        }
+    }
 }

@@ -31,6 +31,7 @@ workspace = true
 
 [dependencies]
 midly = { version = "0.5.3", default-features = false, features = ["std"] }
+ndarray = "0.17.2"
 realfft = "3.5.1"
 roxmltree = "0.21.2"
 serde = { version = "1.0.229", features = ["derive"] }

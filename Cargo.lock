@@ -285,6 +285,7 @@ name = "matchmaker-rs"
 version = "0.1.0"
 dependencies = [
  "midly",
+ "ndarray",
  "realfft",
  "roxmltree",
  "serde",

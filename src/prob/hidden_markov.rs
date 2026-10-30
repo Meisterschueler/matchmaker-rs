@@ -3,37 +3,82 @@
 //!
 //! Upstream: `hiddenmarkov/__init__.py` (package `python-hiddenmarkov`, not pymatchmaker).
 //!
-//! Transition rows are stored as their band of entries that are not exactly zero (research
-//! R2): skipping exact zeros does not change any product or sum.
+//! Transition rows are copies of one kernel centred on `loc(i)` and divided by their row sum, so
+//! `T.T @ v` is a convolution with that kernel instead of a pass over an N x band matrix, which
+//! is limited by memory bandwidth (the reference's dense matrix has the same rows).
 //!
 //! ```
-//! use matchmaker_rs::prob::hidden_markov::{argmax, Banded};
-//! let t = Banded::from_bands(vec![(1, vec![1.0]), (1, vec![1.0])]);
-//! assert_eq!(t.transpose_dot(&[0.5, 0.5]), vec![0.0, 1.0]);
+//! use matchmaker_rs::prob::hidden_markov::argmax;
+//! use matchmaker_rs::prob::hmm_models::stable_transition_matrix;
+//! let t = stable_transition_matrix(4, 1.0, false);
+//! let prior = t.transpose_dot(&[1.0, 0.0, 0.0, 0.0]);
+//! assert!((prior.iter().sum::<f64>() - 1.0).abs() < 1e-12); // row 0 sums to one
 //! assert_eq!(argmax(&[0.2, 0.7, 0.7]), 1);
 //! ```
 
-/// A square matrix stored as one `(first column, values)` band per row.
+use ndarray::{Array1, s};
+
+/// Square matrix whose row `i` is `kernel`, centred on column `loc(i)` (`i + 2` for even `i`
+/// with inserted states, else `i + 1`), restricted to the columns `0..n` and divided by its sum.
 #[derive(Debug, Clone)]
-pub struct Banded {
-    rows: Vec<(usize, Vec<f64>)>,
+pub struct KernelTransition {
+    /// Per residue `j % step`: the kernel at offsets `top, top - step, ...` and `top`. With
+    /// inserted states all centres are even, so only every second offset can contribute.
+    taps: Vec<(Array1<f64>, i64)>,
+    row_sum: Vec<f64>,
+    inserted: bool,
+    /// Zero padding left of the shifted input, in slots.
+    pad: usize,
 }
 
-impl Banded {
-    /// Build from bands `(first column, values)`.
-    pub fn from_bands(rows: Vec<(usize, Vec<f64>)>) -> Self {
-        Banded { rows }
+impl KernelTransition {
+    /// `kernel[k]` is the unnormalised entry at offset `k - below` from the centre; `row_sum[i]`
+    /// the sum of row `i` over its columns in `0..n`.
+    pub fn new(kernel: &[f64], below: usize, row_sum: Vec<f64>, inserted: bool) -> Self {
+        let step = if inserted { 2 } else { 1 };
+        let (below, max_offset) = (below as i64, (kernel.len() - below) as i64 - 1);
+        let taps = (0..step)
+            .map(|residue| {
+                let top = max_offset - (max_offset - residue).rem_euclid(step);
+                let entries = std::iter::successors(Some(top), |z| Some(z - step))
+                    .take_while(|&z| z >= -below)
+                    .map(|z| kernel[(z + below) as usize])
+                    .collect();
+                (entries, top)
+            })
+            .collect();
+        KernelTransition {
+            taps,
+            row_sum,
+            inserted,
+            pad: (max_offset as usize + 1) / step as usize + 2,
+        }
     }
 
-    /// `transition_matrix.T @ v`.
-    pub fn transpose_dot(&self, v: &[f64]) -> Vec<f64> {
-        let mut out = vec![0.0; self.rows.len()];
-        for ((start, values), &vi) in self.rows.iter().zip(v) {
-            for (o, &t) in out[*start..].iter_mut().zip(values) {
-                *o += t * vi;
-            }
+    fn loc(&self, i: usize) -> usize {
+        // `& 1` keeps the MSRV
+        if self.inserted && i & 1 == 0 {
+            i + 2
+        } else {
+            i + 1
         }
-        out
+    }
+
+    /// `transition_matrix.T @ v`: `out[j] = sum_i kernel[j - loc(i)] * v[i] / row_sum[i]`.
+    pub fn transpose_dot(&self, v: &[f64]) -> Vec<f64> {
+        let n = self.row_sum.len();
+        let step = self.taps.len();
+        let mut shifted = Array1::<f64>::zeros(n + self.pad + self.taps[0].0.len() + 12);
+        for (i, (&vi, &sum)) in v.iter().zip(&self.row_sum).enumerate() {
+            shifted[self.pad + self.loc(i) / step] += vi / sum;
+        }
+        (0..n)
+            .map(|j| {
+                let (taps, top) = &self.taps[j % step];
+                let first = ((j as i64 - top) / step as i64 + self.pad as i64) as usize;
+                taps.dot(&shifted.slice(s![first..first + taps.len()]))
+            })
+            .collect()
     }
 }
 
@@ -41,7 +86,7 @@ impl Banded {
 /// initial distribution on the first step and `T.T @ fv` afterwards.
 pub fn forward_algorithm_step(
     observation_prob: &[f64],
-    transition: &Banded,
+    transition: &KernelTransition,
     init: &[f64],
     forward_variable: Option<&[f64]>,
 ) -> Vec<f64> {

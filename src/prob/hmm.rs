@@ -15,7 +15,7 @@
 //! # Ok::<(), matchmaker_rs::Error>(())
 //! ```
 
-use super::hidden_markov::{Banded, argmax, forward_algorithm_step};
+use super::hidden_markov::{KernelTransition, argmax, forward_algorithm_step};
 use super::hmm_models::{
     bernoulli_pitch_probabilities, compute_discrete_pitch_profiles, init_dist,
     ioi_observation_probability, pitch_list_to_vector, score_states, stable_transition_matrix,
@@ -55,7 +55,7 @@ pub struct PitchIoiHmm {
     config: PitchIoiHmmConfig,
     score_positions: Vec<f32>,
     pitch_profiles: Vec<Vec<f64>>,
-    transition: Banded,
+    transition: KernelTransition,
     init: Vec<f64>,
     forward_variable: Option<Vec<f64>>,
     current_index: usize,
