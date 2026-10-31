@@ -15,6 +15,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
+use crate::dp::Distance;
 use crate::error::{Error, Result};
 use crate::features::{
     Observation, Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor,
@@ -132,7 +133,8 @@ pub enum ConfigValue {
 }
 
 /// What `Matchmaker(kwargs=...)` controls: processor, `piano_range`, the stream's
-/// `polling_period` (`None` = event-based, one message per frame) and `outerhmm` parameters.
+/// `polling_period` (`None` = event-based, one message per frame) and the parameters of
+/// `outerhmm`, `arzt` and `dixon`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodConfig {
     /// Feature processor.
@@ -145,6 +147,14 @@ pub struct MethodConfig {
     pub patience: Option<usize>,
     /// `outerhmm`: probability of pitches outside every error class (default 1e-6).
     pub other_prob: Option<f64>,
+    /// `arzt`: largest advance of the position per observation (default 5).
+    pub step_size: Option<usize>,
+    /// `dixon`: search width in observations (default 30).
+    pub window_size: Option<usize>,
+    /// `dixon`: consecutive advances in one direction before the other is forced (default 3).
+    pub max_run_count: Option<usize>,
+    /// `arzt`, `dixon`: local cost (default `cosine` / `euclidean`).
+    pub distance_func: Option<Distance>,
 }
 
 impl MethodConfig {
@@ -160,6 +170,10 @@ impl MethodConfig {
             }),
             patience: None,
             other_prob: None,
+            step_size: None,
+            window_size: None,
+            max_run_count: None,
+            distance_func: None,
         }
     }
 
@@ -188,6 +202,18 @@ impl MethodConfig {
             }
             ("other_prob", ConfigValue::Float(p)) => self.other_prob = Some(*p),
             ("other_prob", ConfigValue::Int(p)) => self.other_prob = Some(*p as f64),
+            ("step_size" | "window_size" | "max_run_count", ConfigValue::Int(n)) => {
+                let n = usize::try_from(*n)
+                    .ok()
+                    .filter(|&n| n >= 1)
+                    .ok_or_else(|| invalid("must be at least 1".into()))?;
+                match key {
+                    "step_size" => self.step_size = Some(n),
+                    "window_size" => self.window_size = Some(n),
+                    _ => self.max_run_count = Some(n),
+                }
+            }
+            ("distance_func", ConfigValue::Str(name)) => self.distance_func = Some(name.parse()?),
             _ => return Err(invalid(format!("unsupported value {value:?}"))),
         }
         Ok(())

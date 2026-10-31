@@ -15,6 +15,7 @@
 //! ```
 
 pub mod base;
+pub mod dp;
 pub mod error;
 pub mod export;
 pub mod features;

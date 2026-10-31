@@ -159,3 +159,36 @@ fn annotations_equal_reference() {
     }
     assert!(checked >= 40, "only {checked} annotation files compared");
 }
+
+/// `onset_pianoroll` of `features/midi.py`, the reference features of `arzt` and `dixon` (exact).
+#[test]
+fn onset_pianoroll_equals_reference() {
+    let mut checked = 0;
+    for piece in golden_pieces() {
+        let Some(path) = score_file(&piece) else {
+            continue;
+        };
+        let dir = golden(&piece).join("score");
+        let score = Score::load(&path, true).unwrap();
+        for (file, piano_range, width) in [
+            ("onset_pianoroll.npy", true, 88),
+            ("onset_pianoroll_full.npy", false, 128),
+        ] {
+            let ctx = Ctx::new("score", &piece, file);
+            let (features, positions) = score.onset_pianoroll(piano_range);
+            let expected = npy(dir.join(file));
+            assert_eq!(expected.shape, [features.len(), width], "[{piece}] {file}");
+            let flat: Vec<f64> = features.iter().flatten().map(|&v| f64::from(v)).collect();
+            common::assert_exact(&ctx, &expected.values(), &flat);
+            let positions: Vec<f64> = positions.into_iter().map(f64::from).collect();
+            let ctx = Ctx::new("score", &piece, "onset_positions.npy");
+            common::assert_exact(
+                &ctx,
+                &npy(dir.join("onset_positions.npy")).values(),
+                &positions,
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked >= 16, "only {checked} onset pianorolls compared");
+}
