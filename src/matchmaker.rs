@@ -17,6 +17,7 @@ use std::str::FromStr;
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::dp::Distance;
 use crate::dp::oltw_arzt::{ArztEvent, ArztEventConfig};
+use crate::dp::oltw_dixon::{DixonEvent, DixonEventConfig};
 use crate::error::{Error, Result};
 use crate::features::{
     Observation, Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor,
@@ -42,11 +43,13 @@ pub enum Method {
     OuterHmm,
     /// `arzt`: event-level online time warping over the onset pianoroll.
     Arzt,
+    /// `dixon`: event-level online time warping with a sparse, path-normalised cost matrix.
+    Dixon,
 }
 
 impl Method {
     /// Reference names of the supported methods.
-    pub const AVAILABLE: [&'static str; 4] = ["pthmm", "hmm", "outerhmm", "arzt"];
+    pub const AVAILABLE: [&'static str; 5] = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"];
 
     /// Keys [`MethodConfig::set`] accepts for this method.
     pub fn config_keys(self) -> &'static [&'static str] {
@@ -65,6 +68,14 @@ impl Method {
                 "step_size",
                 "distance_func",
             ],
+            Method::Dixon => &[
+                "processor",
+                "piano_range",
+                "polling_period",
+                "window_size",
+                "max_run_count",
+                "distance_func",
+            ],
             _ => &["processor", "piano_range", "polling_period"],
         }
     }
@@ -76,6 +87,7 @@ impl Method {
             Method::Hmm => "hmm",
             Method::OuterHmm => "outerhmm",
             Method::Arzt => "arzt",
+            Method::Dixon => "dixon",
         }
     }
 }
@@ -89,6 +101,7 @@ impl FromStr for Method {
             "hmm" => Ok(Method::Hmm),
             "outerhmm" => Ok(Method::OuterHmm),
             "arzt" => Ok(Method::Arzt),
+            "dixon" => Ok(Method::Dixon),
             _ => Err(Error::InvalidMethod {
                 method: name.to_string(),
                 available: Method::AVAILABLE.iter().map(|s| s.to_string()).collect(),
@@ -170,18 +183,22 @@ pub struct MethodConfig {
 }
 
 impl MethodConfig {
-    /// The `default_kwargs` of `method`: piano range, `pitch` (`arzt`: `chord_onset`) and windows
-    /// of 10 ms (`outerhmm`, `arzt`: 1 ms).
+    /// The `default_kwargs` of `method`: piano range, `pitch` (`arzt`, `dixon`: `chord_onset`) and
+    /// windows of 10 ms (`outerhmm`, `arzt`, `dixon`: 1 ms).
     pub fn for_method(method: Method) -> Self {
-        let fine = matches!(method, Method::OuterHmm | Method::Arzt);
+        let oltw = matches!(method, Method::Arzt | Method::Dixon);
         MethodConfig {
-            processor: if method == Method::Arzt {
+            processor: if oltw {
                 ProcessorKind::ChordOnset
             } else {
                 ProcessorKind::Pitch
             },
             piano_range: true,
-            polling_period: Some(if fine { 0.001 } else { 0.01 }),
+            polling_period: Some(if oltw || method == Method::OuterHmm {
+                0.001
+            } else {
+                0.01
+            }),
             patience: None,
             other_prob: None,
             step_size: None,
@@ -370,6 +387,19 @@ impl Matchmaker {
                         step_size: config.step_size.unwrap_or(defaults.step_size),
                         distance: config.distance_func.unwrap_or(defaults.distance),
                         ..defaults
+                    },
+                ))
+            }
+            Method::Dixon => {
+                let (features, onsets) = score.onset_pianoroll(config.piano_range);
+                let defaults = DixonEventConfig::default();
+                Box::new(DixonEvent::new(
+                    features,
+                    onsets,
+                    DixonEventConfig {
+                        window_size: config.window_size.unwrap_or(defaults.window_size),
+                        max_run_count: config.max_run_count.unwrap_or(defaults.max_run_count),
+                        distance: config.distance_func.unwrap_or(defaults.distance),
                     },
                 ))
             }

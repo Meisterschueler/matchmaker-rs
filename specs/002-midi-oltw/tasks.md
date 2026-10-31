@@ -81,14 +81,14 @@ Cargo workspace per [plan.md](plan.md#source-code-changes-to-the-001-layout): co
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T014 [P] [US2] Write failing golden test `tests/golden_dixon.rs`, same checks as T009 for `dixon`
-- [ ] T015 [P] [US2] Extend `tests/method_config.rs` (failing first): `for_method(Method::Dixon)` is `chord_onset`, `piano_range`, `Some(0.001)`; `window_size` and `max_run_count` accept values ≥ 1 and reject 0; `distance_func` as in T010; `step_size` is `InvalidParameter`
+- [X] T014 [P] [US2] Write failing golden test `tests/golden_dixon.rs`, same checks as T009 for `dixon`
+- [X] T015 [P] [US2] Extend `tests/method_config.rs` (failing first): `for_method(Method::Dixon)` is `chord_onset`, `piano_range`, `Some(0.001)`; `window_size` and `max_run_count` accept values ≥ 1 and reject 0; `distance_func` as in T010; `step_size` is `InvalidParameter`
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] Port `OnlineTimeWarpingDixonEvent` as `DixonEvent` + `DixonEventConfig { window_size: 30, max_run_count: 3, distance: Euclidean }` in `src/dp/oltw_dixon.rs` (`pub mod oltw_dixon;` in `src/dp/mod.rs`) per [research R3](research.md#r3-dixon-event-algorithm-and-dtypes): `HashMap<(usize, usize), f64>` cost, `inputs`, `pending` (at most one), `t`, `j` (`isize`, −1 before the first input), run counts, `_evaluate` (weights 1, 1, 2, finite predecessors only, strict `<`), `_norm_cost = D / (1 + i + k)`, `_argmin_path_cost` (row scan, then column scan, initial `(inf, j, t)`), `get_inc` in the reference's order, the `while True` step loop with two `get_inc` calls per round, `current_index = min(argmin_ref, N − 1)`; same trait, span and doc rules as T011; unit test on a hand-made reference
-- [ ] T017 [US2] Enable `Method::Dixon` in `src/matchmaker.rs` (`AVAILABLE` and its array length, `name`, `FromStr`, `config_keys`: `processor`, `piano_range`, `polling_period`, `window_size`, `max_run_count`, `distance_func`; defaults as T012) and add the `Method::Dixon` arm in `src/export.rs`; depends on T011, T012 (same files), T016
-- [ ] T018 [US2] Make `tests/golden_dixon.rs` and the T015 additions pass; no performance work here (T022)
+- [X] T016 [US2] Port `OnlineTimeWarpingDixonEvent` as `DixonEvent` + `DixonEventConfig { window_size: 30, max_run_count: 3, distance: Euclidean }` in `src/dp/oltw_dixon.rs` (`pub mod oltw_dixon;` in `src/dp/mod.rs`) per [research R3](research.md#r3-dixon-event-algorithm-and-dtypes): `HashMap<(usize, usize), f64>` cost, `inputs`, `pending` (at most one), `t`, `j` (`isize`, −1 before the first input), run counts, `_evaluate` (weights 1, 1, 2, finite predecessors only, strict `<`), `_norm_cost = D / (1 + i + k)`, `_argmin_path_cost` (row scan, then column scan, initial `(inf, j, t)`), `get_inc` in the reference's order, the `while True` step loop with two `get_inc` calls per round, `current_index = min(argmin_ref, N − 1)`; same trait, span and doc rules as T011; unit test on a hand-made reference
+- [X] T017 [US2] Enable `Method::Dixon` in `src/matchmaker.rs` (`AVAILABLE` and its array length, `name`, `FromStr`, `config_keys`: `processor`, `piano_range`, `polling_period`, `window_size`, `max_run_count`, `distance_func`; defaults as T012) and add the `Method::Dixon` arm in `src/export.rs`; depends on T011, T012 (same files), T016
+- [X] T018 [US2] Make `tests/golden_dixon.rs` and the T015 additions pass; no performance work here (T022)
 
 **Checkpoint**: Both methods work and match the reference
 
