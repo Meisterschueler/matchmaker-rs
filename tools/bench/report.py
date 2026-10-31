@@ -5,8 +5,8 @@ parity flags (contracts/benchmark-report.md):
 
 - metric parity: every evaluation metric of Rust within 1e-4 of the reference (golden tolerance)
 - position parity: alignment paths (``paths/<dataset>/<piece>/<method>.tsv`` next to each
-  records file) agree within 1e-6 at every step for pthmm/outerhmm (SC-001) and at >= 99.9 %
-  of the steps for hmm (SC-002); the first differing step is reported (SC-007). Steps where
+  records file) agree within 1e-6 at every step for pthmm/outerhmm/arzt/dixon (SC-001) and at
+  >= 99.9 % of the steps for hmm (SC-002); the first differing step is reported (SC-007). Steps where
   Rust's best state leads by less than 1e-9 (relative; ``<method>.gap.tsv``) are numerical ties
   and count as equal
 

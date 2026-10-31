@@ -1,6 +1,6 @@
 //! US2: evaluation parity. `evaluate_alignment` on the reference's alignment paths with the
 //! `.match` ground truth reproduces `evaluation.json` (abs 1e-4, research R8). The paths of
-//! `hmm` and `outerhmm` come from the reference, so this test does not depend on those ports.
+//! all methods come from the reference, so this test does not depend on the follower ports.
 
 mod common;
 
@@ -19,7 +19,7 @@ fn evaluation_matches_reference() {
         let score = Score::load(data(&format!("{piece}.musicxml")), true).unwrap();
         let perf = data(&format!("{piece}.mid"));
         let gt = GroundTruth::load(data(&format!("{piece}.match")), &score, Some(&perf)).unwrap();
-        for method in ["pthmm", "hmm", "outerhmm"] {
+        for method in ["pthmm", "hmm", "outerhmm", "arzt", "dixon"] {
             let dir = golden(piece).join(method);
             let values = npy(dir.join("alignment_path.npy")).values();
             let (perf_time, score_beat) = values.split_at(values.len() / 2);

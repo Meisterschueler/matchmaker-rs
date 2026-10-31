@@ -26,7 +26,7 @@ from matchmaker import Matchmaker
 from matchmaker.utils.eval import evaluate_alignment, resolve_gt
 from matchmaker.utils.symbolic import midi_messages_from_performance
 
-METHODS = ["pthmm", "hmm", "outerhmm"]
+METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"]
 PROCESSORS = {"PitchProcessor": "pitch", "ChordOnsetProcessor": "chord_onset"}
 
 

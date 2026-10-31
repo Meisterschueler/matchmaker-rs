@@ -73,6 +73,11 @@ storage **only** if the benchmark shows SC-003 missed.
 reference's own structure.
 **Alternatives considered**: banded `Vec` from the start (faster, but a second structure to verify
 against the dict semantics before any evidence it is needed).
+**Measured (T021)**: 63 pieces (3 bundled, 12 Vienna 4x22, 12 (n)ASAP, 36 Batik; Rust 3-5 runs,
+reference 1-3 runs, Windows, release build). Inference latency per observation, reference / Rust:
+`dixon` 18-27× (median 26.8×, about 0.02 ms vs 0.5 ms), `arzt` 18-25× (median 24.8×, about
+0.003 ms vs 0.08 ms); total processing speed-up `dixon` 17-105× (median 40×), `arzt` 22-446×
+(median 116×). SC-003 (≥ 5×) holds with the `HashMap`, so the band storage (T022) is not needed.
 
 ## R4. Distance functions
 
@@ -110,6 +115,10 @@ The NaN of an all-zero observation therefore flows through the DP like in the re
   reference's pass-through exclusion does, so `default_kwargs` can stay identical to
   `DEFAULT_KWARGS["midi"]["arzt"]` (incl. `window_size: 2`).
 - Unknown names are errors (001 behaviour); the reference swallows them in `**kwargs`.
+- Python only: when `kwargs` replaces the defaults, `Matchmaker.__init__` falls back to
+  `polling_period = 0.01` (only `event_based` methods fall back to `None`) and to the `pitch`
+  processor. `arzt` and `dixon` are not `event_based`, so `kwargs={"piano_range": True}` gives 10 ms
+  windows and `pitch`, not the 1 ms / `chord_onset` of their defaults; the binding keeps that rule.
 
 **Decision**: add `Option` fields to `MethodConfig`, extend `Method::config_keys`.
 **Alternatives considered**: a generic string map in the core (loses typed validation).

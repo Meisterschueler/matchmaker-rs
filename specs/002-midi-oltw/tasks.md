@@ -102,13 +102,13 @@ Cargo workspace per [plan.md](plan.md#source-code-changes-to-the-001-layout): co
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T019 [P] [US3] Extend `tests/golden_eval.rs` (failing first): `evaluate_alignment` on the `arzt` and `dixon` golden `alignment_path.npy` + `.match` GT equals `evaluation.json` (abs 1e-4)
+- [X] T019 [P] [US3] Extend `tests/golden_eval.rs` (failing first): `evaluate_alignment` on the `arzt` and `dixon` golden `alignment_path.npy` + `.match` GT equals `evaluation.json` (abs 1e-4)
 
 ### Implementation for User Story 3
 
-- [ ] T020 [P] [US3] Add `"arzt"`, `"dixon"` to `METHODS` in `tools/bench/run_reference.py`; set `METHODS: pthmm,hmm,outerhmm,arzt,dixon` in `.github/workflows/benchmark.yml`; hold both methods to the exact position rule (`< 1e-6` at every step, SC-001) next to `pthmm`/`outerhmm` in `tools/bench/report.py` and its docstring
-- [ ] T021 [US3] Run Rust (`matchmaker bench tools/bench/bundled.toml --methods arzt,dixon`), `tools/bench/run_reference.py` and `tools/bench/report.py` on the bundled pieces and on a `fetch.py --limit` subset of Batik, Vienna 4x22 and (n)ASAP: check position parity (SC-001), metric parity and the speed-up (SC-003). A position difference: find the first step, name the cause (`cdist` rounding, `f32` cost matrix, tie), and if it cannot be removed record it in `research.md` as a deviation shown by the evaluation metrics (constitution I)
-- [ ] T022 [US3] Only if SC-003 fails for `dixon`: replace the `HashMap` by per-column band storage in `src/dp/oltw_dixon.rs` (same results, `tests/golden_dixon.rs` stays green), re-measure and record both numbers in `research.md` R3
+- [X] T020 [P] [US3] Add `"arzt"`, `"dixon"` to `METHODS` in `tools/bench/run_reference.py`; set `METHODS: pthmm,hmm,outerhmm,arzt,dixon` in `.github/workflows/benchmark.yml`; hold both methods to the exact position rule (`< 1e-6` at every step, SC-001) next to `pthmm`/`outerhmm` in `tools/bench/report.py` and its docstring; `matchmaker bench` records the method's real processor (`chord_onset`) and writes no tie margins for followers without a state distribution
+- [X] T021 [US3] Run Rust (`matchmaker bench tools/bench/bundled.toml --methods arzt,dixon`), `tools/bench/run_reference.py` and `tools/bench/report.py` on the bundled pieces and on a `fetch.py --limit` subset of Batik, Vienna 4x22 and (n)ASAP: check position parity (SC-001), metric parity and the speed-up (SC-003). A position difference: find the first step, name the cause (`cdist` rounding, `f32` cost matrix, tie), and if it cannot be removed record it in `research.md` as a deviation shown by the evaluation metrics (constitution I)
+- [X] T022 [US3] Only if SC-003 fails for `dixon`: replace the `HashMap` by per-column band storage in `src/dp/oltw_dixon.rs` (same results, `tests/golden_dixon.rs` stays green), re-measure and record both numbers in `research.md` R3 (not needed: SC-003 holds, numbers in R3)
 
 **Checkpoint**: Parity and speed-up of both methods are shown by tests and the report
 
@@ -130,7 +130,7 @@ Cargo workspace per [plan.md](plan.md#source-code-changes-to-the-001-layout): co
 
 - [ ] T026 [US4] In `src/export.rs` write `probabilities.npy` only when the steps report probabilities (today it writes a `(T, N)` array unconditionally, which would be wrong for followers with an empty `StepDebug.probabilities`)
 - [ ] T027 [US4] CLI in `crates/matchmaker-cli/src/main.rs` and `bench.rs`: `--method`, the error listing and the `bench` default method list must come from `Method::AVAILABLE`; the `--set` help text names the new keys per method
-- [ ] T028 [US4] Python binding in `crates/matchmaker-py/src/lib.rs`: `default_kwargs` and the default polling period from `MethodConfig::for_method` instead of the `Method::OuterHmm` special cases (lines `78` and `181` of the current file); `default_kwargs` for `arzt`/`dixon` as in [contracts/interfaces.md](contracts/interfaces.md#python); for `arzt` drop `window_size` and `start_window_size` from `kwargs` before `MethodConfig::set` (the reference's pass-through exclusion) with a one-line comment; `AVAILABLE_METHODS` and the error message from `Method::AVAILABLE`
+- [ ] T028 [US4] Python binding in `crates/matchmaker-py/src/lib.rs`: `default_kwargs` per method (values of [contracts/interfaces.md](contracts/interfaces.md#python); `AVAILABLE_METHODS`, `DEFAULT_KWARGS` and the error message already follow `Method::AVAILABLE`); for `arzt` skip `window_size` and `start_window_size` when applying `kwargs` (the reference's pass-through exclusion) with a one-line comment. The fallback polling period for replaced `kwargs` stays 0.01 s (`POLLING_PERIOD`; only `event_based` methods fall back to `None`) and the fallback processor stays `pitch`, as in `Matchmaker.__init__`: `MethodConfig::for_method` must not replace them
 - [ ] T029 [US4] Make T023–T025 pass on Python 3.10 and 3.13; update the 001 documents that call `arzt` unsupported: the error row in `specs/001-midi-score-following/contracts/python-api.md` and the Python scenario of `specs/001-midi-score-following/quickstart.md`
 
 **Checkpoint**: Both methods are usable from CLI and Python, and exportable
