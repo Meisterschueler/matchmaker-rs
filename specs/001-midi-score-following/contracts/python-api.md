@@ -12,7 +12,7 @@ mm = Matchmaker(
     score_file="simple_mozart_k265_var1.musicxml",
     performance_file="simple_mozart_k265_var1.mid",
     input_type="midi",
-    method="pthmm",            # "pthmm" (default) | "hmm" | "outerhmm"
+    method="pthmm",            # "pthmm" (default) | "hmm" | "outerhmm" | "arzt" | "dixon" (arzt, dixon: feature 002)
     processor=None,            # "pitch" | "chord_onset" | None (method default)
     tempo=None,
     wait=False,                # accepted; simulation runs as fast as possible either way
@@ -52,5 +52,6 @@ else raises `NotImplementedError` naming the supported options).
 
 ## Module-level
 
-`AVAILABLE_METHODS = {"midi": ["pthmm", "hmm", "outerhmm"]}`, `DEFAULT_KWARGS` (MIDI part),
+`AVAILABLE_METHODS = {"midi": ["pthmm", "hmm", "outerhmm", "arzt", "dixon"]}` (the last two since feature 002),
+`DEFAULT_KWARGS` (MIDI part),
 `__version__`, `__reference_version__` (reference tag the build was validated against).

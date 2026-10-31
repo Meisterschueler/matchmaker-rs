@@ -93,7 +93,13 @@ fn compare(ctx: &Ctx, rel: &str, exported: &Path, expected: &Path) {
 
 #[test]
 fn export_equals_golden_for_every_method() {
-    for method in [Method::Pthmm, Method::Hmm, Method::OuterHmm] {
+    for method in [
+        Method::Pthmm,
+        Method::Hmm,
+        Method::OuterHmm,
+        Method::Arzt,
+        Method::Dixon,
+    ] {
         let name = method.name();
         let out = std::env::temp_dir().join(format!("matchmaker_export_{name}"));
         let _ = std::fs::remove_dir_all(&out);
@@ -117,7 +123,7 @@ fn export_equals_golden_for_every_method() {
             "stream",
             &format!("{name}/positions.npy"),
             &format!("{name}/alignment_path.npy"),
-            &format!("{name}/probabilities.npy"),
+            &format!("{name}/current_index.npy"),
             &format!("{name}/meta.json"),
             "processor",
         ] {
@@ -126,10 +132,17 @@ fn export_equals_golden_for_every_method() {
                 "[{name}] missing {expected}"
             );
         }
+        // arzt and dixon have no state distribution, so no file
+        let probabilities = out.join(format!("{name}/probabilities.npy"));
+        assert_eq!(
+            probabilities.exists(),
+            !matches!(method, Method::Arzt | Method::Dixon),
+            "[{name}] probabilities.npy"
+        );
         match method {
             Method::Hmm => assert!(out.join("hmm/beat_period.npy").exists()),
             Method::OuterHmm => assert!(out.join("outerhmm/is_continuation.npy").exists()),
-            Method::Pthmm => {}
+            Method::Pthmm | Method::Arzt | Method::Dixon => {}
         }
 
         let ctx = Ctx::new(name, PIECE, "");

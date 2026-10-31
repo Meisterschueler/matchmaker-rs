@@ -198,6 +198,14 @@ impl Score {
 
     /// Port of `onset_pianoroll(note_array, "onset_beat", piano_range)`: one binary pitch vector
     /// per unique onset (88 keys from MIDI 21, or 128) and the onset beats.
+    ///
+    /// ```
+    /// use matchmaker_rs::score::Score;
+    /// let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;
+    /// let (features, onsets) = score.onset_pianoroll(true);
+    /// assert_eq!((features.len(), features[0].len()), (onsets.len(), 88));
+    /// # Ok::<(), matchmaker_rs::Error>(())
+    /// ```
     pub fn onset_pianoroll(&self, piano_range: bool) -> (Vec<Vec<f32>>, Vec<f32>) {
         let (dim, offset) = if piano_range { (88, 21) } else { (128, 0) };
         let onsets = self.unique_onsets();

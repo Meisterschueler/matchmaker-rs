@@ -28,6 +28,8 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `pthmm` (default) | `pitch`, `chord_onset` | pitch-vector HMM, MIDI score |
 | `hmm` | `pitch`, `chord_onset` | pitch lists, tempo-aware (`beat_period`) |
 | `outerhmm` | `pitch`, `chord_onset` | outer-product HMM with pitch-error model |
+| `arzt` | `chord_onset`, `pitch` | event-level online time warping over the score's onset pianoroll (cosine) |
+| `dixon` | `chord_onset`, `pitch` | event-level online time warping with a sparse, path-normalised cost matrix |
 
 Select with `--method` and `--processor`; override parameters with `--set KEY=VALUE`.
 Audio methods are not implemented yet (see Roadmap).
@@ -86,8 +88,8 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 
 ## Roadmap
 
-1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`; processors `pitch`, `chord_onset`.
-2. Audio score following: methods `arzt`, `dixon`; processors `lse`, `chroma`.
+1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
+2. Audio score following: frame-level `arzt`, `dixon`; processors `lse`, `chroma`.
 3. Later: remaining methods (audio `outerhmm`, `skf`, `pfkorz`, `arzt_tempo`,
    `arzt_multi_fold`) and parangonar methods.
 

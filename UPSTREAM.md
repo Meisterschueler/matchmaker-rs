@@ -33,9 +33,13 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/prob/hmm_models.rs` | `matchmaker/prob/hmm.py` | `stable_transition_matrix`, `compute_discrete_pitch_profiles`, `compute_bernoulli_pitch_probabilities` |
 | `src/prob/outerhmm.rs` | `matchmaker/prob/outer_product_hmm.py` | `OuterProductHMM` |
 | `src/prob/hidden_markov.rs` | `hiddenmarkov/__init__.py` | `forward_algorithm_step`, `ConstantTransitionModel` |
+| `src/dp/mod.rs` | `matchmaker/dp/direction.py`, SciPy `cdist` | `Direction`; metrics `cosine`, `euclidean` |
+| `src/dp/oltw_arzt.rs` | `matchmaker/dp/oltw_arzt.py` | `OnlineTimeWarpingArztEvent` |
+| `src/dp/oltw_dixon.rs` | `matchmaker/dp/oltw_dixon.py` | `OnlineTimeWarpingDixonEvent` |
 | `src/utils/tempo_models.rs` | `matchmaker/utils/tempo_models.py` | `KalmanTempoModel` |
 | `src/utils/eval.rs` | `matchmaker/utils/eval.py` | `evaluate_alignment`, `evaluate_beat_errors`, `compute_sparc` |
 | `src/score/mod.rs` | `matchmaker/matchmaker.py` | `Matchmaker.__init__` score loading |
+| `src/score/mod.rs` (`onset_pianoroll`) | `matchmaker/features/midi.py` | `onset_pianoroll` |
 | `src/score/musicxml.rs` | `partitura/io/importmusicxml.py` | `load_musicxml` |
 | `src/score/midi.rs` | `partitura/io/importmidi.py` | `load_score_midi` |
 | `src/score/part.rs` | `partitura/score.py`, `partitura/utils/music.py` | `Part`, `Part.note_array` |
@@ -46,7 +50,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py` | public `Matchmaker` API (MIDI methods only) |
 | `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py` | CLI surface |
 
-Not ported: audio features and followers (`dp/`, `features/audio.py`, `io/audio.py`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`), live MIDI devices and the thread/queue plumbing.
+Not ported: audio features and followers (`dp/` frame-level classes `OnlineTimeWarpingArztFrame`, `OnlineTimeWarpingArztMultiFold`, `OnlineTimeWarpingDixonFrame` and `dp/dtw_loop.pyx`, `features/audio.py`, `io/audio.py`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`), live MIDI devices and the thread/queue plumbing.
 
 ## Procedure: a new upstream release
 

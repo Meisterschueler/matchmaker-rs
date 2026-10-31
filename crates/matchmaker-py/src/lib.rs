@@ -70,13 +70,25 @@ fn config_value(value: &Bound<'_, PyAny>) -> PyResult<ConfigValue> {
     }
 }
 
-/// `DEFAULT_KWARGS["midi"][method]`.
+/// `DEFAULT_KWARGS["midi"][method]` of the reference's `methods.yaml`.
 fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, PyDict>> {
     let kwargs = PyDict::new(py);
-    kwargs.set_item("processor", "pitch")?;
+    let oltw = matches!(method, Method::Arzt | Method::Dixon);
+    kwargs.set_item("processor", if oltw { "chord_onset" } else { "pitch" })?;
     kwargs.set_item("piano_range", true)?;
-    if method == Method::OuterHmm {
-        kwargs.set_item("polling_period", 0.001)?;
+    match method {
+        Method::OuterHmm => kwargs.set_item("polling_period", 0.001)?,
+        Method::Arzt => {
+            kwargs.set_item("polling_period", 0.001)?;
+            kwargs.set_item("window_size", 2)?;
+            kwargs.set_item("start_window_size", 2)?;
+            kwargs.set_item("step_size", 5)?;
+        }
+        Method::Dixon => {
+            kwargs.set_item("polling_period", 0.001)?;
+            kwargs.set_item("window_size", 30)?;
+        }
+        Method::Pthmm | Method::Hmm => {}
     }
     Ok(kwargs)
 }
@@ -178,6 +190,7 @@ impl PyMatchmaker {
             Some(kwargs) => kwargs.copy()?,
             None => default_kwargs(py, method_kind)?,
         };
+        // replaced kwargs fall back to 10 ms windows; only the `event_based` method (outerhmm) streams events
         let default_polling = (method_kind != Method::OuterHmm).then_some(0.01);
         let polling_period = match pop(&config, "polling_period")? {
             Some(value) if value.is_none() => None,
@@ -196,12 +209,15 @@ impl PyMatchmaker {
             .set(method_kind, "processor", &ConfigValue::Str(processor_name))
             .map_err(to_py_err)?;
         for (key, value) in config.iter() {
+            let key = key.extract::<String>()?;
+            // the reference's pass-through (`methods.yaml`) never hands these two to MIDI arzt
+            if method_kind == Method::Arzt
+                && matches!(key.as_str(), "window_size" | "start_window_size")
+            {
+                continue;
+            }
             method_config
-                .set(
-                    method_kind,
-                    &key.extract::<String>()?,
-                    &config_value(&value)?,
-                )
+                .set(method_kind, &key, &config_value(&value)?)
                 .map_err(to_py_err)?;
         }
 
