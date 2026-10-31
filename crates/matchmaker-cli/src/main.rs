@@ -35,10 +35,11 @@ enum Command {
         /// Tempo in BPM (default: score marking, else 120)
         #[arg(long)]
         tempo: Option<f64>,
-        /// Feature processor: pitch, chord_onset (default: pitch)
+        /// Feature processor: pitch, chord_onset (default: the method's, `chord_onset` for arzt, dixon)
         #[arg(long)]
         processor: Option<ProcessorKind>,
-        /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20)
+        /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20;
+        /// arzt: step_size, distance_func; dixon: window_size, max_run_count, distance_func)
         #[arg(long = "set", value_name = "KEY=VALUE")]
         set: Vec<String>,
         /// Do not unfold repeats

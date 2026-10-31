@@ -71,8 +71,8 @@ python -m uv run --with maturin maturin develop --release
 python -m uv run python -c "from matchmaker_rs import Matchmaker; mm = Matchmaker('../../tests/data/simple_mozart_k265_var1.musicxml', '../../tests/data/simple_mozart_k265_var1.mid', input_type='midi', method='pthmm'); print(list(mm.run(verbose=False))[:5]); print(mm.score_follower.alignment_path.shape)"
 ```
 
-Expected: same positions as scenario 1; shape `(2, T)`. `method="arzt"` raises `ValueError`
-listing `['pthmm', 'hmm', 'outerhmm']` (US5-2).
+Expected: same positions as scenario 1; shape `(2, T)`. `method="foo"` raises `ValueError`
+listing `['pthmm', 'hmm', 'outerhmm', 'arzt', 'dixon']` (US5-2; `arzt` and `dixon` since feature 002).
 
 ## 7. Benchmark (US2-3, US2-4)
 

@@ -258,7 +258,11 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
         steps.iter().map(|s| s.debug.current_index),
     )?;
     let states = mm.follower_score_positions().len();
-    if !steps.is_empty() && steps.len() * states <= MAX_PROBABILITY_VALUES {
+    // followers without a state distribution (arzt, dixon) have nothing to write
+    let has_probabilities = steps
+        .first()
+        .is_some_and(|s| !s.debug.probabilities.is_empty());
+    if has_probabilities && steps.len() * states <= MAX_PROBABILITY_VALUES {
         f8(
             &method_dir.join("probabilities.npy"),
             &[steps.len(), states],
