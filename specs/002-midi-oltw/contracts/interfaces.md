@@ -10,7 +10,8 @@ Everything not listed here is unchanged from [001](../../001-midi-score-followin
   `polling_period = Some(0.001)`.
 - `MethodConfig::set` keys: see [research R5](../research.md#r5-configuration-surface). Invalid
   keys/values → `Error::InvalidParameter` naming key and allowed values.
-- `dp::oltw_arzt::ArztEvent`, `dp::oltw_dixon::DixonEvent`: `new(&Score, config)`, implement
+- `dp::oltw_arzt::ArztEvent`, `dp::oltw_dixon::DixonEvent`: `new(reference_features, score_positions,
+  config)` with the arrays of `Score::onset_pianoroll` (the Python constructor's arguments), implement
   `OnlineAlignment`; `debug_state().probabilities` is empty.
 - `Score::onset_pianoroll(piano_range)`.
 

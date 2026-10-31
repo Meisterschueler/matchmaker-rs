@@ -16,6 +16,7 @@ use std::str::FromStr;
 
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::dp::Distance;
+use crate::dp::oltw_arzt::{ArztEvent, ArztEventConfig};
 use crate::error::{Error, Result};
 use crate::features::{
     Observation, Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor,
@@ -39,11 +40,13 @@ pub enum Method {
     Hmm,
     /// `outerhmm`: outer-product HMM following note by note with chord folding.
     OuterHmm,
+    /// `arzt`: event-level online time warping over the onset pianoroll.
+    Arzt,
 }
 
 impl Method {
     /// Reference names of the supported methods.
-    pub const AVAILABLE: [&'static str; 3] = ["pthmm", "hmm", "outerhmm"];
+    pub const AVAILABLE: [&'static str; 4] = ["pthmm", "hmm", "outerhmm", "arzt"];
 
     /// Keys [`MethodConfig::set`] accepts for this method.
     pub fn config_keys(self) -> &'static [&'static str] {
@@ -55,6 +58,13 @@ impl Method {
                 "patience",
                 "other_prob",
             ],
+            Method::Arzt => &[
+                "processor",
+                "piano_range",
+                "polling_period",
+                "step_size",
+                "distance_func",
+            ],
             _ => &["processor", "piano_range", "polling_period"],
         }
     }
@@ -65,6 +75,7 @@ impl Method {
             Method::Pthmm => "pthmm",
             Method::Hmm => "hmm",
             Method::OuterHmm => "outerhmm",
+            Method::Arzt => "arzt",
         }
     }
 }
@@ -77,6 +88,7 @@ impl FromStr for Method {
             "pthmm" => Ok(Method::Pthmm),
             "hmm" => Ok(Method::Hmm),
             "outerhmm" => Ok(Method::OuterHmm),
+            "arzt" => Ok(Method::Arzt),
             _ => Err(Error::InvalidMethod {
                 method: name.to_string(),
                 available: Method::AVAILABLE.iter().map(|s| s.to_string()).collect(),
@@ -158,16 +170,18 @@ pub struct MethodConfig {
 }
 
 impl MethodConfig {
-    /// The `default_kwargs` of `method`: `pitch`, `piano_range`, windows of 10 ms (`outerhmm`: 1 ms).
+    /// The `default_kwargs` of `method`: piano range, `pitch` (`arzt`: `chord_onset`) and windows
+    /// of 10 ms (`outerhmm`, `arzt`: 1 ms).
     pub fn for_method(method: Method) -> Self {
+        let fine = matches!(method, Method::OuterHmm | Method::Arzt);
         MethodConfig {
-            processor: ProcessorKind::Pitch,
-            piano_range: true,
-            polling_period: Some(if method == Method::OuterHmm {
-                0.001
+            processor: if method == Method::Arzt {
+                ProcessorKind::ChordOnset
             } else {
-                0.01
-            }),
+                ProcessorKind::Pitch
+            },
+            piano_range: true,
+            polling_period: Some(if fine { 0.001 } else { 0.01 }),
             patience: None,
             other_prob: None,
             step_size: None,
@@ -184,6 +198,9 @@ impl MethodConfig {
             reason,
         };
         if !method.config_keys().contains(&key) {
+            if method == Method::Arzt && matches!(key, "window_size" | "start_window_size") {
+                return Err(invalid("not used by the reference's MIDI arzt".into()));
+            }
             return Err(invalid(format!(
                 "unknown parameter for {}; allowed: {:?}",
                 method.name(),
@@ -339,6 +356,19 @@ impl Matchmaker {
                     OuterProductHmmConfig {
                         patience: config.patience.unwrap_or(defaults.patience),
                         other_prob: config.other_prob.unwrap_or(defaults.other_prob),
+                        ..defaults
+                    },
+                ))
+            }
+            Method::Arzt => {
+                let (features, onsets) = score.onset_pianoroll(config.piano_range);
+                let defaults = ArztEventConfig::default();
+                Box::new(ArztEvent::new(
+                    features,
+                    onsets,
+                    ArztEventConfig {
+                        step_size: config.step_size.unwrap_or(defaults.step_size),
+                        distance: config.distance_func.unwrap_or(defaults.distance),
                         ..defaults
                     },
                 ))

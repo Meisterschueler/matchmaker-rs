@@ -5,6 +5,7 @@ mod common;
 
 use common::data;
 use matchmaker_rs::Error;
+use matchmaker_rs::dp::Distance;
 use matchmaker_rs::matchmaker::{ConfigValue, Matchmaker, Method, MethodConfig, ProcessorKind};
 use matchmaker_rs::score::AnnotationLevel;
 
@@ -52,6 +53,42 @@ fn unknown_keys_and_bad_values_are_rejected() {
     assert_eq!(outer.patience, Some(20));
     let negative = outer.set(Method::OuterHmm, "patience", &ConfigValue::Int(-1));
     assert_eq!(invalid_key(negative.unwrap_err()), "patience");
+}
+
+#[test]
+fn arzt_defaults_and_keys() {
+    let mut config = MethodConfig::for_method(Method::Arzt);
+    assert_eq!(
+        (config.processor, config.piano_range, config.polling_period),
+        (ProcessorKind::ChordOnset, true, Some(0.001))
+    );
+    config
+        .set(Method::Arzt, "step_size", &ConfigValue::Int(3))
+        .unwrap();
+    assert_eq!(config.step_size, Some(3));
+    let euclidean = ConfigValue::Str("euclidean".into());
+    config
+        .set(Method::Arzt, "distance_func", &euclidean)
+        .unwrap();
+    assert_eq!(config.distance_func, Some(Distance::Euclidean));
+
+    let zero = config.set(Method::Arzt, "step_size", &ConfigValue::Int(0));
+    assert_eq!(invalid_key(zero.unwrap_err()), "step_size");
+    let manhattan = ConfigValue::Str("manhattan".into());
+    let bad = config
+        .set(Method::Arzt, "distance_func", &manhattan)
+        .unwrap_err();
+    assert!(bad.to_string().contains("cosine"), "{bad}");
+    assert_eq!(invalid_key(bad), "distance_func");
+    // the reference's pass-through drops these two for MIDI arzt
+    for key in ["window_size", "start_window_size"] {
+        let err = config.set(Method::Arzt, key, &ConfigValue::Int(5));
+        let err = err.unwrap_err();
+        assert!(err.to_string().contains("not used by"), "{err}");
+        assert_eq!(invalid_key(err), key);
+    }
+    let unknown = config.set(Method::Arzt, "patience", &ConfigValue::Int(3));
+    assert!(unknown.unwrap_err().to_string().contains("allowed"));
 }
 
 #[test]
