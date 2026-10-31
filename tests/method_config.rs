@@ -92,6 +92,34 @@ fn arzt_defaults_and_keys() {
 }
 
 #[test]
+fn dixon_defaults_and_keys() {
+    let mut config = MethodConfig::for_method(Method::Dixon);
+    assert_eq!(
+        (config.processor, config.piano_range, config.polling_period),
+        (ProcessorKind::ChordOnset, true, Some(0.001))
+    );
+    for key in ["window_size", "max_run_count"] {
+        config
+            .set(Method::Dixon, key, &ConfigValue::Int(7))
+            .unwrap();
+        let zero = config.set(Method::Dixon, key, &ConfigValue::Int(0));
+        assert_eq!(invalid_key(zero.unwrap_err()), key);
+    }
+    assert_eq!(
+        (config.window_size, config.max_run_count),
+        (Some(7), Some(7))
+    );
+    let cosine = ConfigValue::Str("cosine".into());
+    config.set(Method::Dixon, "distance_func", &cosine).unwrap();
+    assert_eq!(config.distance_func, Some(Distance::Cosine));
+    let err = config
+        .set(Method::Dixon, "step_size", &ConfigValue::Int(3))
+        .unwrap_err();
+    assert!(err.to_string().contains("allowed"), "{err}");
+    assert_eq!(invalid_key(err), "step_size");
+}
+
+#[test]
 fn incompatible_combinations_are_rejected() {
     let build = |method, edit: &dyn Fn(&mut MethodConfig)| {
         let mut config = MethodConfig::for_method(method);

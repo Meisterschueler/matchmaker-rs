@@ -280,7 +280,7 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
                 .filter_map(|s| s.debug.is_continuation)
                 .collect::<Vec<_>>(),
         )?,
-        Method::Pthmm | Method::Arzt => {}
+        Method::Pthmm | Method::Arzt | Method::Dixon => {}
     }
     let path = mm.alignment_path();
     f8(

@@ -11,6 +11,7 @@
 //! ```
 
 pub mod oltw_arzt;
+pub mod oltw_dixon;
 
 use std::str::FromStr;
 
