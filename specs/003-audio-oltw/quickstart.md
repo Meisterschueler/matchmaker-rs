@@ -7,6 +7,7 @@ This guide validates prerecorded audio following on the bundled fixture after th
 - Rust stable matching the workspace MSRV (1.88 or newer).
 - The locked Python 3.12 environment in `tools/golden/` for reference golden generation.
 - A pinned, license-verified SF2 SoundFont available at a local path. Pass it as `--soundfont-path` or `kwargs["soundfont_path"]`; the project does not download it automatically.
+- Partitura's optional FluidSynth support and a working FluidSynth library for Python reference generation. This is not a Rust runtime dependency.
 - A fixture performance in a supported WAV, FLAC, MP3, or Ogg/Vorbis container and its MusicXML/MIDI score.
 
 ## Generate Reference Goldens
@@ -15,7 +16,7 @@ From the repository root:
 
 ```text
 cd tools/golden
-python -m uv run --locked generate_audio.py --data ../../tests/data/audio --out ../../tests/golden/audio
+python -m uv run --locked generate_audio.py --soundfont ../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2 --render-performance
 ```
 
 Expected result: processor arrays, frame timestamps, score reference arrays, and follower outputs for the two methods are written under `tests/golden/audio/`. The generator records the pymatchmaker tag, lockfile hash, method config, and comparison tolerances.

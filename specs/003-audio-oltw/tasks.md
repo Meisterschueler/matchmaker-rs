@@ -24,7 +24,7 @@ description: "Task list for audio online time warping"
 
 - [X] T001 [P] Verify and pin the runtime SF2 SoundFont source, SHA-256, license, attribution, and provisioning instructions in `tests/data/audio/README.md`; do not bundle or download an unverified asset.
 - [X] T002 [P] Add Symphonia 0.6.1, Rubato 5.0.1, and RustySynth 1.3.8 with only required features in `Cargo.toml`, allow MPL-2.0 with rationale in `deny.toml`, and verify license/build metadata in `.github/workflows/ci.yml`.
-- [ ] T003 Add the locked-reference audio fixture/golden generator in `tools/golden/generate_audio.py` and document fixture provenance and generated files in `tests/data/audio/README.md`.
+- [X] T003 Add the locked-reference audio fixture/golden generator in `tools/golden/generate_audio.py` and document fixture provenance and generated files in `tests/data/audio/README.md`.
 
 ## Phase 2: Foundational Audio Pipeline
 

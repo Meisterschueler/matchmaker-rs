@@ -47,8 +47,27 @@ The user supplied the archive in `target/audio-assets/`. The archive contents,
 included CC0 text, and both hashes above were inspected locally; its 7-Zip
 integrity test passed. The archive's version is explicitly pinned as 2019-07-03,
 not the 2022-02-21 date currently shown on the publisher page. Files remain
-outside tracked fixture directories. T001 is complete; T003 may use this exact
-pin and must record its SF2 hash in generated fixture metadata.
+outside tracked fixture directories. T001 is complete; the T003 generator uses
+this exact pin and records its SF2 hash in generated fixture metadata.
+
+### Reference generation
+
+`tools/golden/generate_audio.py` uses pymatchmaker v0.4.0 and the locked
+`tools/golden/uv.lock`. It writes one directory per method/processor pair under
+`tests/golden/audio/`, containing performance features and times, score features
+and frame-to-beat mapping, positions, alignment path, and a metadata JSON with
+the reference and SoundFont hashes. The SoundFont path and SHA-256 are checked
+before use. The reference score renderer is patched only to pass this pinned SF2
+to Partitura; its timing, padding, and cropping logic remains the reference
+implementation.
+
+The optional `--render-performance` flag writes a float WAV derived from the
+score and pinned SF2 to `tests/data/audio/simple_mozart_k265_var1_sf2.wav`.
+Reference rendering requires Partitura's optional FluidSynth support and a
+working FluidSynth library; neither is needed by the Rust runtime. Generated WAV
+and golden files are not checked in until the full generation run and fixture
+provenance review pass. The current locked Python environment reports FluidSynth
+unavailable, so no WAV or golden output has been generated yet.
 
 ### Rejected candidate
 

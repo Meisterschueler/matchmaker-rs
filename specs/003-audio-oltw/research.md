@@ -110,6 +110,18 @@ T001 is complete for this exact asset pin. No SoundFont or derived audio is
 checked into the repository, and no fixtures, renderer/resampler comparison, or
 benchmark has run yet.
 
+### T003: Locked audio generator
+
+`tools/golden/generate_audio.py` is implemented for all four `arzt`/`dixon` and
+`chroma`/`lse` combinations. It verifies the pinned SF2 SHA-256, records the
+reference and renderer hashes, and emits feature arrays, frame times, score
+beat mapping, positions, and alignment paths. Python syntax, CLI help, and the
+asset-hash check pass in the locked environment. Full rendering is not available
+in this environment: `partitura.io.exportaudio.HAS_FLUIDSYNTH` is `False`.
+Therefore no WAV or golden outputs were generated; T011 remains open. The
+generator documents the optional FluidSynth prerequisite, which is not a Rust
+runtime dependency.
+
 ### T002: Dependency and target checks complete
 
 - Symphonia 0.6.1: MPL-2.0, declared MSRV 1.85; defaults disabled, with only
