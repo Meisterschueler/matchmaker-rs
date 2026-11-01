@@ -153,3 +153,29 @@ fn audio_dixon_defaults_and_output_path() {
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("max_run_count"));
 }
+
+#[test]
+fn audio_export_writes_all_pipeline_stages() {
+    let output = std::env::temp_dir().join("matchmaker_cli_audio_export");
+    let _ = std::fs::remove_dir_all(&output);
+    let run = follow_audio("arzt", &["--quiet", "--export", output.to_str().unwrap()]);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    for file in [
+        "audio/meta.json",
+        "audio/frame_times.npy",
+        "processor/chroma/features.npy",
+        "processor/chroma/times.npy",
+        "score/audio/features.npy",
+        "score/audio/frame_to_beat.npy",
+        "arzt/observations_features.npy",
+        "arzt/positions.npy",
+        "arzt/current_index.npy",
+        "arzt/alignment_path.npy",
+    ] {
+        assert!(output.join(file).is_file(), "missing export stage {file}");
+    }
+}

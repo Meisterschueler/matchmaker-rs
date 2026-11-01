@@ -141,3 +141,26 @@ def test_audio_dixon_defaults_yield_positions_and_allow_processor_override():
 
     with pytest.raises(ValueError, match="max_run_count"):
         make_audio("dixon", max_run_count=0)
+
+
+@pytest.mark.parametrize("method,processor", [("arzt", "chroma"), ("dixon", "lse")])
+def test_audio_export_writes_pipeline_stages_without_consuming_run(method, processor, tmp_path):
+    if not SOUNDFONT.is_file():
+        pytest.skip("local pinned SF2 is unavailable")
+
+    mm = make_audio(method, processor=processor)
+    mm.export(tmp_path)
+    for name in [
+        "audio/meta.json",
+        "audio/frame_times.npy",
+        f"processor/{processor}/features.npy",
+        f"processor/{processor}/times.npy",
+        "score/audio/features.npy",
+        "score/audio/frame_to_beat.npy",
+        f"{method}/observations_features.npy",
+        f"{method}/positions.npy",
+        f"{method}/current_index.npy",
+        f"{method}/alignment_path.npy",
+    ]:
+        assert (tmp_path / name).is_file(), f"missing export stage {name}"
+    assert not mm._has_run

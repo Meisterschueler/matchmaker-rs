@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use matchmaker_rs::Error;
 use matchmaker_rs::base::AlignmentPath;
-use matchmaker_rs::export::write_run;
+use matchmaker_rs::export::{write_audio_run, write_run};
 use matchmaker_rs::io::stream::MidiMessage;
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind, ConfigValue,
@@ -226,6 +226,7 @@ struct PyMatchmaker {
     // what `export` needs to build a second, recording pipeline
     method_kind: Method,
     method_config: MethodConfig,
+    audio_config: Option<AudioMethodConfig>,
     tempo_arg: Option<f64>,
     unfold: bool,
     started: bool,
@@ -344,6 +345,7 @@ fn new_audio_matchmaker(
     }
     audio_config.soundfont_path = soundfont_path;
     audio_config.validate(audio_method).map_err(to_py_err)?;
+    let stored_audio_config = audio_config.clone();
     let inner = match audio_method {
         AudioMethod::Arzt => {
             AudioMatchmaker::new_arzt(&score_file, audio_config, tempo, unfold_score)
@@ -367,6 +369,7 @@ fn new_audio_matchmaker(
         performance_path,
         method_kind,
         method_config: MethodConfig::for_method(method_kind),
+        audio_config: Some(stored_audio_config),
         tempo_arg: tempo,
         unfold: unfold_score,
         input_type: "audio".into(),
@@ -517,6 +520,7 @@ impl PyMatchmaker {
             performance_path,
             method_kind,
             method_config,
+            audio_config: None,
             tempo_arg: tempo,
             unfold: unfold_score,
             input_type: input_type.to_string(),
@@ -566,24 +570,50 @@ impl PyMatchmaker {
     /// Re-run the performance with recording and write the intermediate data in the layout of
     /// the golden data (compare with `tools/golden/compare.py`).
     fn export(&self, directory: PathBuf) -> PyResult<()> {
-        let CorePipeline::Midi(_) = self.inner else {
-            return Err(PyNotImplementedError::new_err(
-                "audio export is not supported yet",
-            ));
-        };
-        let mut recorded = Core::with_config(
-            &self.score_file,
-            self.method_kind,
-            self.method_config.clone(),
-            self.tempo_arg,
-            self.unfold,
-        )
-        .map_err(to_py_err)?
-        .record();
-        recorded
-            .run_file(&self.performance_path)
-            .map_err(to_py_err)?;
-        write_run(&recorded, directory).map_err(to_py_err)
+        match self.inner {
+            CorePipeline::Midi(_) => {
+                let mut recorded = Core::with_config(
+                    &self.score_file,
+                    self.method_kind,
+                    self.method_config.clone(),
+                    self.tempo_arg,
+                    self.unfold,
+                )
+                .map_err(to_py_err)?
+                .record();
+                recorded
+                    .run_file(&self.performance_path)
+                    .map_err(to_py_err)?;
+                write_run(&recorded, directory).map_err(to_py_err)
+            }
+            CorePipeline::Audio(_) => {
+                let config = self
+                    .audio_config
+                    .clone()
+                    .ok_or_else(|| PyRuntimeError::new_err("missing audio config"))?;
+                let method: AudioMethod = self.method.parse().map_err(to_py_err)?;
+                let mut recorded = match method {
+                    AudioMethod::Arzt => AudioMatchmaker::new_arzt(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                    AudioMethod::Dixon => AudioMatchmaker::new_dixon(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                }
+                .map_err(to_py_err)?
+                .record();
+                recorded
+                    .run_file(&self.performance_path)
+                    .map_err(to_py_err)?;
+                write_audio_run(&recorded, directory).map_err(to_py_err)
+            }
+        }
     }
 
     /// Score annotations: whole beats (`level="beat"`) or every onset (`"note"`), in beats

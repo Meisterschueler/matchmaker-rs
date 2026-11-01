@@ -11,8 +11,10 @@ use std::path::{Path, PathBuf};
 
 use common::{Ctx, NpyArray, assert_close, data, golden, json, npy, probabilities_rtol};
 use matchmaker_rs::Error;
-use matchmaker_rs::export::write_run;
-use matchmaker_rs::matchmaker::{Matchmaker, Method};
+use matchmaker_rs::export::{write_audio_run, write_run};
+use matchmaker_rs::matchmaker::{
+    AudioMatchmaker, AudioMethod, AudioMethodConfig, Matchmaker, Method,
+};
 
 const PIECE: &str = "simple_mozart_k265_var1";
 
@@ -173,5 +175,27 @@ fn export_requires_a_recorded_run() {
     .unwrap();
     mm.run_file(data(&format!("{PIECE}.mid"))).unwrap();
     let err = write_run(&mm, std::env::temp_dir().join("matchmaker_export_none")).unwrap_err();
+    assert!(matches!(err, Error::InvalidParameter { .. }), "{err}");
+}
+
+#[test]
+fn audio_export_requires_a_recorded_run() {
+    let soundfont = data(
+        "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2",
+    );
+    if !soundfont.is_file() {
+        eprintln!("skipping audio export guard test: local pinned SF2 is unavailable");
+        return;
+    }
+    let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    config.soundfont_path = Some(soundfont);
+    let matchmaker =
+        AudioMatchmaker::new_arzt(data("simple_mozart_k265_var1.musicxml"), config, None, true)
+            .unwrap();
+    let err = write_audio_run(
+        &matchmaker,
+        std::env::temp_dir().join("matchmaker_audio_export_unrecorded"),
+    )
+    .unwrap_err();
     assert!(matches!(err, Error::InvalidParameter { .. }), "{err}");
 }

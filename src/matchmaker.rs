@@ -11,7 +11,7 @@
 //! # Ok::<(), matchmaker_rs::Error>(())
 //! ```
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
@@ -812,6 +812,7 @@ impl Matchmaker {
 
 /// Core pipeline for following prerecorded audio with frame-level `arzt`.
 pub struct AudioMatchmaker {
+    method: AudioMethod,
     score: Score,
     config: AudioMethodConfig,
     tempo: f64,
@@ -819,6 +820,24 @@ pub struct AudioMatchmaker {
     processor: Box<dyn AudioProcessor>,
     cache_size: usize,
     follower: Box<dyn OnlineAlignment>,
+    recording: Option<AudioRecording>,
+}
+
+/// Intermediate audio stages retained by [`AudioMatchmaker::record`].
+#[derive(Debug, Clone, Default)]
+pub struct AudioRecording {
+    /// Path of the decoded performance file.
+    pub performance_path: Option<PathBuf>,
+    /// Input sample rate before resampling.
+    pub source_sample_rate: u32,
+    /// Input channel count before mono conversion.
+    pub source_channels: usize,
+    /// Time of each emitted audio frame.
+    pub frame_times: Vec<f64>,
+    /// Processor outputs for each emitted audio frame.
+    pub processor_outputs: Vec<Observation>,
+    /// Follower calls before the score stop condition.
+    pub steps: Vec<Step>,
 }
 
 impl AudioMatchmaker {
@@ -890,6 +909,7 @@ impl AudioMatchmaker {
         let (processor, cache_size) = make_audio_processor(&config, hop_length);
 
         Ok(Self {
+            method,
             score,
             config,
             tempo,
@@ -897,25 +917,57 @@ impl AudioMatchmaker {
             processor,
             cache_size,
             follower,
+            recording: None,
         })
+    }
+
+    /// Retain the intermediate stages for [`crate::export::write_audio_run`].
+    pub fn record(mut self) -> Self {
+        self.recording = Some(AudioRecording::default());
+        self
+    }
+
+    /// Recorded stage data, if [`AudioMatchmaker::record`] was called.
+    pub fn recording(&self) -> Option<&AudioRecording> {
+        self.recording.as_ref()
     }
 
     /// Decode and follow one prerecorded audio file, returning one beat position per consumed frame.
     pub fn run_file(&mut self, performance_path: impl AsRef<Path>) -> Result<Vec<f64>> {
+        let performance_path = performance_path.as_ref();
         let mut stream = AudioStream::open(
             performance_path,
             self.config.sample_rate,
             self.hop_length(),
             self.cache_size,
         )?;
+        if let Some(recording) = &mut self.recording {
+            recording.performance_path = Some(performance_path.to_path_buf());
+            recording.source_sample_rate = stream.source_sample_rate();
+            recording.source_channels = stream.source_channels();
+        }
         stream.prime(self.processor.as_mut());
         let mut positions = Vec::new();
         for frame in stream {
             if !self.follower.is_still_following() {
                 break;
             }
+            if let Some(recording) = &mut self.recording {
+                recording.frame_times.push(frame.perf_time);
+            }
             if let Some(observation) = self.processor.process(&frame) {
-                positions.push(self.follower.call(&observation));
+                if let Some(recording) = &mut self.recording {
+                    recording.processor_outputs.push(observation.clone());
+                }
+                let position = self.follower.call(&observation);
+                positions.push(position);
+                if let Some(recording) = &mut self.recording {
+                    recording.steps.push(Step {
+                        observation,
+                        position,
+                        debug: self.follower.debug_state(),
+                    });
+                }
             }
         }
         Ok(positions)
@@ -929,6 +981,11 @@ impl AudioMatchmaker {
     /// Effective audio configuration.
     pub fn config(&self) -> &AudioMethodConfig {
         &self.config
+    }
+
+    /// The frame-level audio method used by this run.
+    pub fn method(&self) -> AudioMethod {
+        self.method
     }
 
     /// Effective score tempo in quarter-note BPM.

@@ -315,7 +315,6 @@ fn main() -> Result<()> {
                 Ok(())
             }
             InputType::Audio => {
-                anyhow::ensure!(export.is_none(), "audio export is not implemented yet");
                 anyhow::ensure!(
                     ground_truth.is_none(),
                     "audio ground-truth evaluation is not implemented yet"
@@ -331,6 +330,9 @@ fn main() -> Result<()> {
                         AudioMatchmaker::new_dixon(&score, config, tempo, !no_unfold)?
                     }
                 };
+                if export.is_some() {
+                    mm = mm.record();
+                }
                 mm.run_file(&performance)?;
                 let path = mm.alignment_path();
                 if !quiet {
@@ -341,6 +343,9 @@ fn main() -> Result<()> {
                 }
                 if let Some(path_output) = output {
                     write_path_tsv(&path_output, path)?;
+                }
+                if let Some(directory) = export {
+                    matchmaker_rs::export::write_audio_run(&mm, directory)?;
                 }
                 Ok(())
             }

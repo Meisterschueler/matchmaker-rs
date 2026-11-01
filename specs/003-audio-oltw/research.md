@@ -214,7 +214,8 @@ The CLI accepts `--input-type audio`, `--soundfont-path`, audio processor/config
 options, and writes the same TSV path shape as MIDI. Its default Chroma/30-fps
 run equals the explicitly configured defaults; missing or invalid SoundFont and
 parameter values return actionable errors. Audio export and ground-truth CLI
-evaluation are not wired yet.
+evaluation is not wired yet; the CLI writes NumPy-readable audio stages when
+`--export` is supplied.
 
 The Python facade accepts `input_type="audio"`, defaults to audio `arzt`,
 publishes both supported audio methods/defaults, yields frame positions, and
@@ -223,9 +224,9 @@ File/render errors map to `OSError`; invalid method/config choices map to
 `ValueError`. Custom audio streams and device capture remain unsupported.
 
 Validation passed: the complete Rust workspace suite (including the PyO3 test
-binary with the Python DLL path set), 36 Python tests, workspace Clippy with
+binary with the Python DLL path set), 38 Python tests, workspace Clippy with
 `-D warnings`, and `cargo fmt --check`. Dixon facade wiring is complete; audio
-exports and benchmarks remain open.
+exports are complete and benchmark integration remains open.
 
 ### T020/T021/T024/T025: Dixon CLI and Python facades
 
@@ -233,9 +234,10 @@ The CLI dispatches audio `dixon`, uses the LSE/50-fps/10-second/3-run-count
 defaults, supports the same TSV output, and validates Dixon-specific overrides.
 Python exposes audio `dixon` defaults, yields positions, returns the `(2, T)`
 path via `StopIteration`, and permits a Chroma override. Existing MIDI Dixon
-kwargs remain unchanged. The full Python suite passes 36 tests; the full Rust
+kwargs remain unchanged. The full Python suite passes 38 tests; the full Rust
 workspace and CLI suites pass, as do strict Clippy and format checks. Audio
-exports and benchmark integration remain unimplemented.
+exports and the audio stage comparator are covered by T026/T029; benchmark
+integration remains unimplemented.
 
 ### T019/T022/T023: Audio Dixon follower and Core API
 
@@ -254,6 +256,18 @@ of reconstructed path frames are within 0.5 beats. RustySynth produces one more
 LSE score-reference frame than the FluidSynth golden (379 vs. 378); the E2E test
 allows only that one-frame tail difference, checks all shared timestamps exactly,
 and verifies every reported beat stays within the synthesized score-frame map.
+
+### T026/T028/T029: Audio configuration and stage exports
+
+Core, CLI and Python validate audio method/processor combinations and expose the
+sample/frame rate, hop length, norm, SoundFont, and method parameters. Calling
+`record()` retains source metadata, consumed frame times, processor outputs,
+follower observations, positions, state indices, and final paths. `write_audio_run`
+exports these alongside score features and frame-to-beat mapping as NPY/JSON
+stages. The comparator accepts an individual audio golden case and reports the
+first differing stage/frame, tolerating at most one renderer tail frame and
+using separate timing and beat tolerances. An end-to-end Dixon-LSE comparator
+smoke run correctly reports the expected first score-feature renderer deviation.
 
 ### T002: Dependency and target checks complete
 
@@ -275,5 +289,5 @@ and verifies every reported beat stays within the synthesized score-frame map.
 The full `cargo deny check` did not reach advisory validation: fetching the
 RustSec database failed with proxy HTTP 407. The full advisory gate remains
 unverified and must be rerun when network access is available. Arzt and Dixon
-end-to-end alignment have been measured; audio exports and the benchmark remain
-open. FluidSynth/RustySynth waveform parity is not claimed.
+end-to-end alignment and audio stage exports are implemented; benchmark
+integration remains open. FluidSynth/RustySynth waveform parity is not claimed.

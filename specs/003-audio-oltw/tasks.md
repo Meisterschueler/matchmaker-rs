@@ -93,17 +93,10 @@ description: "Task list for audio online time warping"
 
 ### Tests for User Story 3
 
-- [ ] T026 [P] [US3] Write failing tests for audio processor overrides, invalid method/processor combinations, and complete stage exports in `tests/audio_config_export.rs` and `tests/export.rs`.
-- [ ] T027 [P] [US3] Add failing audio benchmark smoke tests for records, real-time factor, metric parity, and alignment parity in `crates/matchmaker-cli/tests/bench_audio.rs`.
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Expose and validate `chroma`/`lse`, `sample_rate`, `frame_rate`, `hop_length`, `norm`, SoundFont path, and method-specific parameters across `src/matchmaker.rs`, `crates/matchmaker-cli/src/main.rs`, and `crates/matchmaker-py/src/lib.rs`.
-- [ ] T029 [US3] Export audio input metadata, frame times, processor features, score features, frame-to-beat mapping, per-frame diagnostics, and alignment paths in `src/export.rs`; extend stage comparison in `tools/golden/compare.py`.
 - [ ] T030 [US3] Add an audio manifest and pinned-reference runner/report integration for feature latency, inference latency, real-time factor, evaluation metrics, and parity in `tools/bench/audio.toml`, `tools/bench/run_reference_audio.py`, `tools/bench/report.py`, and `.github/workflows/benchmark.yml`.
-
-**Checkpoint**: A completed audio run is configurable, inspectable, and represented in the benchmark report.
-
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 **Purpose**: Complete edge coverage, documentation, and repository-wide quality gates.
