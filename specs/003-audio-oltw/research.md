@@ -132,6 +132,16 @@ configuration errors; existing MIDI method and config defaults are unchanged.
 `cargo fmt --all -- --check`. Pipeline wiring and decoder/processor behavior
 remain unimplemented.
 
+### T006: Audio file stream
+
+Added Symphonia decoding for WAV, FLAC, MP3, and Ogg/Vorbis, channel averaging,
+Rubato FFT resampling, first-hop cache priming, zero-padded final hops, and
+reference-compatible emitted timestamps. `cargo test --test audio_io
+--test method_config` passes (18 tests), `cargo clippy -p matchmaker-rs --lib
+-- -D warnings` passes, and `cargo fmt --all -- --check` passes. The local audio
+tests use generated PCM WAVs; compressed container decoding is implemented but
+not yet covered by fixture tests, so T005 remains open for those cases.
+
 ### T002: Dependency and target checks complete
 
 - Symphonia 0.6.1: MPL-2.0, declared MSRV 1.85; defaults disabled, with only

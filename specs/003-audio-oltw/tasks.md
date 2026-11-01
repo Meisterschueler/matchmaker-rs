@@ -34,7 +34,7 @@ description: "Task list for audio online time warping"
 
 - [X] T004 Add typed audio decode/render/config errors and an audio-specific method/config model without changing MIDI defaults in `src/error.rs` and `src/matchmaker.rs`.
 - [ ] T005 [P] Write failing decoder and framing tests for WAV/FLAC/MP3/Ogg, mono downmixing, configured-rate conversion, cache priming, final-hop zero padding, empty files, corrupt files, and timestamps in `tests/audio_io.rs`.
-- [ ] T006 [P] Implement pure-Rust decode, mono conversion, resampling, hop framing, first-block priming, final-hop padding, and per-stage `DEBUG` spans in `src/io/audio.rs`; export the audio stream module from `src/io/mod.rs`.
+- [X] T006 [P] Implement pure-Rust decode, mono conversion, resampling, hop framing, first-block priming, final-hop padding, and per-stage `DEBUG` spans in `src/io/audio.rs`; export the audio stream module from `src/io/mod.rs`.
 - [ ] T007 [P] Write failing feature goldens for `chroma` and `lse`, including all four method/processor configurations, frame counts, timestamps, state reset, and silence behavior in `tests/golden_audio_processors.rs`.
 - [ ] T008 [P] Implement the upstream chromagram and log-spectral-energy processors with reset behavior and frame-level tracing in `src/features/chroma.rs`, `src/features/lse.rs`, and `src/features/mod.rs`.
 - [ ] T009 [P] Write failing score-reference tests for rendering, onset padding, final 0.1-second tail, processor reset, and per-reference-frame beat mapping in `tests/score_audio.rs`.
