@@ -208,6 +208,25 @@ beats); LSE first differs at frame 2 (maximum error 0.267 beats). The test keeps
 replay tolerance at 1e-6 and applies 0.3 beats only to end-to-end score positions
 and path beats, isolating renderer differences from follower recurrence.
 
+### T013/T014/T017/T018: Audio Arzt user facades
+
+The CLI accepts `--input-type audio`, `--soundfont-path`, audio processor/config
+options, and writes the same TSV path shape as MIDI. Its default Chroma/30-fps
+run equals the explicitly configured defaults; missing or invalid SoundFont and
+parameter values return actionable errors. Audio export and ground-truth CLI
+evaluation are not wired yet.
+
+The Python facade accepts `input_type="audio"`, defaults to audio `arzt`,
+publishes the supported audio methods/defaults, yields frame positions, and
+returns the `(2, T)` alignment array as the generator's `StopIteration` value.
+File/render errors map to `OSError`; invalid method/config choices map to
+`ValueError`. Custom audio streams and device capture remain unsupported.
+
+Validation passed: the complete Rust workspace suite (including the PyO3 test
+binary with the Python DLL path set), 35 Python tests, workspace Clippy with
+`-D warnings`, and `cargo fmt --check`. The CLI/Python currently expose only
+audio `arzt`; Dixon facade wiring, audio exports, and benchmarks remain open.
+
 ### T002: Dependency and target checks complete
 
 - Symphonia 0.6.1: MPL-2.0, declared MSRV 1.85; defaults disabled, with only

@@ -84,7 +84,7 @@ def test_attributes_and_module_constants():
     assert mm.polling_period == 0.001
     assert mm.config == {"piano_range": True}
     assert make().polling_period == 0.01
-    assert matchmaker_rs.AVAILABLE_METHODS == {"midi": METHODS}
+    assert matchmaker_rs.AVAILABLE_METHODS == {"midi": METHODS, "audio": ["arzt"]}
     assert matchmaker_rs.DEFAULT_KWARGS["midi"]["outerhmm"]["polling_period"] == 0.001
     assert matchmaker_rs.__reference_version__ == "v0.4.0"
     assert isinstance(matchmaker_rs.__version__, str)
@@ -136,11 +136,17 @@ def test_dixon_window_size_is_a_parameter():
         make("dixon", kwargs=dict(matchmaker_rs.DEFAULT_KWARGS["midi"]["dixon"], window_size=0))
 
 
-@pytest.mark.parametrize("kwargs", [{"method": "foo"}, {"input_type": "audio"}])
-def test_unsupported_method_or_input_type(kwargs):
+@pytest.mark.parametrize(
+    "kwargs,error",
+    [
+        ({"method": "foo"}, r"\['pthmm', 'hmm', 'outerhmm', 'arzt', 'dixon'\]"),
+        ({"input_type": "live"}, r"\['midi', 'audio'\]"),
+    ],
+)
+def test_unsupported_method_or_input_type(kwargs, error):
     arguments = {"score_file": str(SCORE), "performance_file": str(PERFORMANCE), "input_type": "midi"}
     arguments.update(kwargs)
-    with pytest.raises(ValueError, match=r"\['pthmm', 'hmm', 'outerhmm', 'arzt', 'dixon'\]"):
+    with pytest.raises(ValueError, match=error):
         Matchmaker(**arguments)
 
 
