@@ -2,6 +2,23 @@
 //!
 //! Upstream: `matchmaker.dp.oltw_arzt.OnlineTimeWarpingArztFrame` and
 //! `matchmaker.dp.dtw_loop.oltw_arzt_loop`.
+//!
+//! ```
+//! use matchmaker_rs::base::OnlineAlignment;
+//! use matchmaker_rs::dp::arzt_frame::ArztFrame;
+//! use matchmaker_rs::features::Observation;
+//! use matchmaker_rs::matchmaker::{AudioMethod, AudioMethodConfig};
+//! let config = AudioMethodConfig::for_method(AudioMethod::Arzt);
+//! let mut follower = ArztFrame::new(
+//!     vec![vec![1.0, 0.0], vec![0.0, 1.0]],
+//!     vec![0.0, 1.0],
+//!     vec![0.0, 1.0],
+//!     config,
+//! )?;
+//! let beat = follower.call(&Observation { features: vec![1.0, 0.0], perf_time: 0.0 });
+//! assert_eq!(beat, 0.0);
+//! # Ok::<(), matchmaker_rs::Error>(())
+//! ```
 
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::error::{Error, Result};
@@ -188,6 +205,7 @@ impl OnlineAlignment for ArztFrame {
 
     fn is_still_following(&self) -> bool {
         self.current_index + 1 < self.score_positions.len()
+            && self.input_index < self.reference.len()
     }
 
     fn alignment_path(&self) -> &AlignmentPath {

@@ -62,15 +62,19 @@ def same(a, b) -> bool:
     return (nan(a) and nan(b)) or (not nan(a) and not nan(b) and abs(a - b) <= METRIC_TOL)
 
 
-def position_parity(method: str, rust: Path, python: Path) -> dict | None:
+def position_parity(method: str, rust: Path, python: Path, audio: bool = False) -> dict | None:
     if not rust.exists() or not python.exists():
         return None
     r = np.loadtxt(rust, delimiter="\t", skiprows=1, ndmin=2)
     p = np.loadtxt(python, delimiter="\t", skiprows=1, ndmin=2)
     n = min(len(r), len(p))
     diff = np.abs(r[:n] - p[:n])
-    close = np.all(diff <= POSITION_TOL, axis=1)
-    strict = bool(close.all()) and len(r) == len(p)
+    if audio:
+        close = (diff[:, 0] <= POSITION_TOL) & (diff[:, 1] <= 0.6)
+        strict = bool(close.all()) and len(r) == len(p)
+    else:
+        close = np.all(diff <= POSITION_TOL, axis=1)
+        strict = bool(close.all()) and len(r) == len(p)
     # a step where Rust's best state leads by less than TIE_GAP is a numerical tie (repeated score
     # chords have exactly equal probabilities; the reference's BLAS rounding picks one of them)
     gaps = rust.with_suffix(".gap.tsv")
@@ -79,13 +83,16 @@ def position_parity(method: str, rust: Path, python: Path) -> dict | None:
     differing = np.flatnonzero(~close)
     first = int(differing[0]) if len(differing) else (n if len(r) != len(p) else None)
     share = float(close.sum()) / max(len(r), len(p), 1)
-    ok = share >= HMM_MIN_SHARE if method == "hmm" else first is None
+    if audio:
+        ok = abs(len(r) - len(p)) <= 1 and share >= 0.99
+    else:
+        ok = share >= HMM_MIN_SHARE if method == "hmm" else first is None
     max_diff = float(diff.max()) if diff.size else 0.0
     # EXACT: bit-equal; WITHIN_TOL: all steps < POSITION_TOL; TIE: otherwise only tie steps differ;
     # SHARE: hmm only, >= HMM_MIN_SHARE of the steps agree; EXCEEDS: parity violated
     cls = "EXACT" if strict and max_diff == 0 else "WITHIN_TOL" if strict else "EXCEEDS"
     if ok and not strict:
-        cls = "TIE" if first is None else "SHARE"
+        cls = "AUDIO_TOL" if audio else "TIE" if first is None else "SHARE"
     return {
         "ok": bool(ok),
         "class": cls,
@@ -118,6 +125,7 @@ def main() -> None:
             records, dirs[name] = groups.get(key, ([], None))
             side[name] = {
                 "runs": len(records),
+                "input_type": records[0].get("input_type", "midi") if records else None,
                 "feature_ms": median(records, "latency_ms", "feature", "median"),
                 "inference_ms": median(records, "latency_ms", "inference", "median"),
                 "total_s": median(records, "total_processing_s"),
@@ -132,7 +140,8 @@ def main() -> None:
         previous = baseline.get(key)
         parity = None
         if dirs["rust"] and dirs["python"]:
-            parity = position_parity(method, dirs["rust"] / rel, dirs["python"] / rel)
+            audio = side["rust"]["input_type"] == "audio" or side["python"]["input_type"] == "audio"
+            parity = position_parity(method, dirs["rust"] / rel, dirs["python"] / rel, audio)
         rows.append(
             {
                 "method": method,

@@ -11,7 +11,10 @@ use anyhow::{Context, Result};
 use matchmaker_rs::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use matchmaker_rs::features::{Observation, Processor};
 use matchmaker_rs::io::stream::{Frame, MidiMessage};
-use matchmaker_rs::matchmaker::{Matchmaker, Method, MethodConfig};
+use matchmaker_rs::matchmaker::{
+    AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind, Matchmaker, Method,
+    MethodConfig,
+};
 use matchmaker_rs::performance::Performance;
 use matchmaker_rs::score::Score;
 use matchmaker_rs::utils::eval::{GroundTruth, evaluate_alignment};
@@ -31,6 +34,9 @@ struct Piece {
     score: PathBuf,
     performance: PathBuf,
     ground_truth: Option<PathBuf>,
+    input_type: Option<String>,
+    soundfont: Option<PathBuf>,
+    processor: Option<String>,
 }
 
 type Times = Rc<RefCell<Vec<Duration>>>;
@@ -159,6 +165,20 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) ->
     let mut records = Vec::new();
     for p in &manifest.pieces {
         let (score_path, performance) = (base.join(&p.score), base.join(&p.performance));
+        if p.input_type.as_deref() == Some("audio") {
+            run_audio_piece(
+                p,
+                &score_path,
+                &performance,
+                base,
+                out_dir,
+                runs,
+                methods,
+                &environment,
+                &mut records,
+            )?;
+            continue;
+        }
         let messages = Performance::load(&performance)?.messages();
         let duration = messages.last().map_or(0.0, |m| m.time);
         let gt = match &p.ground_truth {
@@ -237,4 +257,112 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) ->
     std::fs::write(out, serde_json::to_string_pretty(&records)?)
         .with_context(|| format!("cannot write {}", out.display()))?;
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_audio_piece(
+    piece: &Piece,
+    score_path: &Path,
+    performance: &Path,
+    base: &Path,
+    out_dir: &Path,
+    runs: usize,
+    methods: &[Method],
+    environment: &Value,
+    records: &mut Vec<Value>,
+) -> Result<()> {
+    let soundfont = piece
+        .soundfont
+        .as_ref()
+        .map(|path| base.join(path))
+        .context("audio benchmark piece requires a soundfont path")?;
+    for &method in methods {
+        let audio_method: AudioMethod = method
+            .name()
+            .parse()
+            .with_context(|| format!("{} is not an audio method", method.name()))?;
+        let processor = piece
+            .processor
+            .as_deref()
+            .unwrap_or_else(|| AudioMethodConfig::for_method(audio_method).processor.name());
+        for run in 0..runs {
+            let mut config = AudioMethodConfig::for_method(audio_method);
+            config.processor = processor.parse::<AudioProcessorKind>()?;
+            config.soundfont_path = Some(soundfont.clone());
+            let mut mm = match audio_method {
+                AudioMethod::Arzt => AudioMatchmaker::new_arzt(score_path, config, None, true)?,
+                AudioMethod::Dixon => AudioMatchmaker::new_dixon(score_path, config, None, true)?,
+            }
+            .record();
+            mm.run_file(performance)?;
+            let recording = mm.recording().context("audio recording was not enabled")?;
+            let feature = &recording.feature_durations;
+            let inference = &recording.inference_durations;
+            let total: f64 = feature
+                .iter()
+                .chain(inference.iter())
+                .map(Duration::as_secs_f64)
+                .sum();
+            let hop_length = mm
+                .config()
+                .hop_length
+                .unwrap_or(mm.config().sample_rate as usize / mm.config().frame_rate as usize);
+            let duration = recording.frame_times.last().copied().map_or(0.0, |time| {
+                time + hop_length as f64 / f64::from(mm.config().sample_rate)
+            });
+            let path = mm.alignment_path();
+            let reference = mm.reference();
+            let expected_beats = path
+                .perf_time
+                .iter()
+                .map(|&time| {
+                    interpolate_beat(&reference.frame_to_beat, time * reference.frame_rate)
+                })
+                .collect();
+            let evaluation = evaluate_alignment(
+                path,
+                &GroundTruth {
+                    perf_sec: path.perf_time.clone(),
+                    score_beat: expected_beats,
+                },
+            );
+            if run == 0 {
+                let path = out_dir
+                    .join("paths")
+                    .join(&piece.dataset)
+                    .join(&piece.piece)
+                    .join(format!("{}.tsv", method.name()));
+                crate::write_path_tsv(&path, mm.alignment_path())?;
+            }
+            records.push(json!({
+                "implementation": "rust",
+                "implementation_version": env!("CARGO_PKG_VERSION"),
+                "input_type": "audio",
+                "renderer": "RustySynth",
+                "renderer_version": "1.3.8",
+                "method": method.name(),
+                "processor": processor,
+                "dataset": piece.dataset,
+                "piece": piece.piece,
+                "run": run,
+                "n_observations": inference.len(),
+                "performance_duration_s": duration,
+                "latency_ms": {"feature": latency(feature), "inference": latency(inference)},
+                "total_processing_s": total,
+                "real_time_factor": if duration > 0.0 { total / duration } else { 0.0 },
+                "evaluation": evaluation,
+                "environment": environment,
+            }));
+        }
+    }
+    Ok(())
+}
+
+fn interpolate_beat(frame_to_beat: &[f64], frame: f64) -> f64 {
+    let last = frame_to_beat.len().saturating_sub(1);
+    let position = frame.clamp(0.0, last as f64);
+    let before = position.floor() as usize;
+    let after = position.ceil() as usize;
+    let fraction = position - before as f64;
+    frame_to_beat[before] + fraction * (frame_to_beat[after] - frame_to_beat[before])
 }

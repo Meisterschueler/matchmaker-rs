@@ -1,6 +1,23 @@
 //! Frame-level `dixon` online time warping for audio input.
 //!
 //! Upstream: `matchmaker.dp.oltw_dixon.OnlineTimeWarpingDixonFrame`.
+//!
+//! ```
+//! use matchmaker_rs::base::OnlineAlignment;
+//! use matchmaker_rs::dp::dixon_frame::DixonFrame;
+//! use matchmaker_rs::features::Observation;
+//! use matchmaker_rs::matchmaker::{AudioMethod, AudioMethodConfig};
+//! let config = AudioMethodConfig::for_method(AudioMethod::Dixon);
+//! let mut follower = DixonFrame::new(
+//!     vec![vec![1.0, 0.0], vec![0.0, 1.0]],
+//!     vec![0.0, 1.0],
+//!     vec![0.0, 1.0],
+//!     config,
+//! )?;
+//! let beat = follower.call(&Observation { features: vec![1.0, 0.0], perf_time: 0.0 });
+//! assert_eq!(beat, 0.0);
+//! # Ok::<(), matchmaker_rs::Error>(())
+//! ```
 
 use std::collections::HashMap;
 

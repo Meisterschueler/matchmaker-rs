@@ -269,6 +269,32 @@ first differing stage/frame, tolerating at most one renderer tail frame and
 using separate timing and beat tolerances. An end-to-end Dixon-LSE comparator
 smoke run correctly reports the expected first score-feature renderer deviation.
 
+### T030/T035: Audio benchmark integration and measurements
+
+`tools/bench/audio.toml` runs the same bundled WAV through Rust and pinned
+pymatchmaker with five runs per implementation. The workflow offers an
+opt-in `workflow_dispatch` audio benchmark input for a direct SF2 URL, verifies
+the pinned SoundFont SHA-256, installs native FluidSynth, and publishes only
+derived benchmark records. Ordinary CI skips the optional audio branch when no
+asset URL is supplied.
+
+The paired five-run Windows report measured median inference latency of 0.0035
+ms Rust / 0.0702 ms Python for Arzt and 0.197 ms / 1.712 ms for Dixon. Total
+processing speedups were 1.4x and 9.5x; Rust real-time factors were 0.054 and
+0.014. Alignment parity passed within the documented renderer envelope. Metric
+parity was flagged because FluidSynth and RustySynth produce different score
+features; this is reported, not masked. The current master baseline was not
+available locally, so the 10% regression comparison remains open for T035.
+
+### T031/T032: Edge cases and examples
+
+The edge suite covers empty/sub-hop WAVs, silence, a 30-second stereo overrun,
+and a one-onset MIDI score paired with empty audio for both followers. Arzt now
+stops when either the final score onset is reached or its synthesized reference
+frame budget is consumed, so silence cannot generate positions beyond the score
+reference. Frame-follower doctests provide asset-free, runnable construction and
+single-observation examples; all 28 doctests pass.
+
 ### T002: Dependency and target checks complete
 
 - Symphonia 0.6.1: MPL-2.0, declared MSRV 1.85; defaults disabled, with only
@@ -286,8 +312,10 @@ smoke run correctly reports the expected first score-feature renderer deviation.
 - Existing `.github/workflows/ci.yml` already covers native builds, MSRV 1.88,
 	WASM, and cargo-deny; no redundant workflow changes were needed.
 
-The full `cargo deny check` did not reach advisory validation: fetching the
-RustSec database failed with proxy HTTP 407. The full advisory gate remains
-unverified and must be rerun when network access is available. Arzt and Dixon
-end-to-end alignment and audio stage exports are implemented; benchmark
-integration remains open. FluidSynth/RustySynth waveform parity is not claimed.
+The full `cargo deny check` passed advisories, bans, licenses, and source checks
+once; a later refresh attempt could not reach RustSec because the proxy returned
+HTTP 407. The gate should be rerun in CI. Arzt and Dixon end-to-end alignment,
+audio stage exports, and benchmark integration are implemented. The
+current-master regression comparison remains open under T035.
+FluidSynth/RustySynth waveform parity is not claimed. T033 updates the README
+method/input table, decoder/SF2 setup and roadmap, plus the UPSTREAM module map.

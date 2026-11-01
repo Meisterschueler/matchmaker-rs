@@ -10,6 +10,11 @@ on:
   pull_request:
     paths: ["src/**", "crates/**", "tools/bench/**", "tools/datasets/**", ".github/workflows/benchmark.yml"]
   workflow_dispatch:
+    inputs:
+      audio_soundfont_url:
+        description: "Optional direct URL to the pinned CC0 SF2 asset; its SHA-256 is verified"
+        required: false
+        type: string
 
 concurrency:
   group: benchmark-${{ github.ref }}
@@ -22,7 +27,7 @@ env:
   CARGO_TERM_COLOR: always
   PIECES_PER_DATASET: 10
   RUNS_RUST: 5
-  RUNS_PYTHON: 3
+  RUNS_PYTHON: 5
   # methods compared against the reference
   METHODS: pthmm,hmm,outerhmm,arzt,dixon
 
@@ -65,6 +70,28 @@ jobs:
       - name: Python reference
         working-directory: tools/golden
         run: python -m uv run ../bench/run_reference.py "$MANIFEST" --out "$GITHUB_WORKSPACE/out/python/records.json" --runs "$RUNS_PYTHON" --methods "$METHODS"
+      - name: Audio benchmark
+        if: matrix.dataset == 'bundled'
+        env:
+          AUDIO_SOUNDFONT_URL: ${{ inputs.audio_soundfont_url || '' }}
+        run: |
+          mkdir -p out/audio/rust out/audio/python
+          if [ -z "$AUDIO_SOUNDFONT_URL" ]; then
+            printf '[]\n' > out/audio/rust/records.json
+            printf '[]\n' > out/audio/python/records.json
+            echo "Audio benchmark skipped; workflow_dispatch with audio_soundfont_url is required."
+            exit 0
+          fi
+          case "$AUDIO_SOUNDFONT_URL" in https://*) ;; *) echo "audio_soundfont_url must use HTTPS" >&2; exit 1 ;; esac
+          sudo apt-get update
+          sudo apt-get install -y libfluidsynth3
+          mkdir -p target/audio-assets/UprightPianoKW-small-SF2-20190703
+          curl -fsSL "$AUDIO_SOUNDFONT_URL" -o target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2
+          echo "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F  target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2" | sha256sum --check
+          touch tools/golden/.venv/lib/python3.12/site-packages/partitura/assets/MuseScore_General.sf3
+          cargo run --release -p matchmaker-cli -- bench tools/bench/audio.toml --out out/audio/rust/records.json --runs "$RUNS_RUST" --methods arzt,dixon
+          cd tools/golden
+          python -m uv run ../bench/run_reference.py ../bench/audio.toml --out "$GITHUB_WORKSPACE/out/audio/python/records.json" --runs "$RUNS_PYTHON" --methods arzt,dixon
       - uses: actions/upload-artifact@v4
         with:
           name: bench-${{ matrix.dataset }}
@@ -88,7 +115,7 @@ jobs:
           python -m pip install numpy
           curl -fsSL "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/report.json" -o baseline.json || rm -f baseline.json
           set +e
-          python tools/bench/report.py --rust out/*/rust/records.json --python out/*/python/records.json --baseline baseline.json --out site
+          python tools/bench/report.py --rust out/*/rust/records.json out/*/audio/rust/records.json --python out/*/python/records.json out/*/audio/python/records.json --baseline baseline.json --out site
           echo "status=$?" >> "$GITHUB_OUTPUT"
           cat site/index.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/jekyll-build-pages@v1

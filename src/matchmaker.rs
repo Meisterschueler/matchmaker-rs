@@ -13,6 +13,7 @@
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::{Duration, Instant};
 
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::dp::Distance;
@@ -836,6 +837,10 @@ pub struct AudioRecording {
     pub frame_times: Vec<f64>,
     /// Processor outputs for each emitted audio frame.
     pub processor_outputs: Vec<Observation>,
+    /// Time spent extracting each yielded performance feature frame.
+    pub feature_durations: Vec<Duration>,
+    /// Time spent on each follower inference step.
+    pub inference_durations: Vec<Duration>,
     /// Follower calls before the score stop condition.
     pub steps: Vec<Step>,
 }
@@ -955,13 +960,29 @@ impl AudioMatchmaker {
             if let Some(recording) = &mut self.recording {
                 recording.frame_times.push(frame.perf_time);
             }
-            if let Some(observation) = self.processor.process(&frame) {
+            let observation = if self.recording.is_some() {
+                let start = Instant::now();
+                let observation = self.processor.process(&frame);
+                if observation.is_some()
+                    && let Some(recording) = &mut self.recording
+                {
+                    recording.feature_durations.push(start.elapsed());
+                }
+                observation
+            } else {
+                self.processor.process(&frame)
+            };
+            if let Some(observation) = observation {
                 if let Some(recording) = &mut self.recording {
                     recording.processor_outputs.push(observation.clone());
                 }
+                let inference_start = self.recording.as_ref().map(|_| Instant::now());
                 let position = self.follower.call(&observation);
                 positions.push(position);
                 if let Some(recording) = &mut self.recording {
+                    if let Some(start) = inference_start {
+                        recording.inference_durations.push(start.elapsed());
+                    }
                     recording.steps.push(Step {
                         observation,
                         position,

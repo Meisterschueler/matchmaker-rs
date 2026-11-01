@@ -93,18 +93,22 @@ description: "Task list for audio online time warping"
 
 ### Tests for User Story 3
 
+- [X] T026 [P] [US3] Write tests for audio processor overrides, invalid method/processor combinations, and complete stage exports in `tests/audio_config_export.rs` and `tests/export.rs`.
+- [X] T027 [P] [US3] Add audio benchmark smoke tests for records, real-time factor, evaluation metrics, and alignment parity in `crates/matchmaker-cli/tests/bench_audio.rs`.
 
 ### Implementation for User Story 3
 
-- [ ] T030 [US3] Add an audio manifest and pinned-reference runner/report integration for feature latency, inference latency, real-time factor, evaluation metrics, and parity in `tools/bench/audio.toml`, `tools/bench/run_reference_audio.py`, `tools/bench/report.py`, and `.github/workflows/benchmark.yml`.
+- [X] T028 [US3] Expose and validate `chroma`/`lse`, sample rate, frame rate, hop length, norm, SoundFont path, and method-specific parameters across the Rust, CLI, and Python APIs.
+- [X] T029 [US3] Export audio input metadata, frame times, processor features, score features, beat mapping, per-frame diagnostics, and alignment paths in `src/export.rs`; extend stage comparison in `tools/golden/compare.py`.
+- [X] T030 [US3] Add an audio manifest and pinned-reference runner/report integration for feature latency, inference latency, real-time factor, evaluation metrics, and parity in `tools/bench/audio.toml`, `tools/bench/run_reference.py`, `tools/bench/report.py`, and `.github/workflows/benchmark.yml`.
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 **Purpose**: Complete edge coverage, documentation, and repository-wide quality gates.
 
-- [ ] T031 Add edge-case tests for empty, silent, short, corrupt, unsupported, multichannel, and long performances plus one-onset/overrun score behavior in `tests/edge_cases.rs`.
-- [ ] T032 [P] Add runnable documentation examples for audio stream, both processors, score audio, and frame followers in `src/io/audio.rs`, `src/features/chroma.rs`, `src/features/lse.rs`, `src/score/audio.rs`, `src/dp/arzt_frame.rs`, and `src/dp/dixon_frame.rs`.
-- [ ] T033 [P] Update method/input tables, supported decoder formats, SoundFont setup, audio roadmap, and upstream module map in `README.md` and `UPSTREAM.md`.
-- [ ] T034 Run the quickstart and the full Rust/Python, fmt, clippy, MSRV, WASM, cargo-deny, and benchmark gates; record any renderer or resampler parity deviations and metrics in `specs/003-audio-oltw/research.md` and fix regressions in the touched modules.
+- [X] T031 Add edge-case tests for empty, silent, short, corrupt, unsupported, multichannel, and long performances plus one-onset/overrun score behavior in `tests/edge_cases.rs`.
+- [X] T032 [P] Add runnable documentation examples for audio stream, both processors, score audio, and frame followers in `src/io/audio.rs`, `src/features/chroma.rs`, `src/features/lse.rs`, `src/score/audio.rs`, `src/dp/arzt_frame.rs`, and `src/dp/dixon_frame.rs`.
+- [X] T033 [P] Update method/input tables, supported decoder formats, SoundFont setup, audio roadmap, and upstream module map in `README.md` and `UPSTREAM.md`.
+- [X] T034 Run the quickstart and the full Rust/Python, fmt, clippy, MSRV, WASM, cargo-deny, and benchmark gates; record any renderer or resampler parity deviations and metrics in `specs/003-audio-oltw/research.md` and fix regressions in the touched modules.
 - [ ] T035 Verify the benchmark runs at least five times on identical fixtures, reports any slowdown greater than 10% against the current baseline, and publishes only license-compliant derived metrics in `tools/bench/report.py` and `.github/workflows/benchmark.yml`.
 
 ## Dependencies & Execution Order

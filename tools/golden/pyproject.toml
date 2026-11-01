@@ -7,6 +7,7 @@ dependencies = [
     # Reference release; the tag is the single source of truth (see README "Reference implementation").
     "pymatchmaker @ git+https://github.com/pymatchmaker/matchmaker@v0.4.0",
     "numpy>=2",
+    "pyfluidsynth>=1.4,<2",
 ]
 
 [tool.uv]
