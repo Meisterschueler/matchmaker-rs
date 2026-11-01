@@ -2,8 +2,11 @@
 
 use std::path::PathBuf;
 
+use common::data;
 use matchmaker_rs::Error;
 use matchmaker_rs::io::audio::AudioStream;
+
+mod common;
 
 struct TestFile(PathBuf);
 
@@ -120,4 +123,20 @@ fn unsupported_audio_extension_is_typed() {
     let renamed = TestFile(path);
     let error = AudioStream::open(&renamed.0, 8_000, 1, 1).unwrap_err();
     assert!(matches!(error, Error::UnsupportedFormat { .. }), "{error}");
+}
+
+#[test]
+fn decodes_wav_flac_mp3_and_ogg_fixtures() {
+    for extension in ["wav", "flac", "mp3", "ogg"] {
+        let path = data(&format!("audio/codec_samples/decoder_tone.{extension}"));
+        let mut stream = AudioStream::open(&path, 44_100, 4_410, 4_410)
+            .unwrap_or_else(|error| panic!("{extension}: {error}"));
+        assert_eq!(stream.source_sample_rate(), 44_100, "{extension}");
+        assert_eq!(stream.source_channels(), 1, "{extension}");
+        let frames: Vec<_> = stream.by_ref().collect();
+        assert!(frames.len() >= 3, "{extension}: {} frames", frames.len());
+        assert_eq!(frames[0].perf_time, 0.0, "{extension}");
+        assert_eq!(frames[1].perf_time, 0.1, "{extension}");
+        assert!(frames.iter().all(|frame| frame.samples.len() == 8_820));
+    }
 }

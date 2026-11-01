@@ -18,6 +18,7 @@ from unittest.mock import patch
 import matchmaker
 import numpy as np
 import partitura
+import soundfile as sf
 from matchmaker import Matchmaker
 from matchmaker.features.audio import (
     SAMPLE_RATE,
@@ -196,6 +197,50 @@ def generate_processor_goldens(output: Path) -> None:
             print(f"{method}/{processor_name}: {len(feature_rows)} frames")
 
 
+def generate_codec_fixtures(output: Path) -> None:
+    """Write tiny, synthetic mono assets for the supported decoder containers."""
+    sample_rate = 44_100
+    times = np.arange(sample_rate // 2, dtype=np.float64) / sample_rate
+    samples = (
+        0.25 * np.sin(2 * np.pi * 440.0 * times)
+        + 0.1 * np.sin(2 * np.pi * 880.0 * times)
+    ).astype(np.float32)
+    output.mkdir(parents=True, exist_ok=True)
+    assets = []
+    for extension, file_format, subtype in (
+        ("wav", "WAV", "PCM_16"),
+        ("flac", "FLAC", "PCM_16"),
+        ("mp3", "MP3", None),
+        ("ogg", "OGG", "VORBIS"),
+    ):
+        path = output / f"decoder_tone.{extension}"
+        kwargs = {"format": file_format}
+        if subtype is not None:
+            kwargs["subtype"] = subtype
+        if not path.exists():
+            sf.write(path, samples, sample_rate, **kwargs)
+        asset = {
+            "file": path.name,
+            "format": file_format,
+            "sample_rate": sample_rate,
+            "channels": 1,
+            "samples": len(samples),
+            "bytes": path.stat().st_size,
+            "sha256": sha256(path),
+        }
+        assets.append(asset)
+        print(f"{path.name}: {asset['bytes']} bytes, {asset['sha256']}")
+    write_json(
+        output / "codec_fixtures.json",
+        {
+            "generator": "tools/golden/generate_audio.py",
+            "reference": reference_info(),
+            "signal": "synthetic 440-Hz and 880-Hz sine tones",
+            "assets": assets,
+        },
+    )
+
+
 def record_follower(follower, recorder: dict) -> None:
     base = type(follower)
 
@@ -289,7 +334,15 @@ def main() -> None:
         action="store_true",
         help="generate synthetic chroma/LSE processor goldens without FluidSynth",
     )
+    parser.add_argument(
+        "--codec-fixtures-only",
+        action="store_true",
+        help="write synthetic WAV/FLAC/MP3/Ogg decoder test assets",
+    )
     args = parser.parse_args()
+    if args.codec_fixtures_only:
+        generate_codec_fixtures(ROOT / "tests/data/audio/codec_samples")
+        return
     if args.processors_only:
         generate_processor_goldens(args.out.resolve())
         return

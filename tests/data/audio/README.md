@@ -2,10 +2,10 @@
 
 ## SoundFont prerequisite (T001: verified)
 
-The runtime and fixture generator require an explicitly configured local SF2
-SoundFont. No SoundFont is bundled or downloaded automatically. Do not generate
-or distribute audio fixtures until the archive contents, license, and SHA-256
-have been verified and recorded here.
+The runtime and score-reference generator require an explicitly configured
+local SF2 SoundFont. No SoundFont is bundled or downloaded automatically. Do not
+generate or distribute SoundFont-derived fixtures until the archive contents,
+license, and SHA-256 have been verified and recorded here.
 
 ### Downloaded candidate
 
@@ -30,16 +30,12 @@ have been verified and recorded here.
   The page currently labels the bank 2022-02-21, so provision only the archive
   whose extracted readme identifies 2019-07-03 and whose hash matches this pin.
 
-### Outstanding verification and provisioning
+### Provisioning rules
 
-1. Keep the archive and extracted files outside tracked fixture directories,
-  for example in
-   `target/audio-assets/`. Pass the local SF2 path explicitly to the future
-   audio constructor, `--soundfont-path`, or Python `soundfont_path` option.
-2. Pin the verified asset details in the fixture generator before creating
-  reference outputs.
-   Generated fixtures must record their score, generator, SoundFont hash, sample
-   rate, and rendering settings. No fixtures or goldens exist here yet.
+Keep the archive and extracted files outside tracked fixture directories, for
+example in `target/audio-assets/`. Pass the local SF2 path explicitly to the
+audio constructor, `--soundfont-path`, or Python `soundfont_path` option. The
+generator verifies the pinned SF2 hash and records it in score-derived metadata.
 
 ### Verification status (2026-11-01)
 
@@ -57,6 +53,24 @@ this exact pin and records its SF2 hash in generated fixture metadata.
 three-tone input and processor goldens for all four method/processor pairs under
 `tests/golden/audio/processors/`, without requiring FluidSynth. The checked-in
 arrays include the input samples, feature rows, times, and reference metadata.
+
+Its `--codec-fixtures-only` mode writes small synthetic mono WAV, FLAC, MP3, and
+Ogg/Vorbis files under `tests/data/audio/codec_samples/` for offline decoder
+tests. They contain generated 440/880-Hz tones and have no third-party recording
+provenance. Their metadata and SHA-256 values are recorded in
+`tests/data/audio/codec_samples/codec_fixtures.json` and covered by
+`tests/audio_io.rs`:
+
+| File | Bytes | SHA-256 |
+|---|---:|---|
+| `decoder_tone.wav` | 44,144 | `245819C5D8614D69CCB38D442629122F0E11BD5E35470F394CAD9935D2E6373D` |
+| `decoder_tone.flac` | 8,607 | `0C7D25DD84209DF59FD959971BAA3A593D1B393C43C264015BD8953694F1C74E` |
+| `decoder_tone.mp3` | 3,437 | `82344256A50D8DDFEBE32C3BFB02CC50206E35E36522D00489FAEC600B26CABD` |
+| `decoder_tone.ogg` | 4,818 | `4CD531206629D4175DABDFE0AF981E98965FA1071AB8E7B032C9CE06AD5AECBA` |
+
+The Ogg encoder may vary container bytes between runs. The generator preserves
+existing files and records their hashes; replace a fixture intentionally and
+update this manifest/table together.
 
 The full mode writes one directory per method/processor pair under
 `tests/golden/audio/`, containing performance features and times, score features

@@ -1,0 +1,50 @@
+{
+  "assets": [
+    {
+      "bytes": 44144,
+      "channels": 1,
+      "file": "decoder_tone.wav",
+      "format": "WAV",
+      "sample_rate": 44100,
+      "samples": 22050,
+      "sha256": "245819C5D8614D69CCB38D442629122F0E11BD5E35470F394CAD9935D2E6373D"
+    },
+    {
+      "bytes": 8607,
+      "channels": 1,
+      "file": "decoder_tone.flac",
+      "format": "FLAC",
+      "sample_rate": 44100,
+      "samples": 22050,
+      "sha256": "0C7D25DD84209DF59FD959971BAA3A593D1B393C43C264015BD8953694F1C74E"
+    },
+    {
+      "bytes": 3437,
+      "channels": 1,
+      "file": "decoder_tone.mp3",
+      "format": "MP3",
+      "sample_rate": 44100,
+      "samples": 22050,
+      "sha256": "82344256A50D8DDFEBE32C3BFB02CC50206E35E36522D00489FAEC600B26CABD"
+    },
+    {
+      "bytes": 4818,
+      "channels": 1,
+      "file": "decoder_tone.ogg",
+      "format": "OGG",
+      "sample_rate": 44100,
+      "samples": 22050,
+      "sha256": "4CD531206629D4175DABDFE0AF981E98965FA1071AB8E7B032C9CE06AD5AECBA"
+    }
+  ],
+  "generator": "tools/golden/generate_audio.py",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "5BD952BF8F214C4DEB2203C33EDAA544B6C3ABFFDA5BB019B29EF0E7AF1D0B28",
+    "version": "0.4.0"
+  },
+  "signal": "synthetic 440-Hz and 880-Hz sine tones"
+}
