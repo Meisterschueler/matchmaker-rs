@@ -116,11 +116,11 @@ benchmark has run yet.
 `chroma`/`lse` combinations. It verifies the pinned SF2 SHA-256, records the
 reference and renderer hashes, and emits feature arrays, frame times, score
 beat mapping, positions, and alignment paths. Python syntax, CLI help, and the
-asset-hash check pass in the locked environment. Full rendering is not available
-in this environment: `partitura.io.exportaudio.HAS_FLUIDSYNTH` is `False`.
-Therefore no WAV or golden outputs were generated; T011 remains open. The
-generator documents the optional FluidSynth prerequisite, which is not a Rust
-runtime dependency.
+asset-hash check pass in the locked environment. Full score rendering is not
+available in this environment: `partitura.io.exportaudio.HAS_FLUIDSYNTH` is
+`False`. Processor-only synthetic references have since been generated without
+FluidSynth; no rendered WAV or end-to-end follower outputs exist, so T011 remains
+open. The optional FluidSynth prerequisite is not a Rust runtime dependency.
 
 ### T004: Audio core types
 
@@ -129,8 +129,8 @@ Added separate `AudioMethod`, `AudioProcessorKind`, `AudioDistance`, and
 dixon/lse/50-fps/Euclidean defaults. Added typed audio decode, render, and
 configuration errors; existing MIDI method and config defaults are unchanged.
 `cargo test --test method_config` passes (13 tests), as does
-`cargo fmt --all -- --check`. Pipeline wiring and decoder/processor behavior
-remain unimplemented.
+`cargo fmt --all -- --check`. Audio stream and processor behavior are recorded
+under T006-T008.
 
 ### T006: Audio file stream
 
@@ -141,6 +141,23 @@ reference-compatible emitted timestamps. `cargo test --test audio_io
 -- -D warnings` passes, and `cargo fmt --all -- --check` passes. The local audio
 tests use generated PCM WAVs; compressed container decoding is implemented but
 not yet covered by fixture tests, so T005 remains open for those cases.
+
+### T007: Synthetic processor references
+
+Extended `generate_audio.py --processors-only` to produce a deterministic
+three-tone signal and locked pymatchmaker outputs for `chroma`/`lse` at both
+method frame rates. `tests/golden_audio_processors.rs` checks feature arrays,
+frame counts and times for all four combinations, plus LSE reset and silence.
+The checked-in comparisons pass at the documented `2e-4` relative and `1e-6`
+absolute feature tolerances.
+
+### T008: Audio feature processors
+
+Added the Librosa-compatible chroma STFT/filterbank with per-frame tuning and
+stateful LSE FFT/frequency mapping, normalization, reset, and DEBUG spans.
+`AudioStream::prime` runs the first block through the processor without yielding
+an alignment observation, preserving the reference's LSE history. Processor
+goldens pass for all four method/processor configurations.
 
 ### T002: Dependency and target checks complete
 

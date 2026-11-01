@@ -1,0 +1,22 @@
+{
+  "frame_rate": 50,
+  "frames": 19,
+  "generator": "tools/golden/generate_audio.py",
+  "hop_length": 882,
+  "input": "generated three-tone signal",
+  "method": "dixon",
+  "processor": "lse",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "5BD952BF8F214C4DEB2203C33EDAA544B6C3ABFFDA5BB019B29EF0E7AF1D0B28",
+    "version": "0.4.0"
+  },
+  "sample_rate": 44100,
+  "tolerances": {
+    "features_atol": 1e-06,
+    "features_rtol": 0.0002
+  }
+}

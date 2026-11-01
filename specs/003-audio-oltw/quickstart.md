@@ -16,10 +16,16 @@ From the repository root:
 
 ```text
 cd tools/golden
+python -m uv run --locked generate_audio.py --processors-only --out ../../tests/golden/audio
+```
+
+This writes synthetic `chroma`/`lse` feature arrays and frame timestamps for both methods without FluidSynth. To generate rendered performance and end-to-end references, run full mode after installing Partitura's optional FluidSynth support:
+
+```text
 python -m uv run --locked generate_audio.py --soundfont ../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2 --render-performance
 ```
 
-Expected result: processor arrays, frame timestamps, score reference arrays, and follower outputs for the two methods are written under `tests/golden/audio/`. The generator records the pymatchmaker tag, lockfile hash, method config, and comparison tolerances.
+The generator records the pymatchmaker tag, lockfile hash, method config, SoundFont hash, and comparison tolerances.
 
 ## Run Rust Parity Tests
 

@@ -19,7 +19,11 @@ import matchmaker
 import numpy as np
 import partitura
 from matchmaker import Matchmaker
-from matchmaker.features.audio import SAMPLE_RATE
+from matchmaker.features.audio import (
+    SAMPLE_RATE,
+    ChromagramProcessor,
+    LogSpectralEnergyProcessor,
+)
 from matchmaker.matchmaker import DEFAULT_TEMPO
 from matchmaker.utils import misc as reference_misc
 from scipy.io import wavfile
@@ -114,6 +118,84 @@ def render_performance(score_path: Path, performance_path: Path, soundfont: Path
     wavfile.write(str(performance_path), SAMPLE_RATE, audio)
 
 
+def generate_processor_goldens(output: Path) -> None:
+    """Generate processor-only references without requiring score rendering."""
+    sample_rate = SAMPLE_RATE
+    duration = 0.4
+    times = np.arange(int(sample_rate * duration), dtype=np.float64) / sample_rate
+    samples = (
+        0.35 * np.sin(2 * np.pi * 440.0 * times)
+        + 0.2 * np.sin(2 * np.pi * 659.2551138257398 * times)
+        + 0.1 * np.sin(2 * np.pi * 783.9908719634985 * times)
+    ).astype(np.float32)
+    base = output / "processors"
+    write_array(base / "input_samples.npy", samples, "<f4")
+
+    for method, method_defaults in METHODS.items():
+        frame_rate = method_defaults["frame_rate"]
+        hop_length = sample_rate // frame_rate
+        for processor_name in PROCESSORS:
+            if processor_name == "chroma":
+                processor = ChromagramProcessor(
+                    sample_rate=sample_rate,
+                    hop_length=hop_length,
+                )
+            else:
+                processor = LogSpectralEnergyProcessor(
+                    sample_rate=sample_rate,
+                    hop_length=hop_length,
+                    norm=2,
+                )
+            cache_size = processor.n_fft - hop_length
+            padded = np.pad(
+                samples,
+                (0, (-len(samples)) % hop_length),
+                mode="constant",
+            )
+            cache = np.zeros(cache_size, dtype=np.float32)
+            emitted = 0
+            feature_rows, feature_times = [], []
+            for chunk_index, hop in enumerate(
+                padded.reshape(-1, hop_length)
+            ):
+                block = np.concatenate((cache, hop))
+                features, frame_time = processor(
+                    (block, emitted * hop_length / float(sample_rate))
+                )
+                if chunk_index > 0:
+                    feature_rows.extend(np.asarray(features, dtype=np.float32))
+                    feature_times.extend([float(frame_time)] * len(features))
+                    emitted += 1
+                if cache_size:
+                    cache = block[-cache_size:].copy()
+
+            directory = base / f"{method}_{processor_name}"
+            write_array(
+                directory / "features.npy",
+                np.asarray(feature_rows, dtype=np.float32).reshape(
+                    -1, 12 if processor_name == "chroma" else processor.dim
+                ),
+                "<f4",
+            )
+            write_array(directory / "times.npy", feature_times, "<f8")
+            write_json(
+                directory / "meta.json",
+                {
+                    "reference": reference_info(),
+                    "generator": "tools/golden/generate_audio.py",
+                    "input": "generated three-tone signal",
+                    "sample_rate": sample_rate,
+                    "frame_rate": frame_rate,
+                    "hop_length": hop_length,
+                    "method": method,
+                    "processor": processor_name,
+                    "frames": len(feature_rows),
+                    "tolerances": {"features_rtol": 2e-4, "features_atol": 1e-6},
+                },
+            )
+            print(f"{method}/{processor_name}: {len(feature_rows)} frames")
+
+
 def record_follower(follower, recorder: dict) -> None:
     base = type(follower)
 
@@ -202,7 +284,16 @@ def main() -> None:
         action="store_true",
         help="render the default performance WAV from the score using the pinned SF2",
     )
+    parser.add_argument(
+        "--processors-only",
+        action="store_true",
+        help="generate synthetic chroma/LSE processor goldens without FluidSynth",
+    )
     args = parser.parse_args()
+    if args.processors_only:
+        generate_processor_goldens(args.out.resolve())
+        return
+
     score_path = args.score.resolve()
     performance_path = args.performance.resolve()
     soundfont = args.soundfont.resolve()

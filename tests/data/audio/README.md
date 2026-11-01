@@ -53,21 +53,26 @@ this exact pin and records its SF2 hash in generated fixture metadata.
 ### Reference generation
 
 `tools/golden/generate_audio.py` uses pymatchmaker v0.4.0 and the locked
-`tools/golden/uv.lock`. It writes one directory per method/processor pair under
+`tools/golden/uv.lock`. Its `--processors-only` mode generates a deterministic
+three-tone input and processor goldens for all four method/processor pairs under
+`tests/golden/audio/processors/`, without requiring FluidSynth. The checked-in
+arrays include the input samples, feature rows, times, and reference metadata.
+
+The full mode writes one directory per method/processor pair under
 `tests/golden/audio/`, containing performance features and times, score features
-and frame-to-beat mapping, positions, alignment path, and a metadata JSON with
-the reference and SoundFont hashes. The SoundFont path and SHA-256 are checked
-before use. The reference score renderer is patched only to pass this pinned SF2
-to Partitura; its timing, padding, and cropping logic remains the reference
+and frame-to-beat mapping, positions, alignment path, and metadata with the
+reference and SoundFont hashes. The SoundFont path and SHA-256 are checked before
+use. The reference score renderer is patched only to pass this pinned SF2 to
+Partitura; its timing, padding, and cropping logic remains the reference
 implementation.
 
 The optional `--render-performance` flag writes a float WAV derived from the
 score and pinned SF2 to `tests/data/audio/simple_mozart_k265_var1_sf2.wav`.
 Reference rendering requires Partitura's optional FluidSynth support and a
-working FluidSynth library; neither is needed by the Rust runtime. Generated WAV
-and golden files are not checked in until the full generation run and fixture
-provenance review pass. The current locked Python environment reports FluidSynth
-unavailable, so no WAV or golden output has been generated yet.
+working FluidSynth library; neither is needed by the Rust runtime. Rendered WAV
+and end-to-end follower goldens are not checked in until the full generation run
+and fixture provenance review pass. The current Python environment reports
+FluidSynth unavailable; processor-only goldens do not depend on it.
 
 ### Rejected candidate
 

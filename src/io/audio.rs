@@ -27,6 +27,7 @@ use symphonia::core::meta::MetadataOptions;
 use tracing::debug_span;
 
 use crate::error::{Error, Result};
+use crate::features::AudioProcessor;
 
 /// One processor input block, including its overlap context.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +46,7 @@ pub struct AudioStream {
     source_sample_rate: u32,
     source_channels: usize,
     sample_rate: u32,
+    priming_frame: Option<AudioFrame>,
     frames: std::vec::IntoIter<AudioFrame>,
 }
 
@@ -75,14 +77,23 @@ impl AudioStream {
         } else {
             resample(path, samples, source_sample_rate, target_sample_rate)?
         };
-        let frames = frame_samples(samples, target_sample_rate, hop_length, cache_size);
+        let (priming_frame, frames) =
+            frame_samples(samples, target_sample_rate, hop_length, cache_size);
 
         Ok(Self {
             source_sample_rate,
             source_channels,
             sample_rate: target_sample_rate,
+            priming_frame,
             frames: frames.into_iter(),
         })
+    }
+
+    /// Process the first cache-priming block without yielding it as an alignment observation.
+    pub fn prime(&mut self, processor: &mut dyn AudioProcessor) {
+        if let Some(frame) = self.priming_frame.take() {
+            let _ = processor.process(&frame);
+        }
     }
 
     /// Original sample rate reported by the audio decoder.
@@ -262,7 +273,7 @@ fn frame_samples(
     sample_rate: u32,
     hop_length: usize,
     cache_size: usize,
-) -> Vec<AudioFrame> {
+) -> (Option<AudioFrame>, Vec<AudioFrame>) {
     let _span = debug_span!(
         "audio_frame",
         sample_rate,
@@ -272,13 +283,14 @@ fn frame_samples(
     )
     .entered();
     if samples.is_empty() {
-        return Vec::new();
+        return (None, Vec::new());
     }
 
     let padded_len = samples.len().div_ceil(hop_length) * hop_length;
     let mut padded = samples;
     padded.resize(padded_len, 0.0);
     let mut cache = vec![0.0; cache_size];
+    let mut priming_frame = None;
     let mut frames = Vec::with_capacity(padded_len / hop_length - 1);
     let mut emitted = 0usize;
 
@@ -286,7 +298,13 @@ fn frame_samples(
         let mut block = Vec::with_capacity(cache_size + hop_length);
         block.extend_from_slice(&cache);
         block.extend_from_slice(hop);
-        if chunk_index > 0 {
+        if chunk_index == 0 {
+            priming_frame = Some(AudioFrame {
+                index: 0,
+                samples: block.clone(),
+                perf_time: 0.0,
+            });
+        } else {
             frames.push(AudioFrame {
                 index: emitted,
                 samples: block.clone(),
@@ -298,5 +316,5 @@ fn frame_samples(
             cache.copy_from_slice(&block[block.len() - cache_size..]);
         }
     }
-    frames
+    (priming_frame, frames)
 }
