@@ -8,11 +8,14 @@ Binary of `crates/matchmaker-cli`. Errors are printed with context (via `anyhow`
 
 ```text
 matchmaker follow <SCORE> <PERFORMANCE>
-    [--method pthmm|hmm|outerhmm]        default: pthmm
+    [--method pthmm|hmm|outerhmm|arzt|dixon]   default: pthmm (arzt, dixon: feature 002)
     [--tempo <BPM>] [--no-unfold]
-    [--processor pitch|chord_onset]      default: pitch
+    [--processor pitch|chord_onset]      default: pitch (arzt, dixon: chord_onset)
     [--set KEY=VALUE]...                 method parameter (FR-011); keys per method, e.g.
-                                         polling_period=0.02 or none, piano_range, patience, other_prob
+                                         polling_period=0.02 or none, piano_range (all);
+                                         patience, other_prob (outerhmm); step_size,
+                                         distance_func (arzt); window_size, max_run_count,
+                                         distance_func (dixon)
     [--output <FILE.tsv>]                alignment path (perf_sec<TAB>score_beat); `.npy` is rejected
     [--export <DIR>]                     intermediate data, layout of contracts/golden-data.md (US6)
     [--ground-truth <FILE>]              with --export: also writes <DIR>/<method>/evaluation.json
@@ -38,7 +41,7 @@ reference, as a table or JSON (`--json`); NaN is printed as `null`.
 ## `matchmaker bench`
 
 ```text
-matchmaker bench <MANIFEST> --out <FILE.json> [--runs <N=5>] [--methods pthmm,hmm,outerhmm]
+matchmaker bench <MANIFEST> --out <FILE.json> [--runs <N=5>] [--methods pthmm,hmm,outerhmm,arzt,dixon]
 ```
 
 `MANIFEST`: TOML with `[[pieces]]` entries (`dataset`, `piece`, `score`, `performance`,

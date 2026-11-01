@@ -8,7 +8,7 @@
 //!
 //! ```
 //! use matchmaker_rs::base::OnlineAlignment;
-//! use matchmaker_rs::dp::oltw_arzt::{ArztEvent, ArztEventConfig};
+//! use matchmaker_rs::dp::arzt::{ArztEvent, ArztEventConfig};
 //! use matchmaker_rs::score::Score;
 //! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;
 //! let (features, onsets) = score.onset_pianoroll(true);
@@ -22,7 +22,7 @@ use crate::dp::Distance;
 use crate::features::Observation;
 
 /// Constructor arguments of `OnlineTimeWarpingArztEvent` with the values that actually reach it
-/// for MIDI (research R1: the YAML's `window_size: 2` never arrives, the class default does).
+/// for MIDI (002 research R1: the YAML's `window_size: 2` never arrives, the class default does).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArztEventConfig {
     /// Search window in onsets (default 30).
@@ -83,7 +83,7 @@ impl ArztEvent {
         self.current_index
     }
 
-    /// `get_window`: `[start, end)` of the onsets searched for the next observation.
+    /// Port of `get_window`: `[start, end)` of the onsets searched for the next observation.
     fn window(&self) -> (usize, usize) {
         let width = if self.input_index < self.config.start_window_size {
             self.config.start_window_size
@@ -94,7 +94,7 @@ impl ArztEvent {
         (start, (start + width).min(self.reference.len()))
     }
 
-    /// `step`: one rolling DP column over the window, then the clipped argmin.
+    /// Port of `step`: one rolling DP column over the window, then the clipped argmin.
     fn step(&mut self, features: &[f32]) {
         let (window_start, window_end) = self.window();
         let mut min_costs = f64::INFINITY;

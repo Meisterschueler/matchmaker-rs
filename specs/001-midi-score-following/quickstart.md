@@ -27,7 +27,7 @@ cargo test --workspace --exclude matchmaker-py
 ```
 
 Expected: golden tests for score loading, stream, `pitch`, `chord_onset`, `pthmm`, `hmm`,
-`outerhmm` and evaluation pass. Introduce a deliberate change (e.g. scale `1.0` → `0.9` in
+`outerhmm` (and `arzt`, `dixon` since feature 002) and evaluation pass. Introduce a deliberate change (e.g. scale `1.0` → `0.9` in
 `stable_transition_matrix`) and re-run: the failure names method, piece, file and first
 differing index.
 

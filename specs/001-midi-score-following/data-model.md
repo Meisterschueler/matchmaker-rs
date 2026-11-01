@@ -67,7 +67,7 @@ message time in event mode).
 ### `StreamMode`
 
 `Event` (one message per frame) or `Windowed { polling_period: f64 }`. Per-method defaults:
-`pthmm`, `hmm` → `Windowed(0.01)`; `outerhmm` → `Windowed(0.001)`.
+`pthmm`, `hmm` → `Windowed(0.01)`; `outerhmm` → `Windowed(0.001)`; `arzt`, `dixon` → `Windowed(0.001)` (feature 002).
 
 ## Features
 
@@ -113,6 +113,8 @@ fn debug_state(&self) -> StepDebug                      // for export (FR-018)
 | `pthmm` | `PitchHmm` | `has_insertions = true`, `piano_range = true`, transition `scale = 1.0`, init `scale = 10` | `forward_variable: Option<Vec<f64>>`, `current_index` |
 | `hmm` | `PitchIoiHmm` | as `pthmm` + `ioi_precision = 1`, `KalmanTempoModel { init_beat_period = 0.6, init_score_onset = min onset, trans_par = 1, trans_var = 0.03, obs_var = 0.0213, init_var = 1 }` | as `pthmm` + `prev_perf_time: Option<f64>`, tempo model state |
 | `outerhmm` | `OuterProductHmm` | `transitions = [(−3,.00509),(−2,.00516),(−1,.00886),(0,.01342),(1,.94531),(2,.00610),(3,.00073)]`, `D1 = D2 = 3`, pitch-error probs, `S = r = 1/N`, `other_prob = 1e-6`, `patience = 10`, `ioi_threshold = 0.035` | `state_probabilities`, `pre_chord_probs`, `current_chord: Vec<f32>`, `prev_perf_time`, `is_continuation`, `same_state_counter` |
+| `arzt` | `ArztEvent` | `window_size = 30`, `start_window_size = 5`, `step_size = 5`, `distance = Cosine` | cost columns, `current_index`, `input_index`; see [002 data-model](../002-midi-oltw/data-model.md) |
+| `dixon` | `DixonEvent` | `window_size = 30`, `max_run_count = 3`, `distance = Euclidean` | sparse cost map, inputs, `t`, `j`, run counts; see [002 data-model](../002-midi-oltw/data-model.md) |
 
 Shared building blocks (in `prob::hidden_markov` / `prob::hmm_models`):
 `Banded { rows: Vec<(start: usize, values: Vec<f64>)> }` (non-zero band per row,
@@ -126,9 +128,10 @@ afterwards predict/update as in the reference.
 
 ### `MethodConfig` — what `Matchmaker(kwargs=…)` controls
 
-`processor: ProcessorKind { Pitch, ChordOnset }` (default `Pitch`), `piano_range: bool = true`,
-`polling_period: Option<f64>` (`None` = event-based; default 0.01, `outerhmm` 0.001), and for
-`outerhmm` `patience: Option<usize>`, `other_prob: Option<f64>`. `MethodConfig::set(method, key,
+`processor: ProcessorKind { Pitch, ChordOnset }` (default `Pitch`; `ChordOnset` for `arzt`, `dixon`), `piano_range: bool = true`,
+`polling_period: Option<f64>` (`None` = event-based; default 0.01, `outerhmm`, `arzt`, `dixon` 0.001), and for
+`outerhmm` `patience: Option<usize>`, `other_prob: Option<f64>`; for `arzt` `step_size`, `distance_func`; for `dixon`
+`window_size`, `max_run_count`, `distance_func` (feature 002, [R5](../002-midi-oltw/research.md#r5-configuration-surface)). `MethodConfig::set(method, key,
 &ConfigValue)` accepts only the keys of `Method::config_keys()`; anything else →
 `Error::InvalidParameter { key, reason }` naming the allowed keys. `Matchmaker::with_config`
 validates the combination (e.g. `hmm` needs the `pitch` processor).
@@ -143,7 +146,7 @@ performance. One entry per consumed non-continuation observation (R1).
 ### `StepDebug` — exported per step (FR-018)
 
 `perf_time: f64`, `position: f64`, `current_index: usize`, `probabilities: Vec<f64>`
-(forward variable / Viterbi distribution), `beat_period: Option<f64>` (`hmm`),
+(forward variable / Viterbi distribution; empty for `arzt`, `dixon`), `beat_period: Option<f64>` (`hmm`),
 `is_continuation: Option<bool>` (`outerhmm`).
 
 ### `GroundTruth`
@@ -189,7 +192,7 @@ stateDiagram-v2
     [*] --> Built: Matchmaker::new(score, performance, method, config)
     Built --> Following: run() / push(message)
     Following --> Following: observation → position
-    Following --> Finished: STREAM_END | last state reached (pthmm, hmm) | patience exceeded (outerhmm)
+    Following --> Finished: STREAM_END | last state reached (pthmm, hmm, arzt, dixon) | patience exceeded (outerhmm)
     Finished --> [*]: alignment_path(), export(), evaluate()
 ```
 

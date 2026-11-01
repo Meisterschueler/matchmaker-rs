@@ -16,8 +16,8 @@ use std::str::FromStr;
 
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::dp::Distance;
-use crate::dp::oltw_arzt::{ArztEvent, ArztEventConfig};
-use crate::dp::oltw_dixon::{DixonEvent, DixonEventConfig};
+use crate::dp::arzt::{ArztEvent, ArztEventConfig};
+use crate::dp::dixon::{DixonEvent, DixonEventConfig};
 use crate::error::{Error, Result};
 use crate::features::{
     Observation, Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor,
@@ -122,6 +122,14 @@ pub enum ProcessorKind {
 impl ProcessorKind {
     /// Reference names of the supported processors.
     pub const AVAILABLE: [&'static str; 2] = ["pitch", "chord_onset"];
+
+    /// Reference name of the processor.
+    pub fn name(self) -> &'static str {
+        match self {
+            ProcessorKind::Pitch => "pitch",
+            ProcessorKind::ChordOnset => "chord_onset",
+        }
+    }
 }
 
 impl FromStr for ProcessorKind {
@@ -237,10 +245,7 @@ impl MethodConfig {
             ("other_prob", ConfigValue::Float(p)) => self.other_prob = Some(*p),
             ("other_prob", ConfigValue::Int(p)) => self.other_prob = Some(*p as f64),
             ("step_size" | "window_size" | "max_run_count", ConfigValue::Int(n)) => {
-                let n = usize::try_from(*n)
-                    .ok()
-                    .filter(|&n| n >= 1)
-                    .ok_or_else(|| invalid("must be at least 1".into()))?;
+                let n = usize::try_from(*n).map_err(|_| invalid("must not be negative".into()))?;
                 match key {
                     "step_size" => self.step_size = Some(n),
                     "window_size" => self.window_size = Some(n),
@@ -279,6 +284,15 @@ impl MethodConfig {
                 "piano_range",
                 "outerhmm needs the 88-key piano range",
             ));
+        }
+        for (key, size) in [
+            ("step_size", self.step_size),
+            ("window_size", self.window_size),
+            ("max_run_count", self.max_run_count),
+        ] {
+            if size == Some(0) {
+                return Err(invalid(key, "must be at least 1"));
+            }
         }
         Ok(())
     }

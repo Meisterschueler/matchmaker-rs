@@ -190,7 +190,8 @@ impl PyMatchmaker {
             Some(kwargs) => kwargs.copy()?,
             None => default_kwargs(py, method_kind)?,
         };
-        // replaced kwargs fall back to 10 ms windows; only the `event_based` method (outerhmm) streams events
+        // replaced kwargs fall back to 10 ms windows; only the `event_based` method (outerhmm)
+        // streams events
         let default_polling = (method_kind != Method::OuterHmm).then_some(0.01);
         let polling_period = match pop(&config, "polling_period")? {
             Some(value) if value.is_none() => None,

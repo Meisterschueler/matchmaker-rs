@@ -1,6 +1,7 @@
 //! Edge cases of the US1 pipeline (spec.md "Edge Cases"): empty and oversized performances,
 //! velocity-0 note-ons, missing tempo, unreadable files and out-of-range pitches. None of them
-//! may panic; broken files give typed errors that name the file.
+//! may panic; broken files give typed errors that name the file. The `oltw_*` tests are the edge
+//! cases of `arzt` and `dixon` (specs/002-midi-oltw/spec.md).
 
 mod common;
 
@@ -198,7 +199,7 @@ fn oltw_handles_scores_smaller_than_the_window() {
     let three_onsets = midi_file("three_onsets", &three);
     let performance = midi_file("short", &three[..4]);
     for method in [Method::Arzt, Method::Dixon] {
-        // the only onset is already the last state: the reference's run loop never calls the follower
+        // one onset is already the last state: the reference's run loop never calls the follower
         let mut mm = Matchmaker::new(&one_onset, method, None, true).unwrap();
         assert!(mm.run_file(&performance).unwrap().is_empty(), "{method:?}");
 

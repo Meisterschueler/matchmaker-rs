@@ -299,10 +299,7 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
             "generator": "matchmaker-rs export",
             "config": {
                 "method": mm.method().name(),
-                "processor": match kind {
-                    ProcessorKind::Pitch => "pitch",
-                    ProcessorKind::ChordOnset => "chord_onset",
-                },
+                "processor": kind.name(),
                 "piano_range": config.piano_range,
                 "polling_period": config.polling_period,
                 "tempo": mm.tempo(),

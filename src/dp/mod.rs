@@ -1,8 +1,9 @@
-//! Online time warping (port of `matchmaker.dp`): the event-level followers `arzt` and `dixon`.
+//! Port of `matchmaker.dp`: the event-level online time warping followers `arzt` and `dixon`
+//! and what they share.
 //!
-//! Upstream: `matchmaker/dp/direction.py`, `matchmaker/dp/oltw_arzt.py`,
-//! `matchmaker/dp/oltw_dixon.py`. `dtw_loop.pyx` is not ported: the event classes have their own
-//! loop (it belongs to the frame-level audio variant).
+//! Upstream: `matchmaker/dp/direction.py` (`Direction`); the metrics are the SciPy `cdist` ones the
+//! followers call. `dtw_loop.pyx` is not ported: the event classes have their own loop (it
+//! belongs to the frame-level audio variant).
 //!
 //! ```
 //! use matchmaker_rs::dp::Distance;
@@ -10,14 +11,14 @@
 //! assert!((d - 0.292_893_218_813_452_5).abs() < 1e-12);
 //! ```
 
-pub mod oltw_arzt;
-pub mod oltw_dixon;
+pub mod arzt;
+pub mod dixon;
 
 use std::str::FromStr;
 
 use crate::error::Error;
 
-/// Axes advanced by a step (`matchmaker.dp.direction.Direction`; `NONE` is unused here).
+/// Port of `matchmaker.dp.direction.Direction` (`NONE` is unused here): the axes a step advances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     /// Advance the reference (score) only.
@@ -44,7 +45,7 @@ impl Distance {
     /// `cdist(u, v, metric)` for one pair; `float32` inputs are widened to `float64` first.
     ///
     /// The sums run in order; for the binary vectors of the MIDI pipeline every sum is a small
-    /// integer, so the result equals SciPy's bit for bit (research R4).
+    /// integer, so the result equals SciPy's bit for bit (002 research R4).
     pub fn between(self, u: &[f32], v: &[f32]) -> f64 {
         let pairs = || u.iter().zip(v).map(|(&a, &b)| (f64::from(a), f64::from(b)));
         match self {
@@ -92,7 +93,7 @@ mod tests {
 
     #[test]
     fn cosine_matches_scipy_examples() {
-        // scipy.spatial.distance.cdist on float32 rows, see research R4
+        // scipy.spatial.distance.cdist on float32 rows, see 002 research R4
         let a = [1.0, 1.0, 1.0, 0.0];
         let b = [1.0, 0.0, 0.0, 1.0];
         assert_eq!(

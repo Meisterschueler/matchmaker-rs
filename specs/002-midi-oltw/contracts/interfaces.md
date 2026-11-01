@@ -1,6 +1,8 @@
 # Contracts: deltas to the 001 interfaces
 
-Everything not listed here is unchanged from [001](../../001-midi-score-following/contracts/).
+Everything not listed here is unchanged from [001](../../001-midi-score-following/contracts/). The
+001 contracts (`cli.md`, `golden-data.md`, `library-api.md`, `python-api.md`) are the living ones and
+list the new methods too; this file is the summary of what feature 002 changed in them.
 
 ## Library
 
@@ -9,11 +11,12 @@ Everything not listed here is unchanged from [001](../../001-midi-score-followin
 - `MethodConfig::for_method(Arzt | Dixon)`: processor `chord_onset`, `piano_range = true`,
   `polling_period = Some(0.001)`.
 - `MethodConfig::set` keys: see [research R5](../research.md#r5-configuration-surface). Invalid
-  keys/values → `Error::InvalidParameter` naming key and allowed values.
-- `dp::oltw_arzt::ArztEvent`, `dp::oltw_dixon::DixonEvent`: `new(reference_features, score_positions,
+  keys/values → `Error::InvalidParameter` naming key and allowed values; sizes of 0 are rejected by
+  `Matchmaker::with_config` (`MethodConfig::validate`).
+- `dp::arzt::ArztEvent`, `dp::dixon::DixonEvent`: `new(reference_features, score_positions,
   config)` with the arrays of `Score::onset_pianoroll` (the Python constructor's arguments), implement
   `OnlineAlignment`; `debug_state().probabilities` is empty.
-- `Score::onset_pianoroll(piano_range)`.
+- `Score::onset_pianoroll(piano_range)`; `ProcessorKind::name()`.
 
 ## CLI
 

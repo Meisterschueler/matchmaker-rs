@@ -160,7 +160,8 @@ fn annotations_equal_reference() {
     assert!(checked >= 40, "only {checked} annotation files compared");
 }
 
-/// `onset_pianoroll` of `features/midi.py`, the reference features of `arzt` and `dixon` (exact).
+/// `onset_pianoroll` of `features/midi.py`, the reference features of `arzt` and `dixon`
+/// (002 FR-002, exact).
 #[test]
 fn onset_pianoroll_equals_reference() {
     let mut checked = 0;
