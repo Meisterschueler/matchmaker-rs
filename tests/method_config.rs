@@ -5,6 +5,7 @@ mod common;
 
 use common::data;
 use matchmaker_rs::Error;
+use matchmaker_rs::dp::Distance;
 use matchmaker_rs::matchmaker::{ConfigValue, Matchmaker, Method, MethodConfig, ProcessorKind};
 use matchmaker_rs::score::AnnotationLevel;
 
@@ -55,6 +56,83 @@ fn unknown_keys_and_bad_values_are_rejected() {
 }
 
 #[test]
+fn arzt_defaults_and_keys() {
+    let mut config = MethodConfig::for_method(Method::Arzt);
+    assert_eq!(
+        (config.processor, config.piano_range, config.polling_period),
+        (ProcessorKind::ChordOnset, true, Some(0.001))
+    );
+    config
+        .set(Method::Arzt, "step_size", &ConfigValue::Int(3))
+        .unwrap();
+    assert_eq!(config.step_size, Some(3));
+    let euclidean = ConfigValue::Str("euclidean".into());
+    config
+        .set(Method::Arzt, "distance_func", &euclidean)
+        .unwrap();
+    assert_eq!(config.distance_func, Some(Distance::Euclidean));
+
+    let manhattan = ConfigValue::Str("manhattan".into());
+    let bad = config
+        .set(Method::Arzt, "distance_func", &manhattan)
+        .unwrap_err();
+    assert!(bad.to_string().contains("cosine"), "{bad}");
+    assert_eq!(invalid_key(bad), "distance_func");
+    // the reference's pass-through drops these two for MIDI arzt
+    for key in ["window_size", "start_window_size"] {
+        let err = config.set(Method::Arzt, key, &ConfigValue::Int(5));
+        let err = err.unwrap_err();
+        assert!(err.to_string().contains("not used by"), "{err}");
+        assert_eq!(invalid_key(err), key);
+    }
+    let unknown = config.set(Method::Arzt, "patience", &ConfigValue::Int(3));
+    assert!(unknown.unwrap_err().to_string().contains("allowed"));
+}
+
+#[test]
+fn dixon_defaults_and_keys() {
+    let mut config = MethodConfig::for_method(Method::Dixon);
+    assert_eq!(
+        (config.processor, config.piano_range, config.polling_period),
+        (ProcessorKind::ChordOnset, true, Some(0.001))
+    );
+    for key in ["window_size", "max_run_count"] {
+        config
+            .set(Method::Dixon, key, &ConfigValue::Int(7))
+            .unwrap();
+    }
+    assert_eq!(
+        (config.window_size, config.max_run_count),
+        (Some(7), Some(7))
+    );
+    let cosine = ConfigValue::Str("cosine".into());
+    config.set(Method::Dixon, "distance_func", &cosine).unwrap();
+    assert_eq!(config.distance_func, Some(Distance::Cosine));
+    let err = config
+        .set(Method::Dixon, "step_size", &ConfigValue::Int(3))
+        .unwrap_err();
+    assert!(err.to_string().contains("allowed"), "{err}");
+    assert_eq!(invalid_key(err), "step_size");
+}
+
+#[test]
+fn sizes_must_be_at_least_one() {
+    for (method, key) in [
+        (Method::Arzt, "step_size"),
+        (Method::Dixon, "window_size"),
+        (Method::Dixon, "max_run_count"),
+    ] {
+        let mut config = MethodConfig::for_method(method);
+        let negative = config.set(method, key, &ConfigValue::Int(-1));
+        assert_eq!(invalid_key(negative.unwrap_err()), key);
+        // zero is caught where the whole configuration is checked, also for a struct built by hand
+        config.set(method, key, &ConfigValue::Int(0)).unwrap();
+        let err = Matchmaker::with_config(data(SCORE), method, config, None, true).err();
+        assert_eq!(invalid_key(err.unwrap()), key);
+    }
+}
+
+#[test]
 fn incompatible_combinations_are_rejected() {
     let build = |method, edit: &dyn Fn(&mut MethodConfig)| {
         let mut config = MethodConfig::for_method(method);
@@ -84,6 +162,23 @@ fn chord_onset_processor_and_full_range_follow_the_performance() {
     let full = mm.run_file(data(PERFORMANCE)).unwrap();
     let mut reference = Matchmaker::new(data(SCORE), Method::Pthmm, None, true).unwrap();
     assert_eq!(full, reference.run_file(data(PERFORMANCE)).unwrap());
+}
+
+#[test]
+fn oltw_full_range_follows_like_the_piano_range() {
+    // the 40 extra pitches are zero in score and performance: neither metric can change
+    for method in [Method::Arzt, Method::Dixon] {
+        let mut config = MethodConfig::for_method(method);
+        config.piano_range = false;
+        let mut full = Matchmaker::with_config(data(SCORE), method, config, None, true).unwrap();
+        let mut piano = Matchmaker::new(data(SCORE), method, None, true).unwrap();
+        let expected = piano.run_file(data(PERFORMANCE)).unwrap();
+        assert_eq!(
+            full.run_file(data(PERFORMANCE)).unwrap(),
+            expected,
+            "{method:?}"
+        );
+    }
 }
 
 #[test]

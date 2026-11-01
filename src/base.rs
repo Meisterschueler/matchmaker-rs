@@ -33,7 +33,7 @@ impl AlignmentPath {
 pub struct StepDebug {
     /// Index of the current state.
     pub current_index: usize,
-    /// Forward variable / state distribution.
+    /// Forward variable / state distribution; empty for followers without one (`arzt`, `dixon`).
     pub probabilities: Vec<f64>,
     /// `hmm`: beat period of the tempo model in seconds.
     pub beat_period: Option<f64>,

@@ -14,6 +14,9 @@ numeric dtypes only (strings go to JSON), so they are easy to read from Rust.
 │   ├── note_array.npy            structured: onset_beat <f4, duration_beat <f4, onset_quarter <f4,
 │   │                             duration_quarter <f4, onset_div <i4, duration_div <i4, pitch <i4, voice <i4
 │   ├── note_ids.json             ["n1-1", …] note ids in note_array order
+│   ├── onset_pianoroll.npy       f4, (U, 88) one binary pitch vector per unique onset (arzt, dixon reference features)
+│   ├── onset_pianoroll_full.npy  f4, (U, 128) the same without the piano range
+│   ├── onset_positions.npy       f4, (U,) the unique onset beats
 │   └── meta.json                 {"score_tempo": 90.0 | null, "tempo": 90.0, "unfolded": true, "features": {…}}
 ├── stream/<mode>/                mode = event | windowed_0.01 | windowed_0.001
 │   ├── messages.npy              structured: kind <i4 (0 note_on, 1 note_off, 2 control_change, 3 program_change),
@@ -23,17 +26,17 @@ numeric dtypes only (strings go to JSON), so they are easy to read from Rust.
 │   └── frame_times.npy           f8, (n_frames,) windowed only
 ├── processor/<name>/             pitch_piano_vector, pitch_piano_list, pitch_full_vector (windowed 0.01),
 │   │                             pitch_piano_vector_event (event), pitch_piano_vector_0.001 (windowed 0.001,
-│   │                             `outerhmm`), chord_onset_piano (windowed 0.001, incl. flush);
+│   │                             `outerhmm`), chord_onset_piano (windowed 0.001, incl. flush; `arzt`, `dixon`);
 │   │                             a Rust export with another window gets the suffix `_<polling_period>`
 │   ├── features.npy              f4, (T, 88|128) for vectors; pitch lists padded with -1, (T, max_len)
 │   └── times.npy                 f8, (T,)
-└── <method>/                     pthmm | hmm | outerhmm
+└── <method>/                     pthmm | hmm | outerhmm | arzt | dixon (arzt, dixon: feature 002)
     ├── score_positions.npy       f4, (N,)
     ├── observations_features.npy f4, input actually fed to the follower (copy of the processor output used)
     ├── observations_times.npy    f8
     ├── positions.npy             f8, (K,) every yielded position, in order
     ├── current_index.npy         i8, (K,)
-    ├── probabilities.npy         f8, (K, N) forward variable / state distribution (omitted if K·N > 5e6)
+    ├── probabilities.npy         f8, (K, N) forward variable / state distribution (omitted if K·N > 5e6; not written for arzt, dixon)
     ├── beat_period.npy           f8, (K,)   hmm only
     ├── is_continuation.npy       bool, (K,) outerhmm only
     ├── alignment_path.npy        f8, (2, T)

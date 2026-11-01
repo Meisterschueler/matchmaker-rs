@@ -1,6 +1,7 @@
 //! Edge cases of the US1 pipeline (spec.md "Edge Cases"): empty and oversized performances,
 //! velocity-0 note-ons, missing tempo, unreadable files and out-of-range pitches. None of them
-//! may panic; broken files give typed errors that name the file.
+//! may panic; broken files give typed errors that name the file. The `oltw_*` tests are the edge
+//! cases of `arzt` and `dixon` (specs/002-midi-oltw/spec.md).
 
 mod common;
 
@@ -19,6 +20,13 @@ use midly::num::{u4, u7, u15, u28};
 use midly::{Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
 
 const SCORE: &str = "simple_mozart_k265_var1.musicxml";
+const ALL_METHODS: [Method; 5] = [
+    Method::Pthmm,
+    Method::Hmm,
+    Method::OuterHmm,
+    Method::Arzt,
+    Method::Dixon,
+];
 
 /// `(delta ticks, key, velocity)` note-on events (velocity 0 = note off) as a type-0 MIDI file.
 fn midi_file(name: &str, events: &[(u32, u8, u8)]) -> PathBuf {
@@ -59,7 +67,7 @@ fn temp_file(name: &str, bytes: &[u8]) -> PathBuf {
 #[test]
 fn empty_performance_gives_an_empty_path() {
     let performance = midi_file("empty", &[]);
-    for method in [Method::Pthmm, Method::Hmm, Method::OuterHmm] {
+    for method in ALL_METHODS {
         let mut mm = Matchmaker::new(data(SCORE), method, None, true).unwrap();
         let positions = mm.run_file(&performance).unwrap();
         assert!(positions.is_empty(), "{method:?}");
@@ -79,7 +87,7 @@ fn performance_longer_than_the_score_stays_within_the_score() {
         })
         .collect();
     let performance = midi_file("long", &events);
-    for method in [Method::Pthmm, Method::Hmm, Method::OuterHmm] {
+    for method in ALL_METHODS {
         let mut mm = Matchmaker::new(data(SCORE), method, None, true).unwrap();
         let last = f64::from(*mm.score_positions().last().unwrap());
         let positions = mm.run_file(&performance).unwrap();
@@ -181,4 +189,52 @@ fn hmm_ignores_pitches_outside_the_piano_range() {
     };
     // documented deviation (research R3): the reference wraps or raises for these
     assert_eq!(call(vec![5.0, -3.0, 200.0]), call(vec![5.0]));
+}
+
+#[test]
+fn oltw_handles_scores_smaller_than_the_window() {
+    let chord = |key: u8| [(0, key, 80), (480, key, 0)];
+    let three: Vec<_> = [60, 62, 64].into_iter().flat_map(chord).collect();
+    let one_onset = midi_file("one_onset", &chord(60));
+    let three_onsets = midi_file("three_onsets", &three);
+    let performance = midi_file("short", &three[..4]);
+    for method in [Method::Arzt, Method::Dixon] {
+        // one onset is already the last state: the reference's run loop never calls the follower
+        let mut mm = Matchmaker::new(&one_onset, method, None, true).unwrap();
+        assert!(mm.run_file(&performance).unwrap().is_empty(), "{method:?}");
+
+        let mut mm = Matchmaker::new(&three_onsets, method, None, true).unwrap();
+        // the MIDI score starts with a pickup measure, so its beats are negative
+        let (first, last) = (
+            mm.score_positions()[0],
+            *mm.score_positions().last().unwrap(),
+        );
+        let positions = mm.run_file(&performance).unwrap();
+        assert!(!positions.is_empty(), "{method:?}");
+        assert!(
+            positions
+                .iter()
+                .all(|p| (f64::from(first)..=f64::from(last)).contains(p)),
+            "{method:?}: {positions:?} outside the score {:?}",
+            mm.score_positions()
+        );
+    }
+}
+
+#[test]
+fn oltw_zero_vector_observations_do_not_panic() {
+    // pitches below the piano range leave the chord vector empty: cosine distance is NaN
+    let performance = midi_file(
+        "out_of_range",
+        &[(0, 10, 80), (480, 10, 0), (0, 12, 80), (480, 12, 0)],
+    );
+    for method in [Method::Arzt, Method::Dixon] {
+        let mut mm = Matchmaker::new(data(SCORE), method, None, true).unwrap();
+        let last = f64::from(*mm.score_positions().last().unwrap());
+        let positions = mm.run_file(&performance).unwrap();
+        assert!(
+            positions.iter().all(|p| (0.0..=last).contains(p)),
+            "{method:?}: position outside the score"
+        );
+    }
 }

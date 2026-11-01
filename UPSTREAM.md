@@ -15,7 +15,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 ## Convention
 
 - Every module under `src/` starts with `Port of <python symbol>` and an `Upstream: <file>` line. The path is relative to `site-packages/`.
-- Functions and structs that port a Python function name it in their doc comment ("Port of `_handle_measure`"). Deviations are explained next to the code (`research R*`, `shortcut:`).
+- Functions and structs that port a Python function name it in their doc comment ("Port of `_handle_measure`"). Deviations are explained next to the code (`research R*`, `shortcut:`); `research R*` means `specs/001-midi-score-following/research.md`, the research of later features is written `002 research R*` (`specs/002-midi-oltw/research.md`), and so are their `FR-*` and `SC-*`.
 - Numeric code that mirrors a mixed `float32`/`float64` expression names the Python expression (see `src/utils/tempo_models.rs`).
 
 ## Module map
@@ -33,9 +33,13 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/prob/hmm_models.rs` | `matchmaker/prob/hmm.py` | `stable_transition_matrix`, `compute_discrete_pitch_profiles`, `compute_bernoulli_pitch_probabilities` |
 | `src/prob/outerhmm.rs` | `matchmaker/prob/outer_product_hmm.py` | `OuterProductHMM` |
 | `src/prob/hidden_markov.rs` | `hiddenmarkov/__init__.py` | `forward_algorithm_step`, `ConstantTransitionModel` |
+| `src/dp/mod.rs` | `matchmaker/dp/direction.py`, SciPy `cdist` | `Direction`; metrics `cosine`, `euclidean` |
+| `src/dp/arzt.rs` | `matchmaker/dp/oltw_arzt.py` | `OnlineTimeWarpingArztEvent` |
+| `src/dp/dixon.rs` | `matchmaker/dp/oltw_dixon.py` | `OnlineTimeWarpingDixonEvent` |
 | `src/utils/tempo_models.rs` | `matchmaker/utils/tempo_models.py` | `KalmanTempoModel` |
 | `src/utils/eval.rs` | `matchmaker/utils/eval.py` | `evaluate_alignment`, `evaluate_beat_errors`, `compute_sparc` |
 | `src/score/mod.rs` | `matchmaker/matchmaker.py` | `Matchmaker.__init__` score loading |
+| `src/score/mod.rs` (`onset_pianoroll`) | `matchmaker/features/midi.py` | `onset_pianoroll` |
 | `src/score/musicxml.rs` | `partitura/io/importmusicxml.py` | `load_musicxml` |
 | `src/score/midi.rs` | `partitura/io/importmidi.py` | `load_score_midi` |
 | `src/score/part.rs` | `partitura/score.py`, `partitura/utils/music.py` | `Part`, `Part.note_array` |
@@ -46,7 +50,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py` | public `Matchmaker` API (MIDI methods only) |
 | `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py` | CLI surface |
 
-Not ported: audio features and followers (`dp/`, `features/audio.py`, `io/audio.py`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`), live MIDI devices and the thread/queue plumbing.
+Not ported: audio features and followers (`dp/` frame-level classes `OnlineTimeWarpingArztFrame`, `OnlineTimeWarpingArztMultiFold`, `OnlineTimeWarpingDixonFrame` and `dp/dtw_loop.pyx`, `features/audio.py`, `io/audio.py`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`), `ArztTempoModel` (`utils/tempo_models.py`), live MIDI devices and the thread/queue plumbing.
 
 ## Procedure: a new upstream release
 
@@ -55,7 +59,7 @@ Not ported: audio features and followers (`dp/`, `features/audio.py`, `io/audio.
 3. For each changed Python function, change the Rust function named in its doc comment. Keep the Python structure so both stay readable side by side.
 4. Regenerate the golden data with `tools/golden/generate.py` (layout: `specs/001-midi-score-following/contracts/golden-data.md`) and review the diff of `tests/golden/`: every changed number must trace back to a changed upstream line.
 5. `cargo test --workspace --exclude matchmaker-py` (golden tests compare stage by stage), then `cargo clippy --all-targets --all-features -- -D warnings` and `cargo fmt`.
-6. Update the version table above and the defaults in `src/matchmaker.rs` if `methods.yaml` changed.
+6. Update the version table above and the defaults in `src/matchmaker.rs` and `default_kwargs` in `crates/matchmaker-py/src/lib.rs` if `methods.yaml` changed.
 7. If the Python API changed, mirror it in `crates/matchmaker-py/src/lib.rs` and `crates/matchmaker-py/tests/`.
 
 New upstream code that is not in the table: add a Rust module with the `Port of` / `Upstream:` header and a row here.

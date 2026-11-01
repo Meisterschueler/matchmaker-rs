@@ -27,7 +27,7 @@ cargo test --workspace --exclude matchmaker-py
 ```
 
 Expected: golden tests for score loading, stream, `pitch`, `chord_onset`, `pthmm`, `hmm`,
-`outerhmm` and evaluation pass. Introduce a deliberate change (e.g. scale `1.0` → `0.9` in
+`outerhmm` (and `arzt`, `dixon` since feature 002) and evaluation pass. Introduce a deliberate change (e.g. scale `1.0` → `0.9` in
 `stable_transition_matrix`) and re-run: the failure names method, piece, file and first
 differing index.
 
@@ -71,8 +71,8 @@ python -m uv run --with maturin maturin develop --release
 python -m uv run python -c "from matchmaker_rs import Matchmaker; mm = Matchmaker('../../tests/data/simple_mozart_k265_var1.musicxml', '../../tests/data/simple_mozart_k265_var1.mid', input_type='midi', method='pthmm'); print(list(mm.run(verbose=False))[:5]); print(mm.score_follower.alignment_path.shape)"
 ```
 
-Expected: same positions as scenario 1; shape `(2, T)`. `method="arzt"` raises `ValueError`
-listing `['pthmm', 'hmm', 'outerhmm']` (US5-2).
+Expected: same positions as scenario 1; shape `(2, T)`. `method="foo"` raises `ValueError`
+listing `['pthmm', 'hmm', 'outerhmm', 'arzt', 'dixon']` (US5-2; `arzt` and `dixon` since feature 002).
 
 ## 7. Benchmark (US2-3, US2-4)
 

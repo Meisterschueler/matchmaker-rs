@@ -15,6 +15,9 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
+use crate::dp::Distance;
+use crate::dp::arzt::{ArztEvent, ArztEventConfig};
+use crate::dp::dixon::{DixonEvent, DixonEventConfig};
 use crate::error::{Error, Result};
 use crate::features::{
     Observation, Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor,
@@ -38,11 +41,15 @@ pub enum Method {
     Hmm,
     /// `outerhmm`: outer-product HMM following note by note with chord folding.
     OuterHmm,
+    /// `arzt`: event-level online time warping over the onset pianoroll.
+    Arzt,
+    /// `dixon`: event-level online time warping with a sparse, path-normalised cost matrix.
+    Dixon,
 }
 
 impl Method {
     /// Reference names of the supported methods.
-    pub const AVAILABLE: [&'static str; 3] = ["pthmm", "hmm", "outerhmm"];
+    pub const AVAILABLE: [&'static str; 5] = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"];
 
     /// Keys [`MethodConfig::set`] accepts for this method.
     pub fn config_keys(self) -> &'static [&'static str] {
@@ -54,6 +61,21 @@ impl Method {
                 "patience",
                 "other_prob",
             ],
+            Method::Arzt => &[
+                "processor",
+                "piano_range",
+                "polling_period",
+                "step_size",
+                "distance_func",
+            ],
+            Method::Dixon => &[
+                "processor",
+                "piano_range",
+                "polling_period",
+                "window_size",
+                "max_run_count",
+                "distance_func",
+            ],
             _ => &["processor", "piano_range", "polling_period"],
         }
     }
@@ -64,6 +86,8 @@ impl Method {
             Method::Pthmm => "pthmm",
             Method::Hmm => "hmm",
             Method::OuterHmm => "outerhmm",
+            Method::Arzt => "arzt",
+            Method::Dixon => "dixon",
         }
     }
 }
@@ -76,6 +100,8 @@ impl FromStr for Method {
             "pthmm" => Ok(Method::Pthmm),
             "hmm" => Ok(Method::Hmm),
             "outerhmm" => Ok(Method::OuterHmm),
+            "arzt" => Ok(Method::Arzt),
+            "dixon" => Ok(Method::Dixon),
             _ => Err(Error::InvalidMethod {
                 method: name.to_string(),
                 available: Method::AVAILABLE.iter().map(|s| s.to_string()).collect(),
@@ -96,6 +122,14 @@ pub enum ProcessorKind {
 impl ProcessorKind {
     /// Reference names of the supported processors.
     pub const AVAILABLE: [&'static str; 2] = ["pitch", "chord_onset"];
+
+    /// Reference name of the processor.
+    pub fn name(self) -> &'static str {
+        match self {
+            ProcessorKind::Pitch => "pitch",
+            ProcessorKind::ChordOnset => "chord_onset",
+        }
+    }
 }
 
 impl FromStr for ProcessorKind {
@@ -132,7 +166,8 @@ pub enum ConfigValue {
 }
 
 /// What `Matchmaker(kwargs=...)` controls: processor, `piano_range`, the stream's
-/// `polling_period` (`None` = event-based, one message per frame) and `outerhmm` parameters.
+/// `polling_period` (`None` = event-based, one message per frame) and the parameters of
+/// `outerhmm`, `arzt` and `dixon`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodConfig {
     /// Feature processor.
@@ -145,21 +180,39 @@ pub struct MethodConfig {
     pub patience: Option<usize>,
     /// `outerhmm`: probability of pitches outside every error class (default 1e-6).
     pub other_prob: Option<f64>,
+    /// `arzt`: largest advance of the position per observation (default 5).
+    pub step_size: Option<usize>,
+    /// `dixon`: search width in observations (default 30).
+    pub window_size: Option<usize>,
+    /// `dixon`: consecutive advances in one direction before the other is forced (default 3).
+    pub max_run_count: Option<usize>,
+    /// `arzt`, `dixon`: local cost (default `cosine` / `euclidean`).
+    pub distance_func: Option<Distance>,
 }
 
 impl MethodConfig {
-    /// The `default_kwargs` of `method`: `pitch`, `piano_range`, windows of 10 ms (`outerhmm`: 1 ms).
+    /// The `default_kwargs` of `method`: piano range, `pitch` (`arzt`, `dixon`: `chord_onset`) and
+    /// windows of 10 ms (`outerhmm`, `arzt`, `dixon`: 1 ms).
     pub fn for_method(method: Method) -> Self {
+        let oltw = matches!(method, Method::Arzt | Method::Dixon);
         MethodConfig {
-            processor: ProcessorKind::Pitch,
+            processor: if oltw {
+                ProcessorKind::ChordOnset
+            } else {
+                ProcessorKind::Pitch
+            },
             piano_range: true,
-            polling_period: Some(if method == Method::OuterHmm {
+            polling_period: Some(if oltw || method == Method::OuterHmm {
                 0.001
             } else {
                 0.01
             }),
             patience: None,
             other_prob: None,
+            step_size: None,
+            window_size: None,
+            max_run_count: None,
+            distance_func: None,
         }
     }
 
@@ -170,6 +223,9 @@ impl MethodConfig {
             reason,
         };
         if !method.config_keys().contains(&key) {
+            if method == Method::Arzt && matches!(key, "window_size" | "start_window_size") {
+                return Err(invalid("not used by the reference's MIDI arzt".into()));
+            }
             return Err(invalid(format!(
                 "unknown parameter for {}; allowed: {:?}",
                 method.name(),
@@ -188,6 +244,15 @@ impl MethodConfig {
             }
             ("other_prob", ConfigValue::Float(p)) => self.other_prob = Some(*p),
             ("other_prob", ConfigValue::Int(p)) => self.other_prob = Some(*p as f64),
+            ("step_size" | "window_size" | "max_run_count", ConfigValue::Int(n)) => {
+                let n = usize::try_from(*n).map_err(|_| invalid("must not be negative".into()))?;
+                match key {
+                    "step_size" => self.step_size = Some(n),
+                    "window_size" => self.window_size = Some(n),
+                    _ => self.max_run_count = Some(n),
+                }
+            }
+            ("distance_func", ConfigValue::Str(name)) => self.distance_func = Some(name.parse()?),
             _ => return Err(invalid(format!("unsupported value {value:?}"))),
         }
         Ok(())
@@ -219,6 +284,15 @@ impl MethodConfig {
                 "piano_range",
                 "outerhmm needs the 88-key piano range",
             ));
+        }
+        for (key, size) in [
+            ("step_size", self.step_size),
+            ("window_size", self.window_size),
+            ("max_run_count", self.max_run_count),
+        ] {
+            if size == Some(0) {
+                return Err(invalid(key, "must be at least 1"));
+            }
         }
         Ok(())
     }
@@ -314,6 +388,32 @@ impl Matchmaker {
                         patience: config.patience.unwrap_or(defaults.patience),
                         other_prob: config.other_prob.unwrap_or(defaults.other_prob),
                         ..defaults
+                    },
+                ))
+            }
+            Method::Arzt => {
+                let (features, onsets) = score.onset_pianoroll(config.piano_range);
+                let defaults = ArztEventConfig::default();
+                Box::new(ArztEvent::new(
+                    features,
+                    onsets,
+                    ArztEventConfig {
+                        step_size: config.step_size.unwrap_or(defaults.step_size),
+                        distance: config.distance_func.unwrap_or(defaults.distance),
+                        ..defaults
+                    },
+                ))
+            }
+            Method::Dixon => {
+                let (features, onsets) = score.onset_pianoroll(config.piano_range);
+                let defaults = DixonEventConfig::default();
+                Box::new(DixonEvent::new(
+                    features,
+                    onsets,
+                    DixonEventConfig {
+                        window_size: config.window_size.unwrap_or(defaults.window_size),
+                        max_run_count: config.max_run_count.unwrap_or(defaults.max_run_count),
+                        distance: config.distance_func.unwrap_or(defaults.distance),
                     },
                 ))
             }

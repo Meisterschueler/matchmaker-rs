@@ -1,4 +1,5 @@
-//! CLI `follow` (US1-4, FR-013): prints positions, writes the TSV path, rejects unknown methods.
+//! CLI `follow` (US1-4, FR-013; `arzt` and `dixon`: 002 FR-009): prints positions, writes the TSV
+//! path, rejects unknown methods.
 
 use std::process::Command;
 
@@ -43,11 +44,90 @@ fn npy_output_is_rejected() {
 #[test]
 fn unknown_method_lists_available() {
     let out = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
-        .args(["follow", "score.musicxml", "perf.mid", "--method", "arzt"])
+        .args(["follow", "score.musicxml", "perf.mid", "--method", "foo"])
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("pthmm"));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("pthmm") && stderr.contains("dixon"),
+        "{stderr}"
+    );
+}
+
+/// `(perf_time, score_beat)` of `tests/golden/simple_mozart_k265_var1/<method>/alignment_path.npy`.
+fn golden_path(method: &str) -> Vec<(f64, f64)> {
+    let file = data(&format!(
+        "../golden/simple_mozart_k265_var1/{method}/alignment_path.npy"
+    ));
+    let bytes = std::fs::read(file).unwrap();
+    // npy 1.0: magic (6), version (2), header length (2, little endian), header, f64 data
+    let header = usize::from(u16::from_le_bytes([bytes[8], bytes[9]]));
+    let values: Vec<f64> = bytes[10 + header..]
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| f64::from_le_bytes(*c))
+        .collect();
+    let (perf_time, score_beat) = values.split_at(values.len() / 2);
+    perf_time
+        .iter()
+        .copied()
+        .zip(score_beat.iter().copied())
+        .collect()
+}
+
+fn follow(method: &str, set: &[&str]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_matchmaker"));
+    command
+        .args(["follow", &data("simple_mozart_k265_var1.musicxml")])
+        .arg(data("simple_mozart_k265_var1.mid"))
+        .args(["--method", method]);
+    for entry in set {
+        command.args(["--set", entry]);
+    }
+    command.output().unwrap()
+}
+
+#[test]
+fn oltw_methods_print_the_golden_path() {
+    for method in ["arzt", "dixon"] {
+        let out = follow(method, &[]);
+        assert!(out.status.success(), "{method}");
+        let printed: Vec<(f64, f64)> = String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .map(|line| {
+                let (t, b) = line.split_once('\t').unwrap();
+                (t.parse().unwrap(), b.parse().unwrap())
+            })
+            .collect();
+        let golden = golden_path(method);
+        assert_eq!(printed.len(), golden.len(), "{method}");
+        for (i, (p, g)) in printed.iter().zip(&golden).enumerate() {
+            assert!(
+                (p.0 - g.0).abs() < 1e-6 && (p.1 - g.1).abs() < 1e-6,
+                "{method} entry {i}: {p:?} vs {g:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn oltw_parameters_are_set_per_method() {
+    assert!(
+        follow("arzt", &["step_size=3", "distance_func=euclidean"])
+            .status
+            .success()
+    );
+    assert!(
+        follow("dixon", &["window_size=20", "max_run_count=2"])
+            .status
+            .success()
+    );
+    let out = follow("arzt", &["window_size=5"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("window_size"));
 }
 
 #[test]

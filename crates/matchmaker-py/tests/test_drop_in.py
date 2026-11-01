@@ -16,7 +16,7 @@ GOLDEN = ROOT / "tests" / "golden"
 PIECE = "simple_mozart_k265_var1"
 SCORE = DATA / f"{PIECE}.musicxml"
 PERFORMANCE = DATA / f"{PIECE}.mid"
-METHODS = ["pthmm", "hmm", "outerhmm"]
+METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"]
 
 
 def make(method="pthmm", **kwargs):
@@ -97,11 +97,50 @@ def test_pathlike_arguments():
     assert mm.score_file == str(SCORE)
 
 
-@pytest.mark.parametrize("kwargs", [{"method": "arzt"}, {"input_type": "audio"}])
+def test_oltw_default_kwargs_are_the_reference_dicts():
+    defaults = matchmaker_rs.DEFAULT_KWARGS["midi"]
+    assert defaults["arzt"] == {
+        "processor": "chord_onset",
+        "piano_range": True,
+        "polling_period": 0.001,
+        "window_size": 2,
+        "start_window_size": 2,
+        "step_size": 5,
+    }
+    assert defaults["dixon"] == {
+        "processor": "chord_onset",
+        "piano_range": True,
+        "polling_period": 0.001,
+        "window_size": 30,
+    }
+    assert make("arzt").polling_period == make("dixon").polling_period == 0.001
+    assert make("dixon").config == {"piano_range": True, "window_size": 30}
+    # processor and polling_period leave the config; the rest stays, as in the reference
+    assert make("arzt").config == {"piano_range": True, "window_size": 2, "start_window_size": 2, "step_size": 5}
+    # replacing the defaults falls back to the stream default (0.01 s, windowed) and `pitch`
+    assert make("arzt", kwargs={"piano_range": True}).polling_period == 0.01
+
+
+def test_arzt_ignores_the_window_kwargs_like_the_reference():
+    default = list(make("arzt").run(verbose=False))
+    kwargs = dict(matchmaker_rs.DEFAULT_KWARGS["midi"]["arzt"], window_size=7, start_window_size=9)
+    assert list(make("arzt", kwargs=kwargs).run(verbose=False)) == default
+    with pytest.raises(ValueError, match="allowed"):
+        make("arzt", kwargs={"patience": 3})
+
+
+def test_dixon_window_size_is_a_parameter():
+    kwargs = dict(matchmaker_rs.DEFAULT_KWARGS["midi"]["dixon"], window_size=3, max_run_count=2)
+    assert len(list(make("dixon", kwargs=kwargs).run(verbose=False))) > 0
+    with pytest.raises(ValueError, match="window_size"):
+        make("dixon", kwargs=dict(matchmaker_rs.DEFAULT_KWARGS["midi"]["dixon"], window_size=0))
+
+
+@pytest.mark.parametrize("kwargs", [{"method": "foo"}, {"input_type": "audio"}])
 def test_unsupported_method_or_input_type(kwargs):
     arguments = {"score_file": str(SCORE), "performance_file": str(PERFORMANCE), "input_type": "midi"}
     arguments.update(kwargs)
-    with pytest.raises(ValueError, match=r"\['pthmm', 'hmm', 'outerhmm'\]"):
+    with pytest.raises(ValueError, match=r"\['pthmm', 'hmm', 'outerhmm', 'arzt', 'dixon'\]"):
         Matchmaker(**arguments)
 
 

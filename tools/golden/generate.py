@@ -24,7 +24,7 @@ from partitura.score import merge_parts
 
 import matchmaker
 from matchmaker import Matchmaker
-from matchmaker.features.midi import ChordOnsetProcessor, PitchProcessor
+from matchmaker.features.midi import ChordOnsetProcessor, PitchProcessor, onset_pianoroll
 from matchmaker.matchmaker import DEFAULT_TEMPO
 from matchmaker.utils.eval import evaluate_alignment, resolve_gt
 from matchmaker.utils.misc import get_tempo_from_score
@@ -35,7 +35,7 @@ from matchmaker.utils.symbolic import (
 
 REFERENCE_TAG = "v0.4.0"
 PIECES = ["simple_mozart_k265_var1", "mozart_k265_var1", "Bach-fugue_bwv_858"]
-METHODS = ["pthmm", "hmm", "outerhmm"]
+METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"]
 MAX_PROBABILITY_VALUES = 5_000_000
 
 KIND_CODES = {"note_on": 0, "note_off": 1, "control_change": 2, "program_change": 3}
@@ -187,6 +187,11 @@ def dump_score(out: Path, score_path: Path) -> dict:
         arr[field] = na[field]
     save(out / "score" / "note_array.npy", arr)
     write_json(out / "score" / "note_ids.json", [str(i) for i in na["id"]])
+    # reference features of arzt/dixon: registry._onset_pianoroll
+    features88, onsets = onset_pianoroll(na, onset_key="onset_beat", piano_range=True)
+    save(out / "score" / "onset_pianoroll.npy", features88)
+    save(out / "score" / "onset_pianoroll_full.npy", onset_pianoroll(na, onset_key="onset_beat", piano_range=False)[0])
+    save(out / "score" / "onset_positions.npy", onsets)
     features = coverage_report(score_path.name, score)
     score_tempo = get_tempo_from_score(part, str(score_path))
     tempo = float(score_tempo) if score_tempo is not None else float(DEFAULT_TEMPO)

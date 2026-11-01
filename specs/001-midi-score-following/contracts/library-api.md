@@ -18,9 +18,12 @@ defined in [data-model.md](../data-model.md). Everything here builds for
 | `prob::pthmm` | `matchmaker.prob.hmm.PitchHMM` |
 | `prob::hmm` | `matchmaker.prob.hmm.PitchIOIHMM` |
 | `prob::outerhmm` | `matchmaker.prob.outer_product_hmm.OuterProductHMM` |
+| `dp` | `matchmaker.dp.direction.Direction`, the SciPy `cdist` metrics `cosine` and `euclidean` (`Distance`) — feature 002 |
+| `dp::arzt` | `matchmaker.dp.oltw_arzt.OnlineTimeWarpingArztEvent` — feature 002 |
+| `dp::dixon` | `matchmaker.dp.oltw_dixon.OnlineTimeWarpingDixonEvent` — feature 002 |
 | `utils::tempo_models` | `matchmaker.utils.tempo_models.KalmanTempoModel` |
 | `utils::eval` | `matchmaker.utils.eval` (`transfer_positions`, `evaluate_alignment`, SPARC, `resolve_gt`) |
-| `score` (+ `musicxml`, `midi`, `timeline`, `unfold`, `merge`, `tempo`) | partitura subset (R6, R7) |
+| `score` (+ `musicxml`, `midi`, `timeline`, `unfold`, `merge`, `tempo`) | partitura subset (R6, R7); `Score::onset_pianoroll` ← `matchmaker.features.midi.onset_pianoroll` (feature 002) |
 | `performance` | `partitura.io.importmidi.load_performance_midi`, `midi_messages_from_performance` |
 | `export` | (new) Python-readable dumps, layout = [golden-data.md](golden-data.md) |
 
@@ -40,7 +43,7 @@ names (US5-2). `Matchmaker::with_config(.., MethodConfig, ..)` sets processor (`
 and method parameters (FR-011): `MethodConfig::set(method, key, &ConfigValue)` rejects keys the
 method does not take with `Error::InvalidParameter`. `record()` keeps the intermediate data for
 `export`. Accessors: `score()`, `tempo()`, `method()`, `config()`, `alignment_path()`,
-`score_positions()`; `Method::name()`. `wrap_stages(|processor, follower| …)` replaces both
+`score_positions()`; `Method::name()`, `ProcessorKind::name()`. `wrap_stages(|processor, follower| …)` replaces both
 stages by wrappers, which is how `matchmaker bench` times them without a clock in the library.
 
 ## Incremental (live-source) use — FR-005

@@ -6,7 +6,7 @@ directory, stage by stage (score, stream, processor, method), and report the fir
 
 Only files present on both sides are compared. Tolerances follow contracts/golden-data.md:
 positions and alignment path 1e-6, probabilities rtol per method (pthmm 1.5e-13, hmm 1e-13,
-outerhmm 1e-14), beat_period exact, evaluation
+outerhmm 1e-14; arzt and dixon have none), beat_period exact, evaluation
 metrics 1e-4 (hmm: 0.01), the rest exact; messages are compared as a multiset (the reference sorts them with an unstable argsort)
 and note arrays on the fields both sides have.
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-METHODS = ("pthmm", "hmm", "outerhmm")
+METHODS = ("pthmm", "hmm", "outerhmm", "arzt", "dixon")
 STAGES = ("score", "stream", "processor", *METHODS)
 # file name -> (rtol, atol); everything else must be equal (`beat_period.npy` included)
 TOLERANCES = {
