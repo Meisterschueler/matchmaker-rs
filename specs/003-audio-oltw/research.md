@@ -175,8 +175,8 @@ span. Tests verify the local pinned SF2 render, onset padding, final 0.1-second
 crop, feature/map cardinality, and deterministic processor reset. The local SF2
 tests pass; they skip when that ignored local asset is absent. WASM, Rust 1.88,
 format, clippy, and the 22 focused audio/MIDI regression tests pass. T011 has
-generated the FluidSynth reference outputs; waveform and end-to-end parity
-between FluidSynth and RustySynth remains unmeasured.
+generated the FluidSynth reference outputs; RustySynth waveform parity remains
+unmeasured, while T012 records the Arzt end-to-end alignment deviation.
 
 ### T011: FluidSynth reference fixtures and goldens
 
@@ -189,8 +189,24 @@ verified before use; its hash, along with the WAV hash, is recorded in
 score features, frame-to-beat mapping, positions, and alignment paths. Metadata
 records the native FluidSynth version and the Python reference/SoundFont pins.
 Focused validation passed: audio I/O 6/6, processor goldens 2/2, score-audio
-tests 2/2, and MIDI score goldens 3/3. RustySynth-to-FluidSynth parity remains a
-later follower acceptance check.
+tests 2/2, and MIDI score goldens 3/3. RustySynth-to-FluidSynth waveform parity
+is not claimed.
+
+### T012/T015/T016: Audio Arzt follower and Core API
+
+`ArztFrame` ports the reference's float32 rolling DP, start-window initialization,
+seconds-to-frame windows, step clamp, Manhattan default, and per-frame beat map.
+Replay of the 226 Chroma and 226 LSE observations matches reference positions
+and alignment paths exactly. `AudioMatchmaker::new_arzt` wires score loading,
+optional tempo/unfold settings, the configured SF2 reference, processor priming,
+audio decoding, and frame following without changing MIDI `Matchmaker` behavior.
+
+The RustySynth end-to-end run has exact performance timestamps and 100% of
+positions within the established `accuracy_0.3b` threshold. Relative to the
+FluidSynth reference, Chroma first differs at frame 12 (maximum error 0.200
+beats); LSE first differs at frame 2 (maximum error 0.267 beats). The test keeps
+replay tolerance at 1e-6 and applies 0.3 beats only to end-to-end score positions
+and path beats, isolating renderer differences from follower recurrence.
 
 ### T002: Dependency and target checks complete
 
@@ -212,6 +228,6 @@ later follower acceptance check.
 The full `cargo deny check` did not reach advisory validation: fetching the
 RustSec database failed with proxy HTTP 407. The full advisory gate remains
 unverified and must be rerun when network access is available. Processor goldens
-and local SF2 score-render smoke tests now pass; FluidSynth waveform and
-end-to-end alignment parity have not been compared, and the benchmark has not
-run.
+and local SF2 score-render smoke tests now pass. Arzt end-to-end alignment has
+been measured under T012; Dixon alignment parity and the benchmark remain open.
+FluidSynth/RustySynth waveform parity is not claimed.

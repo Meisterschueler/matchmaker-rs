@@ -51,14 +51,14 @@ description: "Task list for audio online time warping"
 
 ### Tests for User Story 1
 
-- [ ] T012 [P] [US1] Write failing replay and end-to-end golden tests for audio `arzt` with both `chroma` and `lse`, including first-differing-frame diagnostics, in `tests/golden_audio_arzt.rs`.
+- [X] T012 [P] [US1] Write failing replay and end-to-end golden tests for audio `arzt` with both `chroma` and `lse`, including first-differing-frame diagnostics, in `tests/golden_audio_arzt.rs`.
 - [ ] T013 [P] [US1] Write failing CLI tests for audio `arzt`, method defaults, output path, SoundFont errors, and invalid audio parameters in `crates/matchmaker-cli/tests/follow_audio.rs`.
 - [ ] T014 [P] [US1] Write failing Python facade tests for `input_type="audio"`, audio `arzt`, default kwargs, generator positions, alignment path shape, and typed errors in `crates/matchmaker-py/tests/test_audio.py`.
 
 ### Implementation for User Story 1
 
-- [ ] T015 [P] [US1] Port the frame-level `OnlineTimeWarpingArztFrame` recurrence, second-to-frame windows, step clamp, Manhattan distance default, beat mapping, and per-frame `DEBUG` inference span in `src/dp/arzt_frame.rs`.
-- [ ] T016 [US1] Wire audio `arzt` defaults/configuration and follower construction into the input-specific core API without changing MIDI `arzt` behavior in `src/matchmaker.rs`.
+- [X] T015 [P] [US1] Port the frame-level `OnlineTimeWarpingArztFrame` recurrence, second-to-frame windows, step clamp, Manhattan distance default, beat mapping, and per-frame `DEBUG` inference span in `src/dp/arzt_frame.rs`.
+- [X] T016 [US1] Wire audio `arzt` defaults/configuration and follower construction into the input-specific core API without changing MIDI `arzt` behavior in `src/matchmaker.rs`.
 - [ ] T017 [US1] Add audio input selection, `--soundfont-path`, processor/config options, path output, and clear file/config errors to `crates/matchmaker-cli/src/main.rs`.
 - [ ] T018 [US1] Add audio `arzt` construction, kwargs/default handling, yielded positions, and final alignment path to `crates/matchmaker-py/src/lib.rs`.
 

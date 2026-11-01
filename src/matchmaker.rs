@@ -17,17 +17,21 @@ use std::str::FromStr;
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::dp::Distance;
 use crate::dp::arzt::{ArztEvent, ArztEventConfig};
+use crate::dp::arzt_frame::ArztFrame;
 use crate::dp::dixon::{DixonEvent, DixonEventConfig};
 use crate::error::{Error, Result};
 use crate::features::{
-    Observation, Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor,
+    AudioProcessor, Observation, Processor, chord_onset::ChordOnsetProcessor,
+    chroma::ChromaProcessor, lse::LseProcessor, pitch::PitchProcessor,
 };
+use crate::io::audio::AudioStream;
 use crate::io::stream::{Frame, MidiMessage};
 use crate::performance::Performance;
 use crate::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
 use crate::prob::outerhmm::{OuterProductHmm, OuterProductHmmConfig};
 use crate::prob::pthmm::PitchHmm;
 use crate::score::Score;
+use crate::score::audio::{ScoreAudioReference, build_reference};
 
 /// `DEFAULT_TEMPO` of the reference (BPM) when neither the user nor the score gives one.
 pub const DEFAULT_TEMPO: f64 = 120.0;
@@ -802,5 +806,143 @@ impl Matchmaker {
     /// States of the follower in beats (with inserted states for `pthmm` and `hmm`).
     pub fn follower_score_positions(&self) -> &[f32] {
         self.follower.score_positions()
+    }
+}
+
+/// Core pipeline for following prerecorded audio with frame-level `arzt`.
+pub struct AudioMatchmaker {
+    score: Score,
+    config: AudioMethodConfig,
+    tempo: f64,
+    reference: ScoreAudioReference,
+    processor: Box<dyn AudioProcessor>,
+    cache_size: usize,
+    follower: ArztFrame,
+}
+
+impl AudioMatchmaker {
+    /// Load a score and build its audio reference for the audio `arzt` method.
+    pub fn new_arzt(
+        score_path: impl AsRef<Path>,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        config.validate(AudioMethod::Arzt)?;
+        let soundfont_path = config
+            .soundfont_path
+            .as_ref()
+            .ok_or_else(|| Error::AudioConfig {
+                key: "soundfont_path".into(),
+                reason: "is required for score rendering".into(),
+            })?;
+        let hop_length = config
+            .hop_length
+            .unwrap_or((config.sample_rate / config.frame_rate) as usize);
+        if hop_length == 0 {
+            return Err(Error::AudioConfig {
+                key: "frame_rate".into(),
+                reason: "must not exceed sample_rate".into(),
+            });
+        }
+
+        let mut score = Score::load(score_path, unfold)?;
+        if let Some(tempo) = tempo {
+            score.tempo = Some(tempo);
+        }
+        let tempo = score.tempo.unwrap_or(DEFAULT_TEMPO);
+        let reference = build_reference(&score, soundfont_path, &config, AudioMethod::Arzt)?;
+        let follower = ArztFrame::new(
+            reference.features.clone(),
+            reference.score_positions.clone(),
+            reference.frame_to_beat.clone(),
+            config.clone(),
+        )?;
+        let (processor, cache_size) = make_audio_processor(&config, hop_length);
+
+        Ok(Self {
+            score,
+            config,
+            tempo,
+            reference,
+            processor,
+            cache_size,
+            follower,
+        })
+    }
+
+    /// Decode and follow one prerecorded audio file, returning one beat position per consumed frame.
+    pub fn run_file(&mut self, performance_path: impl AsRef<Path>) -> Result<Vec<f64>> {
+        let mut stream = AudioStream::open(
+            performance_path,
+            self.config.sample_rate,
+            self.hop_length(),
+            self.cache_size,
+        )?;
+        stream.prime(self.processor.as_mut());
+        let mut positions = Vec::new();
+        for frame in stream {
+            if !self.follower.is_still_following() {
+                break;
+            }
+            if let Some(observation) = self.processor.process(&frame) {
+                positions.push(self.follower.call(&observation));
+            }
+        }
+        Ok(positions)
+    }
+
+    /// The loaded score.
+    pub fn score(&self) -> &Score {
+        &self.score
+    }
+
+    /// Effective audio configuration.
+    pub fn config(&self) -> &AudioMethodConfig {
+        &self.config
+    }
+
+    /// Effective score tempo in quarter-note BPM.
+    pub fn tempo(&self) -> f64 {
+        self.tempo
+    }
+
+    /// Synthesized reference waveform, features and per-frame beat map.
+    pub fn reference(&self) -> &ScoreAudioReference {
+        &self.reference
+    }
+
+    /// Alignment path so far.
+    pub fn alignment_path(&self) -> &AlignmentPath {
+        self.follower.alignment_path()
+    }
+
+    /// Score onsets used to stop the follower.
+    pub fn score_positions(&self) -> &[f32] {
+        self.follower.score_positions()
+    }
+
+    fn hop_length(&self) -> usize {
+        self.config
+            .hop_length
+            .unwrap_or((self.config.sample_rate / self.config.frame_rate) as usize)
+    }
+}
+
+fn make_audio_processor(
+    config: &AudioMethodConfig,
+    hop_length: usize,
+) -> (Box<dyn AudioProcessor>, usize) {
+    match config.processor {
+        AudioProcessorKind::Chroma => {
+            let processor = ChromaProcessor::new(config.sample_rate, hop_length, config.norm);
+            let cache_size = processor.n_fft().saturating_sub(hop_length);
+            (Box::new(processor), cache_size)
+        }
+        AudioProcessorKind::Lse => {
+            let processor = LseProcessor::new(config.sample_rate, hop_length, config.norm);
+            let cache_size = processor.n_fft().saturating_sub(hop_length);
+            (Box::new(processor), cache_size)
+        }
     }
 }
