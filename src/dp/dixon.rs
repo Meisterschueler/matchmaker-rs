@@ -8,7 +8,7 @@
 //!
 //! ```
 //! use matchmaker_rs::base::OnlineAlignment;
-//! use matchmaker_rs::dp::oltw_dixon::{DixonEvent, DixonEventConfig};
+//! use matchmaker_rs::dp::dixon::{DixonEvent, DixonEventConfig};
 //! use matchmaker_rs::score::Score;
 //! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;
 //! let (features, onsets) = score.onset_pianoroll(true);
@@ -95,7 +95,7 @@ impl DixonEvent {
         self.current_index
     }
 
-    /// `_evaluate`: accumulated cost of cell `(ref_i, inp_j)` from its three predecessors.
+    /// Port of `_evaluate`: accumulated cost of cell `(ref_i, inp_j)` from its three predecessors.
     fn evaluate(&mut self, ref_i: usize, inp_j: usize) {
         if ref_i >= self.reference.len() {
             return;
@@ -131,7 +131,7 @@ impl DixonEvent {
         }
     }
 
-    /// `_norm_cost`: cost per unit of path length.
+    /// Port of `_norm_cost`: cost per unit of path length.
     fn norm_cost(&self, ref_i: usize, inp_j: usize) -> f64 {
         let cost = self
             .cost
@@ -146,7 +146,7 @@ impl DixonEvent {
         (last + 1).saturating_sub(self.config.window_size)
     }
 
-    /// `_argmin_path_cost`: best cell in the last row and the last column, first minimum wins.
+    /// Port of `_argmin_path_cost`: best cell in the last row and column, first minimum wins.
     fn argmin_path_cost(&self) -> (usize, usize) {
         let (mut best_cost, mut best_ref, mut best_inp) = (f64::INFINITY, self.j, self.t);
         for k in self.window_start(self.t)..=self.t {
@@ -164,19 +164,21 @@ impl DixonEvent {
         (best_ref, best_inp)
     }
 
+    /// Port of `_compute_input_column`: the new input against the last `window_size` onsets.
     fn compute_input_column(&mut self) {
         for k in self.window_start(self.j)..=self.j {
             self.evaluate(k, self.t);
         }
     }
 
+    /// Port of `_compute_ref_row`: the new onset against the last `window_size` inputs.
     fn compute_ref_row(&mut self) {
         for k in self.window_start(self.t)..=self.t {
             self.evaluate(self.j, k);
         }
     }
 
-    /// `get_inc`: which axis to advance next.
+    /// Port of `get_inc`: which axis to advance next.
     fn get_inc(&self) -> Direction {
         let window = self.config.window_size;
         if self.j + 1 >= self.reference.len() {
@@ -201,6 +203,7 @@ impl DixonEvent {
         }
     }
 
+    /// Port of `_update_run_counts`.
     fn update_run_counts(&mut self, adv_ref: bool, adv_input: bool) {
         if adv_ref && adv_input {
             self.run_count_ref = 0;
@@ -214,7 +217,7 @@ impl DixonEvent {
         }
     }
 
-    /// `step`: consume the observation, then advance the axes until the next one is needed.
+    /// Port of `step`: consume the observation, then advance the axes until the next one is needed.
     fn step(&mut self, features: &[f32]) {
         // `_pending` holds at most this one observation and is empty between steps
         let mut pending = Some(features.to_vec());

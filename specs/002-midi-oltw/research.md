@@ -115,6 +115,8 @@ The NaN of an all-zero observation therefore flows through the DP like in the re
   reference's pass-through exclusion does, so `default_kwargs` can stay identical to
   `DEFAULT_KWARGS["midi"]["arzt"]` (incl. `window_size: 2`).
 - Unknown names are errors (001 behaviour); the reference swallows them in `**kwargs`.
+- Sizes below 1: `MethodConfig::set` rejects negative values, `MethodConfig::validate` (run by
+  `Matchmaker::with_config`) rejects 0, so a hand-built `MethodConfig` is checked too.
 - Python only: when `kwargs` replaces the defaults, `Matchmaker.__init__` falls back to
   `polling_period = 0.01` (only `event_based` methods fall back to `None`) and to the `pitch`
   processor. `arzt` and `dixon` are not `event_based`, so `kwargs={"piano_range": True}` gives 10 ms
@@ -136,13 +138,23 @@ The NaN of an all-zero observation therefore flows through the DP like in the re
 rule: the reference groups by exact `onset_beat`, same as `chords()`, but the vector build is
 separate and cheap).
 
-## R7. Wiring checklist (everything a method touches in 001)
+## R7. Wiring checklist (everything a method touches)
 
-`Method` enum + `AVAILABLE` + `config_keys` + `FromStr`; `MethodConfig::for_method`/`set`/`validate`;
-`Matchmaker::with_config` follower match; `export::write_run` match; CLI `--method` list and bench;
-Python `available_methods`, `default_kwargs`, `default_polling`, `method == OuterHmm` special cases
-(`crates/matchmaker-py/src/lib.rs:78,181`); `tools/golden/{generate,compare}.py` and
-`tools/bench/run_reference.py` `METHODS`; golden loader `tests/common`; tests that iterate methods
-(`edge_cases`, `export`, `golden_eval`, `method_config`); 001 tests that expect `arzt` to fail
-(T062, the Python scenario of the 001 `quickstart.md`, `contracts/python-api.md`). README and `UPSTREAM.md`
-(module map, "Not ported: `dp/`") are updated in the polish phase.
+- Core: `Method` enum + `AVAILABLE` + `config_keys` + `name` + `FromStr`;
+  `MethodConfig::for_method`/`set`/`validate`; `Matchmaker::with_config` follower match;
+  `export::write_run` match arm (and `probabilities.npy` only when the steps report them).
+- CLI: `--method` and the `bench` default list come from `Method::AVAILABLE`; the bench record
+  names the method's processor (`ProcessorKind::name`) and writes tie margins only for followers
+  with a state distribution; help text of `--processor` and `--set`.
+- Python: `default_kwargs` and the pass-through exclusion for `arzt`; `AVAILABLE_METHODS`,
+  `DEFAULT_KWARGS` and the error message follow `Method::AVAILABLE`. The fallbacks for replaced
+  `kwargs` (R5) stay as they are.
+- Tooling: `tools/golden/{generate,compare}.py`, `tools/bench/{run_reference,report}.py` and
+  `METHODS` in `.github/workflows/benchmark.yml`.
+- Tests that iterate methods: `edge_cases`, `export`, `golden_eval`, `method_config`,
+  `golden_score` (onset pianoroll), the CLI `follow` test and the Python `test_drop_in.py`; the
+  001 tests that expected `arzt` to fail (T062 of 001, the Python scenario of the 001
+  `quickstart.md`).
+- Documents: `README.md`, `UPSTREAM.md` (module map, "Not ported") and the 001 contracts
+  `cli.md`, `golden-data.md`, `library-api.md`, `python-api.md`, `data-model.md` (its rule: every
+  API change updates the contract).

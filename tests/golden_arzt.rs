@@ -1,4 +1,4 @@
-//! Golden test: `arzt` (FR-003, SC-001).
+//! Golden test: `arzt` (002 FR-003, SC-001).
 //!
 //! `replayed_observations_equal_reference` feeds the reference's own observations, so only the
 //! follower is tested; `end_to_end_equals_reference` runs the whole pipeline via `Matchmaker`.
@@ -9,7 +9,7 @@ mod common;
 
 use common::{Ctx, assert_close, assert_exact, data, golden, golden_observations, npy};
 use matchmaker_rs::base::OnlineAlignment;
-use matchmaker_rs::dp::oltw_arzt::{ArztEvent, ArztEventConfig};
+use matchmaker_rs::dp::arzt::{ArztEvent, ArztEventConfig};
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
 use matchmaker_rs::score::Score;
 

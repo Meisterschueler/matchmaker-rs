@@ -40,7 +40,7 @@ defaults dead; the effective values are fixed in
 | Principle | Gate | Result |
 |---|---|---|
 | I Reference Parity | released tag; golden tests per method; tolerances documented | ✅ `generate.py`/`compare.py` get `arzt`, `dixon`; tolerances in [R2](research.md#r2-arzt-event-algorithm-and-dtypes), [R3](research.md#r3-dixon-event-algorithm-and-dtypes) |
-| II Structural Parity | module per method key, Python path in module doc, `missing_docs`, doc example | ✅ `dp::oltw_arzt`, `dp::oltw_dixon` mirror `matchmaker/dp/` |
+| II Structural Parity | module per method key, Python path in module doc, `missing_docs`, doc example | ✅ `dp::arzt` ← `oltw_arzt.py`, `dp::dixon` ← `oltw_dixon.py` (key-named like `prob::outerhmm` ← `outer_product_hmm.py`); `Port of` / `Upstream:` headers |
 | III Visible Performance | `tracing` spans, benchmark covers methods, regression flag | ✅ `inference` span per call; `METHODS` in `tools/bench/run_reference.py` and the CLI bench extended |
 | IV Debuggability | export, typed errors, no panics | ✅ `export` writes the method dir (no `probabilities.npy`: the reference has no state distribution here); typed `InvalidParameter` |
 | V Pure Rust | no C, no new dependency | ✅ |
@@ -58,7 +58,7 @@ specs/002-midi-oltw/
 ├── research.md
 ├── data-model.md
 ├── quickstart.md
-├── contracts/interfaces.md   # deltas to the 001 library/CLI/Python/golden contracts
+├── contracts/interfaces.md   # deltas to the 001 contracts (which list the new methods too)
 └── tasks.md                  # Phase 2 (/speckit-tasks)
 ```
 
@@ -68,28 +68,29 @@ specs/002-midi-oltw/
 src/
 ├── dp/                        # NEW, mirrors matchmaker/dp/
 │   ├── mod.rs                 # Direction (direction.py), distance functions
-│   ├── oltw_arzt.rs           # ArztEvent
-│   └── oltw_dixon.rs          # DixonEvent
+│   ├── arzt.rs                # ArztEvent (oltw_arzt.py)
+│   └── dixon.rs               # DixonEvent (oltw_dixon.py)
 ├── score/mod.rs               # + Score::onset_pianoroll(piano_range)
-├── matchmaker.rs              # Method::{Arzt, Dixon}, MethodConfig keys, defaults, follower wiring
-├── export.rs                  # match arms for the two methods
+├── matchmaker.rs              # Method::{Arzt, Dixon}, MethodConfig keys + validation, defaults, ProcessorKind::name, follower wiring
+├── export.rs                  # match arms; probabilities.npy only for followers that report them
 └── lib.rs                     # pub mod dp
 
 crates/
-├── matchmaker-cli/src/{main,bench}.rs   # method lists, --set keys
-└── matchmaker-py/src/lib.rs             # default_kwargs, pass-through exclusions, polling default
+├── matchmaker-cli/src/{main,bench}.rs   # help text; bench records the method's processor, no tie margins
+└── matchmaker-py/src/lib.rs             # default_kwargs, pass-through exclusion for arzt
 tests/
 ├── golden_arzt.rs             # NEW: per piece + midiscore + wrong-note variants
 ├── golden_dixon.rs            # NEW: same
-├── {method_config,export,edge_cases,golden_eval}.rs   # method lists extended
+├── {method_config,export,edge_cases,golden_eval,golden_score}.rs   # extended
 └── golden/<piece>/{arzt,dixon}/                       # generated
 tools/
-├── golden/{generate,compare}.py   # METHODS, tolerances
-└── bench/run_reference.py         # METHODS
+├── golden/{generate,compare}.py   # METHODS, onset pianoroll files
+└── bench/{run_reference,report}.py   # METHODS, position-parity rule
 ```
 
-**Structure Decision**: One module per method key under a new `dp` module, as upstream
-(`matchmaker/dp/oltw_arzt.py`, `oltw_dixon.py`). The Cython `dtw_loop.pyx` is **not** ported: the
+**Structure Decision**: One module per method key under a new `dp` module, named like the 001
+modules (`dp::arzt` ← `matchmaker/dp/oltw_arzt.py`, `dp::dixon` ← `oltw_dixon.py`, as
+`prob::outerhmm` ← `outer_product_hmm.py`). The Cython `dtw_loop.pyx` is **not** ported: the
 event classes use their own pure-Python loop (it is for the frame-level audio variant).
 
 ## Complexity Tracking

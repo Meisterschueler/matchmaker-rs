@@ -35,7 +35,8 @@ enum Command {
         /// Tempo in BPM (default: score marking, else 120)
         #[arg(long)]
         tempo: Option<f64>,
-        /// Feature processor: pitch, chord_onset (default: the method's, `chord_onset` for arzt, dixon)
+        /// Feature processor: pitch, chord_onset
+        /// (default: chord_onset for arzt and dixon, else pitch)
         #[arg(long)]
         processor: Option<ProcessorKind>,
         /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20;

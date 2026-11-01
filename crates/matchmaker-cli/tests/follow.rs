@@ -1,4 +1,5 @@
-//! CLI `follow` (US1-4, FR-013): prints positions, writes the TSV path, rejects unknown methods.
+//! CLI `follow` (US1-4, FR-013; `arzt` and `dixon`: 002 FR-009): prints positions, writes the TSV
+//! path, rejects unknown methods.
 
 use std::process::Command;
 

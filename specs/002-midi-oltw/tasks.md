@@ -46,7 +46,7 @@ Cargo workspace per [plan.md](plan.md#source-code-changes-to-the-001-layout): co
 - [X] T005 [P] Extend `tests/golden_score.rs` (failing first): `Score::onset_pianoroll(true)` and `(false)` rows equal `score/onset_pianoroll.npy` / `onset_pianoroll_full.npy` and positions equal `onset_positions.npy`, exact, for all pieces and the MIDI-score variant
 - [X] T006 Implement `Score::onset_pianoroll(&self, piano_range: bool) -> (Vec<Vec<f32>>, Vec<f32>)` in `src/score/mod.rs`: rows over `unique_onsets()`; "`1.0` at `pitch − offset` for every note starting there; `D/offset` = 88/21 (`piano_range`) or 128/0; out-of-range pitches ignored"; doc example; make T005 pass
 - [X] T007 [P] Create `src/dp/mod.rs` (`Port of matchmaker.dp` / `Upstream: matchmaker/dp/direction.py`, `matchmaker/dp/oltw_arzt.py`) with `Direction { Ref, Input, Both }` and `Distance { Cosine, Euclidean }` (`FromStr` → `Error::InvalidParameter` listing both names; `Distance::between(&[f32], &[f32]) -> f64` computed in `f64` like `cdist`, zero-vector behaviour as measured in T001) plus unit tests (known values, identical vectors, zero vector); add `pub mod dp;` to `src/lib.rs`
-- [X] T008 [P] Add to `MethodConfig` in `src/matchmaker.rs`: `step_size`, `window_size`, `max_run_count: Option<usize>` and `distance_func: Option<Distance>`, handled in `MethodConfig::set` ("sizes ≥ 1", otherwise `Error::InvalidParameter` naming the key); which keys a method accepts stays in `Method::config_keys` (extended by T012, T017)
+- [X] T008 [P] Add to `MethodConfig` in `src/matchmaker.rs`: `step_size`, `window_size`, `max_run_count: Option<usize>` and `distance_func: Option<Distance>`, parsed in `MethodConfig::set` (negative sizes are `Error::InvalidParameter` naming the key) and checked in `MethodConfig::validate` (sizes of 0 are rejected there, so a hand-built struct is checked too); which keys a method accepts stays in `Method::config_keys` (extended by T012, T017)
 
 **Checkpoint**: Golden data, onset pianoroll and distances ready; user stories can start
 
@@ -61,11 +61,11 @@ Cargo workspace per [plan.md](plan.md#source-code-changes-to-the-001-layout): co
 ### Tests for User Story 1 ⚠️
 
 - [X] T009 [P] [US1] Write failing golden test `tests/golden_arzt.rs` after `tests/golden_outerhmm.rs`: (a) `ArztEvent` fed with `arzt/observations_*.npy` reproduces `score_positions.npy` (exact `f32`), `positions.npy` and `alignment_path.npy` (< 1e-6, SC-001) and `current_index.npy` (exact); (b) end to end via `Matchmaker` for all pieces, the MIDI-score and the wrong-note variants; mismatches name method, piece, file and first differing index (SC-004)
-- [X] T010 [P] [US1] Extend `tests/method_config.rs` (failing first): `MethodConfig::for_method(Method::Arzt)` is `chord_onset`, `piano_range`, `polling_period = Some(0.001)`; `set(Arzt, "step_size", Int(3))` works, `Int(0)` is `InvalidParameter`; `window_size` and `start_window_size` are `InvalidParameter` ("not used by the reference's MIDI arzt"); `distance_func` `"euclidean"` works and `"manhattan"` lists `cosine`, `euclidean`; an unknown key lists the allowed keys
+- [X] T010 [P] [US1] Extend `tests/method_config.rs` (failing first): `MethodConfig::for_method(Method::Arzt)` is `chord_onset`, `piano_range`, `polling_period = Some(0.001)`; `set(Arzt, "step_size", Int(3))` works (zero sizes: test `sizes_must_be_at_least_one`); `window_size` and `start_window_size` are `InvalidParameter` ("not used by the reference's MIDI arzt"); `distance_func` `"euclidean"` works and `"manhattan"` lists `cosine`, `euclidean`; an unknown key lists the allowed keys
 
 ### Implementation for User Story 1
 
-- [X] T011 [US1] Port `OnlineTimeWarpingArztEvent` as `ArztEvent` + `ArztEventConfig { window_size: 30, start_window_size: 5, step_size: 5, distance: Cosine }` in `src/dp/oltw_arzt.rs` (`pub mod oltw_arzt;` in `src/dp/mod.rs`) per [research R2](research.md#r2-arzt-event-algorithm-and-dtypes): window `[max(current_index − step_size, 0), min(start + w, N))` with `w = start_window_size` while `input_index < start_window_size`, `Vec<[f32; 2]>` cost matrix (every `best` rounded to `f32` on store, `norm` from the unrounded `f64`), Python `min`/strict `<` comparisons (not `f64::min`), first-cell special case, column shift, `clip(min_index, current_index, current_index + step_size)` after the first input; `OnlineAlignment` with `is_still_following = current_index < N − 1`, empty `StepDebug.probabilities`, `DEBUG` span `inference`; unit test on a hand-made 3-onset reference
+- [X] T011 [US1] Port `OnlineTimeWarpingArztEvent` as `ArztEvent` + `ArztEventConfig { window_size: 30, start_window_size: 5, step_size: 5, distance: Cosine }` in `src/dp/arzt.rs` (`pub mod arzt;` in `src/dp/mod.rs`) per [research R2](research.md#r2-arzt-event-algorithm-and-dtypes): window `[max(current_index − step_size, 0), min(start + w, N))` with `w = start_window_size` while `input_index < start_window_size`, `Vec<[f32; 2]>` cost matrix (every `best` rounded to `f32` on store, `norm` from the unrounded `f64`), Python `min`/strict `<` comparisons (not `f64::min`), first-cell special case, column shift, `clip(min_index, current_index, current_index + step_size)` after the first input; `OnlineAlignment` with `is_still_following = current_index < N − 1`, empty `StepDebug.probabilities`, `DEBUG` span `inference`; unit test on a hand-made 3-onset reference
 - [X] T012 [US1] Enable `Method::Arzt` in `src/matchmaker.rs`: `AVAILABLE` and its array length, `name`, `FromStr`, `config_keys` (`processor`, `piano_range`, `polling_period`, `step_size`, `distance_func`), `MethodConfig::for_method` (`ProcessorKind::ChordOnset`, `polling_period = Some(0.001)`), follower built from `score.onset_pianoroll(config.piano_range)` and the config in `Matchmaker::with_config`; add the `Method::Arzt` arm to the `match` in `src/export.rs` (no extra file); depends on T006–T008, T011
 - [X] T013 [US1] Make `tests/golden_arzt.rs` and the T010 additions pass; on a position mismatch report the first step and check the `f32` storage and the `min` semantics of R2 before touching any tolerance
 
@@ -82,11 +82,11 @@ Cargo workspace per [plan.md](plan.md#source-code-changes-to-the-001-layout): co
 ### Tests for User Story 2 ⚠️
 
 - [X] T014 [P] [US2] Write failing golden test `tests/golden_dixon.rs`, same checks as T009 for `dixon`
-- [X] T015 [P] [US2] Extend `tests/method_config.rs` (failing first): `for_method(Method::Dixon)` is `chord_onset`, `piano_range`, `Some(0.001)`; `window_size` and `max_run_count` accept values ≥ 1 and reject 0; `distance_func` as in T010; `step_size` is `InvalidParameter`
+- [X] T015 [P] [US2] Extend `tests/method_config.rs` (failing first): `for_method(Method::Dixon)` is `chord_onset`, `piano_range`, `Some(0.001)`; `window_size` and `max_run_count` accept values ≥ 1 (zero: test `sizes_must_be_at_least_one`); `distance_func` as in T010; `step_size` is `InvalidParameter`
 
 ### Implementation for User Story 2
 
-- [X] T016 [US2] Port `OnlineTimeWarpingDixonEvent` as `DixonEvent` + `DixonEventConfig { window_size: 30, max_run_count: 3, distance: Euclidean }` in `src/dp/oltw_dixon.rs` (`pub mod oltw_dixon;` in `src/dp/mod.rs`) per [research R3](research.md#r3-dixon-event-algorithm-and-dtypes): `HashMap<(usize, usize), f64>` cost, `inputs`, `pending` (at most one), `t`, `j` (`isize`, −1 before the first input), run counts, `_evaluate` (weights 1, 1, 2, finite predecessors only, strict `<`), `_norm_cost = D / (1 + i + k)`, `_argmin_path_cost` (row scan, then column scan, initial `(inf, j, t)`), `get_inc` in the reference's order, the `while True` step loop with two `get_inc` calls per round, `current_index = min(argmin_ref, N − 1)`; same trait, span and doc rules as T011; unit test on a hand-made reference
+- [X] T016 [US2] Port `OnlineTimeWarpingDixonEvent` as `DixonEvent` + `DixonEventConfig { window_size: 30, max_run_count: 3, distance: Euclidean }` in `src/dp/dixon.rs` (`pub mod dixon;` in `src/dp/mod.rs`) per [research R3](research.md#r3-dixon-event-algorithm-and-dtypes): `HashMap<(usize, usize), f64>` cost, `inputs`, `started`, `t`, `j` (`usize`; the reference's `t < 0` is `!started`), run counts, `_pending` as a local of `step` (empty between steps), `_evaluate` (weights 1, 1, 2, finite predecessors only, strict `<`), `_norm_cost = D / (1 + i + k)`, `_argmin_path_cost` (row scan, then column scan, initial `(inf, j, t)`), `get_inc` in the reference's order, the `while True` step loop with two `get_inc` calls per round, `current_index = min(argmin_ref, N − 1)`; same trait, span and doc rules as T011; unit test on a hand-made reference
 - [X] T017 [US2] Enable `Method::Dixon` in `src/matchmaker.rs` (`AVAILABLE` and its array length, `name`, `FromStr`, `config_keys`: `processor`, `piano_range`, `polling_period`, `window_size`, `max_run_count`, `distance_func`; defaults as T012) and add the `Method::Dixon` arm in `src/export.rs`; depends on T011, T012 (same files), T016
 - [X] T018 [US2] Make `tests/golden_dixon.rs` and the T015 additions pass; no performance work here (T022)
 
@@ -108,7 +108,7 @@ Cargo workspace per [plan.md](plan.md#source-code-changes-to-the-001-layout): co
 
 - [X] T020 [P] [US3] Add `"arzt"`, `"dixon"` to `METHODS` in `tools/bench/run_reference.py`; set `METHODS: pthmm,hmm,outerhmm,arzt,dixon` in `.github/workflows/benchmark.yml`; hold both methods to the exact position rule (`< 1e-6` at every step, SC-001) next to `pthmm`/`outerhmm` in `tools/bench/report.py` and its docstring; `matchmaker bench` records the method's real processor (`chord_onset`) and writes no tie margins for followers without a state distribution
 - [X] T021 [US3] Run Rust (`matchmaker bench tools/bench/bundled.toml --methods arzt,dixon`), `tools/bench/run_reference.py` and `tools/bench/report.py` on the bundled pieces and on a `fetch.py --limit` subset of Batik, Vienna 4x22 and (n)ASAP: check position parity (SC-001), metric parity and the speed-up (SC-003). A position difference: find the first step, name the cause (`cdist` rounding, `f32` cost matrix, tie), and if it cannot be removed record it in `research.md` as a deviation shown by the evaluation metrics (constitution I)
-- [X] T022 [US3] Only if SC-003 fails for `dixon`: replace the `HashMap` by per-column band storage in `src/dp/oltw_dixon.rs` (same results, `tests/golden_dixon.rs` stays green), re-measure and record both numbers in `research.md` R3 (not needed: SC-003 holds, numbers in R3)
+- [X] T022 [US3] Only if SC-003 fails for `dixon`: replace the `HashMap` by per-column band storage in `src/dp/dixon.rs` (same results, `tests/golden_dixon.rs` stays green), re-measure and record both numbers in `research.md` R3 (not needed: SC-003 holds, numbers in R3)
 
 **Checkpoint**: Parity and speed-up of both methods are shown by tests and the report
 
@@ -140,7 +140,7 @@ Cargo workspace per [plan.md](plan.md#source-code-changes-to-the-001-layout): co
 ## Phase 7: Polish & Cross-Cutting Concerns
 
 - [X] T030 [P] Edge cases in `tests/edge_cases.rs` for both methods (extend the existing method loops): empty performance → empty path, no error; score with one onset; window larger than the score; an observation with no active pitch (pins the T001 result); performance longer than the score → positions within the score; no panics
-- [X] T031 [P] Update `README.md` (methods table rows `arzt`, `dixon`; roadmap item 1 includes them, item 2 stays audio) and `UPSTREAM.md` (module map rows for `src/dp/mod.rs`, `src/dp/oltw_arzt.rs`, `src/dp/oltw_dixon.rs`, `onset_pianoroll` in `src/score/mod.rs` → `matchmaker/features/midi.py`; "Not ported" no longer lists `dp/` as a whole: only the frame-level classes, `dtw_loop.pyx` and `oltw_arzt_multi_fold.py`)
+- [X] T031 [P] Update `README.md` (methods table rows `arzt`, `dixon`; roadmap item 1 includes them, item 2 stays audio) and `UPSTREAM.md` (module map rows for `src/dp/mod.rs`, `src/dp/arzt.rs`, `src/dp/dixon.rs`, `onset_pianoroll` in `src/score/mod.rs` → `matchmaker/features/midi.py`; "Not ported" no longer lists `dp/` as a whole: only the frame-level classes, `dtw_loop.pyx` and `oltw_arzt_multi_fold.py`)
 - [X] T032 [P] Doc examples for `dp`, `ArztEvent`, `DixonEvent`, `Score::onset_pianoroll`; `cargo test --doc` passes
 - [X] T033 Gates: `cargo fmt`, `cargo clippy --workspace --exclude matchmaker-py --all-targets --all-features -- -D warnings`, `cargo test --workspace --exclude matchmaker-py --no-fail-fast`, `cargo deny check`, wasm32 build if the target is installed (fmt, clippy for the workspace and the bindings, wasm32 build, deny licenses/bans/sources pass; advisories unreachable (proxy 407); the only failing tests are `replayed_observations_equal_reference` of `golden_pthmm`, `golden_hmm`, `golden_outerhmm`, whose code and golden data are identical to `master`, where the tolerances need the `numpy-sum` branch)
 - [X] T034 Run all [quickstart.md](quickstart.md) scenarios and fix deviations
@@ -189,9 +189,9 @@ flowchart LR
 
 ```text
 Task: "T009 Write failing golden test tests/golden_arzt.rs"
-Task: "T011 Port ArztEvent in src/dp/oltw_arzt.rs"
+Task: "T011 Port ArztEvent in src/dp/arzt.rs"
 Task: "T014 Write failing golden test tests/golden_dixon.rs"
-Task: "T016 Port DixonEvent in src/dp/oltw_dixon.rs"
+Task: "T016 Port DixonEvent in src/dp/dixon.rs"
 ```
 
 ## Implementation Strategy

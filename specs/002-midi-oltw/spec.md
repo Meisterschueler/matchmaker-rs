@@ -110,7 +110,9 @@ debuggable; it needs the library part first.
 - Empty performance or without note-ons: empty alignment path, no error.
 - Performance ends before or continues after the end of the score: positions stay within the
   score; stop rule per reference run loop.
-- Score with a single onset; window larger than the number of onsets.
+- Score with a single onset: it is already at its last state, so the run loop never calls the
+  follower and the path stays empty, as in the reference. Window larger than the number of
+  onsets: no error, positions stay within the score.
 - Observation with no active pitch (distance undefined, e.g. cosine of a zero vector): same
   result as the reference.
 - Unreadable or corrupt files: typed error as in 001.

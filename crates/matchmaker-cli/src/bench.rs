@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use matchmaker_rs::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use matchmaker_rs::features::{Observation, Processor};
 use matchmaker_rs::io::stream::{Frame, MidiMessage};
-use matchmaker_rs::matchmaker::{Matchmaker, Method, MethodConfig, ProcessorKind};
+use matchmaker_rs::matchmaker::{Matchmaker, Method, MethodConfig};
 use matchmaker_rs::performance::Performance;
 use matchmaker_rs::score::Score;
 use matchmaker_rs::utils::eval::{GroundTruth, evaluate_alignment};
@@ -173,10 +173,7 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) ->
             None => None,
         };
         for &method in methods {
-            let processor = match MethodConfig::for_method(method).processor {
-                ProcessorKind::Pitch => "pitch",
-                ProcessorKind::ChordOnset => "chord_onset",
-            };
+            let processor = MethodConfig::for_method(method).processor.name();
             for run in 0..runs {
                 let (feature, inference) = (Times::default(), Times::default());
                 let mut mm = Matchmaker::new(&score_path, method, None, true)?.wrap_stages(
