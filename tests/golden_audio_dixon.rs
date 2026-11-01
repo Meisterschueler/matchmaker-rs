@@ -76,7 +76,7 @@ fn replayed_audio_observations_match_reference() {
         let score_positions_f32 = score_positions.iter().map(|&value| value as f32).collect();
         let frame_to_beat = npy(dir.join("score_frame_to_beat.npy")).values();
         let mut config = AudioMethodConfig::for_method(AudioMethod::Dixon);
-        config.processor = processor.parse().unwrap();
+        config.set_processor(processor.parse().unwrap());
         config.norm = Some(norm);
         let mut follower =
             DixonFrame::new(score_features, score_positions_f32, frame_to_beat, config).unwrap();
@@ -132,7 +132,7 @@ fn rust_audio_pipeline_matches_reference_alignment() {
 
     for (name, norm) in [("chroma", f64::INFINITY), ("lse", 2.0)] {
         let mut config = AudioMethodConfig::for_method(AudioMethod::Dixon);
-        config.processor = name.parse().unwrap();
+        config.set_processor(name.parse().unwrap());
         config.norm = Some(norm);
         config.soundfont_path = Some(soundfont.clone());
         let mut matchmaker = AudioMatchmaker::new_dixon(

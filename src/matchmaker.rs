@@ -266,7 +266,7 @@ impl FromStr for AudioDistance {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AudioMethodConfig {
     /// Feature processor.
-    pub processor: AudioProcessorKind,
+    processor: AudioProcessorKind,
     /// Target mono sample rate in hertz.
     pub sample_rate: u32,
     /// Frame rate when `hop_length` is `None`.
@@ -293,16 +293,17 @@ impl AudioMethodConfig {
     /// Reference defaults for the selected audio method.
     pub fn for_method(method: AudioMethod) -> Self {
         let arzt = method == AudioMethod::Arzt;
+        let processor = if arzt {
+            AudioProcessorKind::Chroma
+        } else {
+            AudioProcessorKind::Lse
+        };
         Self {
-            processor: if arzt {
-                AudioProcessorKind::Chroma
-            } else {
-                AudioProcessorKind::Lse
-            },
+            processor,
             sample_rate: 44_100,
             frame_rate: if arzt { 30 } else { 50 },
             hop_length: None,
-            norm: Some(if arzt { f64::INFINITY } else { 2.0 }),
+            norm: Some(processor.default_norm()),
             soundfont_path: None,
             window_size: 10.0,
             start_window_size: arzt.then_some(0.1),
@@ -314,6 +315,18 @@ impl AudioMethodConfig {
                 AudioDistance::Euclidean
             },
         }
+    }
+
+    /// Selected feature processor.
+    pub fn processor(&self) -> AudioProcessorKind {
+        self.processor
+    }
+
+    /// Select a processor and restore its reference normalization default.
+    /// Set `norm` afterward to provide an explicit override.
+    pub fn set_processor(&mut self, processor: AudioProcessorKind) {
+        self.processor = processor;
+        self.norm = Some(processor.default_norm());
     }
 
     /// Validate shared audio values and method-specific parameter ranges.
@@ -371,6 +384,15 @@ impl AudioMethodConfig {
             }
         }
         Ok(())
+    }
+}
+
+impl AudioProcessorKind {
+    fn default_norm(self) -> f64 {
+        match self {
+            AudioProcessorKind::Chroma => f64::INFINITY,
+            AudioProcessorKind::Lse => 2.0,
+        }
     }
 }
 

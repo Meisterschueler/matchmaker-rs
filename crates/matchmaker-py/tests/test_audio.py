@@ -102,7 +102,7 @@ def test_audio_dixon_defaults_yield_positions_and_allow_processor_override():
 
     for processor, kwargs, tolerance in [
         ("lse", {}, 0.5),
-        ("chroma", {"processor": "chroma", "norm": float("inf")}, 0.3),
+        ("chroma", {"processor": "chroma"}, 0.3),
     ]:
         mm = make_audio("dixon", **kwargs)
         run = mm.run(verbose=False)
@@ -141,6 +141,16 @@ def test_audio_dixon_defaults_yield_positions_and_allow_processor_override():
 
     with pytest.raises(ValueError, match="max_run_count"):
         make_audio("dixon", max_run_count=0)
+
+
+def test_audio_arzt_lse_override_uses_l2_default():
+    if not SOUNDFONT.is_file():
+        pytest.skip("local pinned SF2 is unavailable")
+
+    mm = make_audio("arzt", processor="lse")
+    positions = list(mm.run(verbose=False))
+    expected = np.load(GOLDEN / "arzt_lse" / "positions.npy")
+    np.testing.assert_allclose(positions, expected, rtol=0, atol=0.3)
 
 
 @pytest.mark.parametrize("method,processor", [("arzt", "chroma"), ("dixon", "lse")])

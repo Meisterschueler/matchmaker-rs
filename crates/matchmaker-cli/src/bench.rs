@@ -281,13 +281,14 @@ fn run_audio_piece(
             .name()
             .parse()
             .with_context(|| format!("{} is not an audio method", method.name()))?;
-        let processor = piece
-            .processor
-            .as_deref()
-            .unwrap_or_else(|| AudioMethodConfig::for_method(audio_method).processor.name());
+        let processor = piece.processor.as_deref().unwrap_or_else(|| {
+            AudioMethodConfig::for_method(audio_method)
+                .processor()
+                .name()
+        });
         for run in 0..runs {
             let mut config = AudioMethodConfig::for_method(audio_method);
-            config.processor = processor.parse::<AudioProcessorKind>()?;
+            config.set_processor(processor.parse::<AudioProcessorKind>()?);
             config.soundfont_path = Some(soundfont.clone());
             let mut mm = match audio_method {
                 AudioMethod::Arzt => AudioMatchmaker::new_arzt(score_path, config, None, true)?,

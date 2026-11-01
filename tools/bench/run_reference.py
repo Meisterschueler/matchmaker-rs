@@ -89,18 +89,6 @@ def latency(times: list) -> dict:
     }
 
 
-@contextmanager
-def use_soundfont(soundfont: Path):
-    renderer = partitura.save_wav_fluidsynth
-
-    def pinned_renderer(*args, **kwargs):
-        kwargs["soundfont"] = str(soundfont)
-        return renderer(*args, **kwargs)
-
-    with patch.object(partitura, "save_wav_fluidsynth", pinned_renderer):
-        yield
-
-
 def run_audio_piece(piece, base, out_dir, methods, runs, environment):
     score = base / piece["score"]
     performance = base / piece["performance"]

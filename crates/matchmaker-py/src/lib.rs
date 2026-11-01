@@ -328,12 +328,14 @@ fn new_audio_matchmaker(
     let mut audio_config = AudioMethodConfig::for_method(audio_method);
     let configured_processor: String = match pop(&kwargs, "processor")? {
         Some(value) => value.extract()?,
-        None => audio_config.processor.name().into(),
+        None => audio_config.processor().name().into(),
     };
     let processor_name = processor.unwrap_or(&configured_processor);
-    audio_config.processor = processor_name
-        .parse::<AudioProcessorKind>()
-        .map_err(to_py_err)?;
+    audio_config.set_processor(
+        processor_name
+            .parse::<AudioProcessorKind>()
+            .map_err(to_py_err)?,
+    );
 
     let soundfont_path = match pop(&kwargs, "soundfont_path")? {
         Some(value) => Some(PathBuf::from(value.extract::<String>()?)),

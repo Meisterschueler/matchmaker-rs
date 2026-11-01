@@ -116,7 +116,7 @@ fn rust_audio_pipeline_matches_reference_alignment() {
 
     for (name, norm) in [("chroma", f64::INFINITY), ("lse", 2.0)] {
         let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
-        config.processor = name.parse().unwrap();
+        config.set_processor(name.parse().unwrap());
         config.norm = Some(norm);
         config.soundfont_path = Some(soundfont.clone());
         let mut matchmaker = AudioMatchmaker::new_arzt(

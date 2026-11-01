@@ -41,6 +41,22 @@ fn positions(output: &Output) -> Vec<(f64, f64)> {
 }
 
 #[test]
+fn processor_overrides_use_processor_norm_defaults() {
+    let arzt_lse = follow_audio("arzt", &["--processor", "lse"]);
+    let arzt_lse_explicit = follow_audio("arzt", &["--processor", "lse", "--set", "norm=2"]);
+    assert!(arzt_lse.status.success());
+    assert!(arzt_lse_explicit.status.success());
+    assert_eq!(positions(&arzt_lse), positions(&arzt_lse_explicit));
+
+    let dixon_chroma = follow_audio("dixon", &["--set", "norm=inf", "--set", "processor=chroma"]);
+    let dixon_chroma_explicit =
+        follow_audio("dixon", &["--set", "processor=chroma", "--set", "norm=inf"]);
+    assert!(dixon_chroma.status.success());
+    assert!(dixon_chroma_explicit.status.success());
+    assert_eq!(positions(&dixon_chroma), positions(&dixon_chroma_explicit));
+}
+
+#[test]
 fn audio_arzt_defaults_and_output_path() {
     let output_path = std::env::temp_dir().join("matchmaker_cli_follow_audio.tsv");
     let default = follow_audio("arzt", &["--output", output_path.to_str().unwrap()]);

@@ -272,19 +272,22 @@ smoke run correctly reports the expected first score-feature renderer deviation.
 ### T030/T035: Audio benchmark integration and measurements
 
 `tools/bench/audio.toml` runs the same bundled WAV through Rust and pinned
-pymatchmaker with five runs per implementation. The workflow offers an
-opt-in `workflow_dispatch` audio benchmark input for a direct SF2 URL, verifies
-the pinned SoundFont SHA-256, installs native FluidSynth, and publishes only
-derived benchmark records. Ordinary CI skips the optional audio branch when no
-asset URL is supplied.
+pymatchmaker with five runs per implementation. The benchmark workflow reads
+the direct SF2 URL from the repository variable `AUDIO_SOUNDFONT_URL`, with a
+workflow-dispatch override, verifies the pinned SoundFont SHA-256, installs
+native FluidSynth, and publishes only derived benchmark records. It fails
+instead of silently skipping the audio benchmark when no URL is configured.
 
-The paired five-run Windows report measured median inference latency of 0.0035
-ms Rust / 0.0702 ms Python for Arzt and 0.197 ms / 1.712 ms for Dixon. Total
-processing speedups were 1.4x and 9.5x; Rust real-time factors were 0.054 and
-0.014. Alignment parity passed within the documented renderer envelope. Metric
-parity was flagged because FluidSynth and RustySynth produce different score
-features; this is reported, not masked. The current master baseline was not
-available locally, so the 10% regression comparison remains open for T035.
+The paired five-run Windows report measured median feature/inference latency of
+1.778/0.0039 ms Rust and 2.464/0.08515 ms Python for Arzt, and
+0.0102/0.1425 ms Rust and 1.007/1.766 ms Python for Dixon. Total processing
+speedups were 1.4x and 15.0x; Rust real-time factors were 0.05881 and 0.009332.
+Position parity passed within the documented renderer envelope (maximum score
+deviation 0.20 beats for Arzt and 0.52 beats for Dixon, including the allowed
+tail frame). Metric parity was flagged because FluidSynth and RustySynth
+produce different score features; this is reported, not masked. A comparable
+current-master audio baseline was not available, so the 10% regression
+comparison remains open for T035.
 
 ### T031/T032: Edge cases and examples
 

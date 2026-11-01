@@ -25,7 +25,7 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
         (AudioMethod::Dixon, AudioProcessorKind::Lse),
     ] {
         let mut config = AudioMethodConfig::for_method(method);
-        config.processor = processor;
+        config.set_processor(processor);
         config.validate(method).unwrap();
     }
 
@@ -53,7 +53,7 @@ fn recorded_audio_run_exports_all_stages_as_numpy_arrays() {
     }
 
     let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
-    config.processor = AudioProcessorKind::Lse;
+    config.set_processor(AudioProcessorKind::Lse);
     config.norm = Some(2.0);
     config.soundfont_path = Some(soundfont);
     let mut matchmaker =

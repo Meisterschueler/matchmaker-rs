@@ -318,7 +318,7 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
     })?;
     let config = mm.config();
     let method = mm.method();
-    let processor = config.processor.name();
+    let processor = config.processor().name();
     let reference = mm.reference();
     let steps = &recording.steps;
 

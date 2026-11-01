@@ -163,7 +163,24 @@ fn audio_config(
     let mut config = AudioMethodConfig::for_method(method);
     config.soundfont_path = soundfont_path;
     if let Some(processor) = processor {
-        config.processor = processor.parse::<AudioProcessorKind>()?;
+        config.set_processor(processor.parse::<AudioProcessorKind>()?);
+    }
+    let mut selected_processor = None;
+    for entry in set {
+        let (key, value) = entry
+            .split_once('=')
+            .with_context(|| format!("--set expects KEY=VALUE, got {entry:?}"))?;
+        if key == "processor" {
+            match parse_config_value(value) {
+                ConfigValue::Str(name) => {
+                    selected_processor = Some(name.parse::<AudioProcessorKind>()?)
+                }
+                _ => anyhow::bail!("--set processor expects chroma or lse"),
+            }
+        }
+    }
+    if let Some(processor) = selected_processor {
+        config.set_processor(processor);
     }
     for entry in set {
         let (key, text) = entry
@@ -171,10 +188,7 @@ fn audio_config(
             .with_context(|| format!("--set expects KEY=VALUE, got {entry:?}"))?;
         let value = parse_config_value(text);
         match key {
-            "processor" => match value {
-                ConfigValue::Str(name) => config.processor = name.parse()?,
-                _ => anyhow::bail!("--set processor expects chroma or lse"),
-            },
+            "processor" => {}
             "sample_rate" => config.sample_rate = audio_u32(key, &value)?,
             "frame_rate" => config.frame_rate = audio_u32(key, &value)?,
             "hop_length" => config.hop_length = audio_optional_usize(key, &value)?,

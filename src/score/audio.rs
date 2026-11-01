@@ -196,7 +196,7 @@ pub fn build_reference(
         .hop_length
         .unwrap_or((config.sample_rate / config.frame_rate) as usize);
     let frame_rate = f64::from(config.sample_rate) / hop_length as f64;
-    let mut processor: Box<dyn AudioProcessor> = match config.processor {
+    let mut processor: Box<dyn AudioProcessor> = match config.processor() {
         AudioProcessorKind::Chroma => Box::new(ChromaProcessor::new(
             config.sample_rate,
             hop_length,
@@ -208,7 +208,7 @@ pub fn build_reference(
             config.norm,
         )),
     };
-    let cache_size = match config.processor {
+    let cache_size = match config.processor() {
         AudioProcessorKind::Chroma => hop_length,
         AudioProcessorKind::Lse => {
             LseProcessor::new(config.sample_rate, hop_length, config.norm).n_fft() - hop_length

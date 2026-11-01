@@ -38,18 +38,26 @@ fn defaults_match_the_reference_default_kwargs() {
 #[test]
 fn audio_defaults_are_separate_from_midi_defaults() {
     let arzt = AudioMethodConfig::for_method(AudioMethod::Arzt);
-    assert_eq!(arzt.processor, AudioProcessorKind::Chroma);
+    assert_eq!(arzt.processor(), AudioProcessorKind::Chroma);
     assert_eq!(arzt.sample_rate, 44_100);
     assert_eq!(arzt.frame_rate, 30);
     assert_eq!(arzt.distance_func, AudioDistance::Manhattan);
     assert_eq!(arzt.start_window_size, Some(0.1));
     assert_eq!(arzt.step_size, Some(3));
 
+    let mut arzt_lse = arzt.clone();
+    arzt_lse.set_processor(AudioProcessorKind::Lse);
+    assert_eq!(arzt_lse.norm, Some(2.0));
+
     let dixon = AudioMethodConfig::for_method(AudioMethod::Dixon);
-    assert_eq!(dixon.processor, AudioProcessorKind::Lse);
+    assert_eq!(dixon.processor(), AudioProcessorKind::Lse);
     assert_eq!(dixon.frame_rate, 50);
     assert_eq!(dixon.distance_func, AudioDistance::Euclidean);
     assert_eq!(dixon.max_run_count, Some(3));
+
+    let mut dixon_chroma = dixon.clone();
+    dixon_chroma.set_processor(AudioProcessorKind::Chroma);
+    assert_eq!(dixon_chroma.norm, Some(f64::INFINITY));
 
     assert_eq!(
         MethodConfig::for_method(Method::Arzt).processor,
