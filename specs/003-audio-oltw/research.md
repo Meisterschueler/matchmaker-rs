@@ -106,9 +106,9 @@ archive explicitly identifies itself as 2019-07-03. Pin and provision the exact
 revision. GeneralUser GS was rejected because its license explicitly leaves
 some sample origins uncertain.
 
-T001 is complete for this exact asset pin. No SoundFont or derived audio is
-checked into the repository, and no fixtures, renderer/resampler comparison, or
-benchmark has run yet.
+T001 is complete for this exact asset pin. The SoundFont itself remains outside
+the repository; derived audio fixtures and reference goldens are tracked under
+`tests/data/audio/` and `tests/golden/audio/` after T011.
 
 ### T003: Locked audio generator
 
@@ -116,11 +116,10 @@ benchmark has run yet.
 `chroma`/`lse` combinations. It verifies the pinned SF2 SHA-256, records the
 reference and renderer hashes, and emits feature arrays, frame times, score
 beat mapping, positions, and alignment paths. Python syntax, CLI help, and the
-asset-hash check pass in the locked environment. Full score rendering is not
-available in this environment: `partitura.io.exportaudio.HAS_FLUIDSYNTH` is
-`False`. Processor-only synthetic references have since been generated without
-FluidSynth; no rendered WAV or end-to-end follower outputs exist, so T011 remains
-open. The optional FluidSynth prerequisite is not a Rust runtime dependency.
+asset-hash check pass in the locked environment. Full score rendering requires
+the native FluidSynth library; processor-only synthetic references do not.
+T011 later generated the rendered WAV and all four end-to-end reference outputs.
+The optional FluidSynth prerequisite is not a Rust runtime dependency.
 
 ### T004: Audio core types
 
@@ -175,9 +174,23 @@ keeps per-frame beat mapping and score onset positions, and adds a DEBUG render
 span. Tests verify the local pinned SF2 render, onset padding, final 0.1-second
 crop, feature/map cardinality, and deterministic processor reset. The local SF2
 tests pass; they skip when that ignored local asset is absent. WASM, Rust 1.88,
-format, clippy, and the 22 focused audio/MIDI regression tests pass. Waveform and
-end-to-end parity against FluidSynth remains unmeasured because FluidSynth is
-unavailable; T011 remains open for its end-to-end fixture/golden outputs.
+format, clippy, and the 22 focused audio/MIDI regression tests pass. T011 has
+generated the FluidSynth reference outputs; waveform and end-to-end parity
+between FluidSynth and RustySynth remains unmeasured.
+
+### T011: FluidSynth reference fixtures and goldens
+
+The locked Python reference rendered
+`tests/data/audio/simple_mozart_k265_var1_sf2.wav` with the pinned SF2 and
+FluidSynth 2.6.2. The official Windows x64 FluidSynth archive was SHA-256
+verified before use; its hash, along with the WAV hash, is recorded in
+`tests/data/audio/README.md`. `tests/golden/audio/` contains all four
+`arzt`/`dixon` and `chroma`/`lse` runs, including performance features/times,
+score features, frame-to-beat mapping, positions, and alignment paths. Metadata
+records the native FluidSynth version and the Python reference/SoundFont pins.
+Focused validation passed: audio I/O 6/6, processor goldens 2/2, score-audio
+tests 2/2, and MIDI score goldens 3/3. RustySynth-to-FluidSynth parity remains a
+later follower acceptance check.
 
 ### T002: Dependency and target checks complete
 
@@ -199,6 +212,6 @@ unavailable; T011 remains open for its end-to-end fixture/golden outputs.
 The full `cargo deny check` did not reach advisory validation: fetching the
 RustSec database failed with proxy HTTP 407. The full advisory gate remains
 unverified and must be rerun when network access is available. Processor goldens
-and local SF2 score-render smoke tests now pass; however, FluidSynth waveform and
+and local SF2 score-render smoke tests now pass; FluidSynth waveform and
 end-to-end alignment parity have not been compared, and the benchmark has not
-run. T011 remains open until reference WAV/follower goldens can be generated.
+run.

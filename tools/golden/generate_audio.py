@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from ctypes import c_int
 from contextlib import contextmanager
 from importlib.metadata import version
 from pathlib import Path
@@ -79,6 +80,14 @@ def reference_info() -> dict:
         "numpy": np.__version__,
         "uv_lock_sha256": sha256(lockfile),
     }
+
+
+def fluidsynth_version() -> str:
+    import fluidsynth
+
+    major, minor, micro = c_int(), c_int(), c_int()
+    fluidsynth.fluid_version(major, minor, micro)
+    return f"{major.value}.{minor.value}.{micro.value}"
 
 
 @contextmanager
@@ -303,6 +312,7 @@ def generate_case(
         case / "meta.json",
         {
             "reference": reference_info(),
+            "fluidsynth": fluidsynth_version(),
             "generator": "tools/golden/generate_audio.py",
             "score": score_path.name,
             "performance": performance_path.name,
@@ -386,6 +396,7 @@ def main() -> None:
         output / "manifest.json",
         {
             "reference": reference_info(),
+            "fluidsynth": fluidsynth_version(),
             "score": str(score_path),
             "performance": str(performance_path),
             "soundfont_sha256": soundfont_hash,

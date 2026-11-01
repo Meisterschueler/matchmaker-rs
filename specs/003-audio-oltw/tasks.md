@@ -39,7 +39,7 @@ description: "Task list for audio online time warping"
 - [X] T008 [P] Implement the upstream chromagram and log-spectral-energy processors with reset behavior and frame-level tracing in `src/features/chroma.rs`, `src/features/lse.rs`, and `src/features/mod.rs`.
 - [X] T009 [P] Write failing score-reference tests for rendering, onset padding, final 0.1-second tail, processor reset, and per-reference-frame beat mapping in `tests/score_audio.rs`.
 - [X] T010 [P] Implement score-to-audio rendering with the configured SF2, processor feature generation, frame-to-beat mapping, and a `DEBUG` render span in `src/score/audio.rs`; expose the score-audio reference builder from `src/score/mod.rs`.
-- [ ] T011 Generate and check in deterministic audio fixture and reference outputs for both processors and score-reference stages using `tools/golden/generate_audio.py`, `tests/data/audio/`, and `tests/golden/audio/`.
+- [X] T011 Generate and check in deterministic audio fixture and reference outputs for both processors and score-reference stages using `tools/golden/generate_audio.py`, `tests/data/audio/`, and `tests/golden/audio/`.
 
 **Checkpoint**: Audio input, features, score reference, and their goldens are available before either frame-level follower is wired.
 

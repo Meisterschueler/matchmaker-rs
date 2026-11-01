@@ -1,0 +1,25 @@
+{
+  "fluidsynth": "2.6.2",
+  "follower_config": {
+    "frame_rate": 50,
+    "max_run_count": 3,
+    "window_size": 10
+  },
+  "frame_rate": 50,
+  "generator": "tools/golden/generate_audio.py",
+  "hop_length": 882,
+  "method": "dixon",
+  "performance": "simple_mozart_k265_var1_sf2.wav",
+  "processor": "chroma",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "5BD952BF8F214C4DEB2203C33EDAA544B6C3ABFFDA5BB019B29EF0E7AF1D0B28",
+    "version": "0.4.0"
+  },
+  "sample_rate": 44100,
+  "score": "simple_mozart_k265_var1.musicxml",
+  "soundfont_sha256": "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F"
+}

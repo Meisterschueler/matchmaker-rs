@@ -75,18 +75,22 @@ update this manifest/table together.
 The full mode writes one directory per method/processor pair under
 `tests/golden/audio/`, containing performance features and times, score features
 and frame-to-beat mapping, positions, alignment path, and metadata with the
-reference and SoundFont hashes. The SoundFont path and SHA-256 are checked before
-use. The reference score renderer is patched only to pass this pinned SF2 to
-Partitura; its timing, padding, and cropping logic remains the reference
-implementation.
+reference, FluidSynth version, and SoundFont hashes. The SoundFont path and
+SHA-256 are checked before use. The reference score renderer is patched only to
+pass this pinned SF2 to Partitura; its timing, padding, and cropping logic
+remains the reference implementation.
 
 The optional `--render-performance` flag writes a float WAV derived from the
 score and pinned SF2 to `tests/data/audio/simple_mozart_k265_var1_sf2.wav`.
 Reference rendering requires Partitura's optional FluidSynth support and a
-working FluidSynth library; neither is needed by the Rust runtime. Rendered WAV
-and end-to-end follower goldens are not checked in until the full generation run
-and fixture provenance review pass. The current Python environment reports
-FluidSynth unavailable; processor-only goldens do not depend on it.
+working native FluidSynth library; neither is needed by the Rust runtime. The
+checked-in T011 fixture was rendered with FluidSynth 2.6.2 from the official
+Windows x64 release archive, SHA-256
+`808295345d43c9c428f3fa87d29fbf97a9926f356df95559ff2689f3bd4072d7`. The WAV
+is 1,340,698 bytes with SHA-256
+`32DD5C2ED10040658DFAA09ABFE314F97DCE35638C62027216CACA7B31EAAA60`. Its four
+reference runs are checked in under `tests/golden/audio/`; metadata records
+FluidSynth, pymatchmaker, Partitura, and SoundFont versions/hashes.
 
 ### Rejected candidate
 
