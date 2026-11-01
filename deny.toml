@@ -4,6 +4,9 @@ allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "MIT",
+    # Symphonia: MPL file-level copyleft permits a larger Apache-2.0 work
+    # while its covered files retain MPL terms (Mozilla MPL 2.0 FAQ, Q13).
+    "MPL-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
