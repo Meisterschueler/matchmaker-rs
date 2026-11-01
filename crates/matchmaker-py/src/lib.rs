@@ -34,7 +34,7 @@ fn available_methods() -> String {
 }
 
 fn available_audio_methods() -> String {
-    "['arzt']".into()
+    "['arzt', 'dixon']".into()
 }
 
 /// Errors about parameters are `ValueError`; a file that cannot be read is `OSError`.
@@ -104,14 +104,24 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
 
 fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<Bound<'py, PyDict>> {
     let kwargs = PyDict::new(py);
-    if method == AudioMethod::Arzt {
-        kwargs.set_item("processor", "chroma")?;
-        kwargs.set_item("sample_rate", 44_100)?;
-        kwargs.set_item("frame_rate", 30)?;
-        kwargs.set_item("window_size", 10.0)?;
-        kwargs.set_item("start_window_size", 0.1)?;
-        kwargs.set_item("step_size", 3)?;
-        kwargs.set_item("distance_func", "manhattan")?;
+    match method {
+        AudioMethod::Arzt => {
+            kwargs.set_item("processor", "chroma")?;
+            kwargs.set_item("sample_rate", 44_100)?;
+            kwargs.set_item("frame_rate", 30)?;
+            kwargs.set_item("window_size", 10.0)?;
+            kwargs.set_item("start_window_size", 0.1)?;
+            kwargs.set_item("step_size", 3)?;
+            kwargs.set_item("distance_func", "manhattan")?;
+        }
+        AudioMethod::Dixon => {
+            kwargs.set_item("processor", "lse")?;
+            kwargs.set_item("sample_rate", 44_100)?;
+            kwargs.set_item("frame_rate", 50)?;
+            kwargs.set_item("window_size", 10.0)?;
+            kwargs.set_item("max_run_count", 3)?;
+            kwargs.set_item("distance_func", "euclidean")?;
+        }
     }
     Ok(kwargs)
 }
@@ -299,12 +309,6 @@ fn new_audio_matchmaker(
             available_audio_methods()
         ))
     })?;
-    if audio_method != AudioMethod::Arzt {
-        return Err(PyValueError::new_err(format!(
-            "Audio method '{method_name}' is not implemented yet. Available: {}",
-            available_audio_methods()
-        )));
-    }
     if stream.is_some() || device_name_or_index.is_some() {
         return Err(PyNotImplementedError::new_err(
             "audio devices and custom streams are not supported; pass `performance_file`",
@@ -340,8 +344,19 @@ fn new_audio_matchmaker(
     }
     audio_config.soundfont_path = soundfont_path;
     audio_config.validate(audio_method).map_err(to_py_err)?;
-    let inner = AudioMatchmaker::new_arzt(&score_file, audio_config, tempo, unfold_score)
-        .map_err(to_py_err)?;
+    let inner = match audio_method {
+        AudioMethod::Arzt => {
+            AudioMatchmaker::new_arzt(&score_file, audio_config, tempo, unfold_score)
+        }
+        AudioMethod::Dixon => {
+            AudioMatchmaker::new_dixon(&score_file, audio_config, tempo, unfold_score)
+        }
+    }
+    .map_err(to_py_err)?;
+    let method_kind = match audio_method {
+        AudioMethod::Arzt => Method::Arzt,
+        AudioMethod::Dixon => Method::Dixon,
+    };
 
     Ok(PyMatchmaker {
         tempo: inner.tempo(),
@@ -350,8 +365,8 @@ fn new_audio_matchmaker(
         score_file: score_file.to_string_lossy().into_owned(),
         performance_file: performance_path.to_string_lossy().into_owned(),
         performance_path,
-        method_kind: Method::Arzt,
-        method_config: MethodConfig::for_method(Method::Arzt),
+        method_kind,
+        method_config: MethodConfig::for_method(method_kind),
         tempo_arg: tempo,
         unfold: unfold_score,
         input_type: "audio".into(),
@@ -733,7 +748,7 @@ fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let methods = PyDict::new(py);
     methods.set_item("midi", Method::AVAILABLE.to_vec())?;
-    methods.set_item("audio", vec!["arzt"])?;
+    methods.set_item("audio", vec!["arzt", "dixon"])?;
     m.add("AVAILABLE_METHODS", methods)?;
 
     let defaults = PyDict::new(py);
@@ -743,7 +758,10 @@ fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
     }
     defaults.set_item("midi", midi)?;
     let audio = PyDict::new(py);
-    audio.set_item("arzt", default_audio_kwargs(py, AudioMethod::Arzt)?)?;
+    for name in AudioMethod::AVAILABLE {
+        let method: AudioMethod = name.parse().map_err(to_py_err)?;
+        audio.set_item(name, default_audio_kwargs(py, method)?)?;
+    }
     defaults.set_item("audio", audio)?;
     m.add("DEFAULT_KWARGS", defaults)?;
 

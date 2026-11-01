@@ -195,11 +195,12 @@ fn audio_config(
             "window_size" => config.window_size = audio_f64(key, &value)?,
             "start_window_size" => config.start_window_size = audio_optional_f64(key, &value)?,
             "step_size" => config.step_size = audio_optional_usize(key, &value)?,
+            "max_run_count" => config.max_run_count = audio_optional_usize(key, &value)?,
             "distance_func" => match value {
                 ConfigValue::Str(name) => config.distance_func = name.parse::<AudioDistance>()?,
                 _ => anyhow::bail!("--set distance_func expects manhattan or euclidean"),
             },
-            _ => anyhow::bail!("unknown audio Arzt parameter {key:?}"),
+            _ => anyhow::bail!("unknown audio parameter {key:?}"),
         }
     }
     config.validate(method)?;
@@ -320,14 +321,16 @@ fn main() -> Result<()> {
                     "audio ground-truth evaluation is not implemented yet"
                 );
                 let audio_method: AudioMethod = method.name().parse()?;
-                anyhow::ensure!(
-                    audio_method == AudioMethod::Arzt,
-                    "audio method {} is not implemented yet",
-                    method.name()
-                );
                 let config =
                     audio_config(audio_method, processor.as_deref(), soundfont_path, &set)?;
-                let mut mm = AudioMatchmaker::new_arzt(&score, config, tempo, !no_unfold)?;
+                let mut mm = match audio_method {
+                    AudioMethod::Arzt => {
+                        AudioMatchmaker::new_arzt(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::Dixon => {
+                        AudioMatchmaker::new_dixon(&score, config, tempo, !no_unfold)?
+                    }
+                };
                 mm.run_file(&performance)?;
                 let path = mm.alignment_path();
                 if !quiet {

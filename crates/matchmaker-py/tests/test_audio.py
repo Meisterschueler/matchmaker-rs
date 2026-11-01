@@ -22,12 +22,12 @@ SOUNDFONT = (
 )
 
 
-def make_audio(**kwargs):
+def make_audio(method="arzt", **kwargs):
     return Matchmaker(
         score_file=str(SCORE),
         performance_file=str(PERFORMANCE),
         input_type="audio",
-        method="arzt",
+        method=method,
         kwargs={"soundfont_path": str(SOUNDFONT), **kwargs},
     )
 
@@ -36,7 +36,7 @@ def test_audio_arzt_defaults_yield_positions_and_return_path():
     if not SOUNDFONT.is_file():
         pytest.skip("local pinned SF2 is unavailable")
 
-    assert matchmaker_rs.AVAILABLE_METHODS["audio"] == ["arzt"]
+    assert matchmaker_rs.AVAILABLE_METHODS["audio"] == ["arzt", "dixon"]
     defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["arzt"]
     assert defaults["processor"] == "chroma"
     assert defaults["frame_rate"] == 30
@@ -89,3 +89,55 @@ def test_audio_arzt_reports_typed_configuration_and_file_errors():
             kwargs={"soundfont_path": str(SOUNDFONT)},
         )
         list(mm.run(verbose=False))
+
+
+def test_audio_dixon_defaults_yield_positions_and_allow_processor_override():
+    if not SOUNDFONT.is_file():
+        pytest.skip("local pinned SF2 is unavailable")
+
+    defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["dixon"]
+    assert defaults["processor"] == "lse"
+    assert defaults["frame_rate"] == 50
+    assert defaults["max_run_count"] == 3
+
+    for processor, kwargs, tolerance in [
+        ("lse", {}, 0.5),
+        ("chroma", {"processor": "chroma", "norm": float("inf")}, 0.3),
+    ]:
+        mm = make_audio("dixon", **kwargs)
+        run = mm.run(verbose=False)
+        positions = []
+        while True:
+            try:
+                positions.append(next(run))
+            except StopIteration as stop:
+                returned_path = stop.value
+                break
+
+        expected = np.load(GOLDEN / f"dixon_{processor}" / "positions.npy")
+        expected_path = np.load(GOLDEN / f"dixon_{processor}" / "alignment_path.npy")
+        shared_frames = min(len(positions), len(expected))
+        assert abs(len(positions) - len(expected)) <= 1
+        np.testing.assert_allclose(
+            positions[:shared_frames], expected[:shared_frames], rtol=0, atol=tolerance
+        )
+        assert returned_path.dtype == np.float64 and returned_path.shape[0] == 2
+        assert abs(returned_path.shape[1] - expected_path.shape[1]) <= 1
+        shared_path_frames = min(returned_path.shape[1], expected_path.shape[1])
+        np.testing.assert_allclose(
+            returned_path[0, :shared_path_frames],
+            expected_path[0, :shared_path_frames],
+            rtol=0,
+            atol=1e-6,
+        )
+        np.testing.assert_allclose(
+            returned_path[1, :shared_path_frames],
+            expected_path[1, :shared_path_frames],
+            rtol=0,
+            atol=0.6,
+        )
+        np.testing.assert_array_equal(mm.score_follower.alignment_path, returned_path)
+        assert mm._has_run
+
+    with pytest.raises(ValueError, match="max_run_count"):
+        make_audio("dixon", max_run_count=0)

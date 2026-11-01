@@ -72,16 +72,16 @@ description: "Task list for audio online time warping"
 
 ### Tests for User Story 2
 
-- [ ] T019 [P] [US2] Write failing replay and end-to-end golden tests for audio `dixon` with both `chroma` and `lse`, including first-differing-frame diagnostics and short-score cases, in `tests/golden_audio_dixon.rs`.
-- [ ] T020 [P] [US2] Write failing CLI tests for audio `dixon`, its LSE/50-fps defaults, output path, and invalid audio parameters in `crates/matchmaker-cli/tests/follow_audio.rs`.
-- [ ] T021 [P] [US2] Extend Python facade tests for audio `dixon`, its defaults, processor override, yielded positions, and final alignment path in `crates/matchmaker-py/tests/test_audio.py`.
+- [X] T019 [P] [US2] Write failing replay and end-to-end golden tests for audio `dixon` with both `chroma` and `lse`, including first-differing-frame diagnostics and short-score cases, in `tests/golden_audio_dixon.rs`.
+- [X] T020 [P] [US2] Write failing CLI tests for audio `dixon`, its LSE/50-fps defaults, output path, and invalid audio parameters in `crates/matchmaker-cli/tests/follow_audio.rs`.
+- [X] T021 [P] [US2] Extend Python facade tests for audio `dixon`, its defaults, processor override, yielded positions, and final alignment path in `crates/matchmaker-py/tests/test_audio.py`.
 
 ### Implementation for User Story 2
 
-- [ ] T022 [P] [US2] Port the frame-level `OnlineTimeWarpingDixonFrame` sparse cost search, second-to-frame window, run-count limits, Euclidean distance default, beat mapping, and per-frame `DEBUG` inference span in `src/dp/dixon_frame.rs`.
-- [ ] T023 [US2] Wire audio `dixon` defaults/configuration and follower construction into the input-specific core API without changing MIDI `dixon` behavior in `src/matchmaker.rs`.
-- [ ] T024 [US2] Add audio `dixon` CLI dispatch and method-specific help/defaults in `crates/matchmaker-cli/src/main.rs`.
-- [ ] T025 [US2] Add audio `dixon` Python defaults and construction while preserving MIDI `dixon` kwargs in `crates/matchmaker-py/src/lib.rs`.
+- [X] T022 [P] [US2] Port the frame-level `OnlineTimeWarpingDixonFrame` sparse cost search, second-to-frame window, run-count limits, Euclidean distance default, beat mapping, and per-frame `DEBUG` inference span in `src/dp/dixon_frame.rs`.
+- [X] T023 [US2] Wire audio `dixon` defaults/configuration and follower construction into the input-specific core API without changing MIDI `dixon` behavior in `src/matchmaker.rs`.
+- [X] T024 [US2] Add audio `dixon` CLI dispatch and method-specific help/defaults in `crates/matchmaker-cli/src/main.rs`.
+- [X] T025 [US2] Add audio `dixon` Python defaults and construction while preserving MIDI `dixon` kwargs in `crates/matchmaker-py/src/lib.rs`.
 
 **Checkpoint**: Both frame-level followers are independently usable and match their replay goldens.
 

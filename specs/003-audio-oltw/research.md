@@ -217,15 +217,43 @@ parameter values return actionable errors. Audio export and ground-truth CLI
 evaluation are not wired yet.
 
 The Python facade accepts `input_type="audio"`, defaults to audio `arzt`,
-publishes the supported audio methods/defaults, yields frame positions, and
+publishes both supported audio methods/defaults, yields frame positions, and
 returns the `(2, T)` alignment array as the generator's `StopIteration` value.
 File/render errors map to `OSError`; invalid method/config choices map to
 `ValueError`. Custom audio streams and device capture remain unsupported.
 
 Validation passed: the complete Rust workspace suite (including the PyO3 test
-binary with the Python DLL path set), 35 Python tests, workspace Clippy with
-`-D warnings`, and `cargo fmt --check`. The CLI/Python currently expose only
-audio `arzt`; Dixon facade wiring, audio exports, and benchmarks remain open.
+binary with the Python DLL path set), 36 Python tests, workspace Clippy with
+`-D warnings`, and `cargo fmt --check`. Dixon facade wiring is complete; audio
+exports and benchmarks remain open.
+
+### T020/T021/T024/T025: Dixon CLI and Python facades
+
+The CLI dispatches audio `dixon`, uses the LSE/50-fps/10-second/3-run-count
+defaults, supports the same TSV output, and validates Dixon-specific overrides.
+Python exposes audio `dixon` defaults, yields positions, returns the `(2, T)`
+path via `StopIteration`, and permits a Chroma override. Existing MIDI Dixon
+kwargs remain unchanged. The full Python suite passes 36 tests; the full Rust
+workspace and CLI suites pass, as do strict Clippy and format checks. Audio
+exports and benchmark integration remain unimplemented.
+
+### T019/T022/T023: Audio Dixon follower and Core API
+
+`DixonFrame` ports the sparse float64 accumulated-cost matrix, twice-weighted
+diagonal transitions, path-length normalization, frame-based search window,
+run-count limits, active-band pruning, and the reference's history-projected
+alignment path. Both 379-frame Chroma and 378-frame LSE replay tests match
+reference positions and paths exactly. `AudioMatchmaker::new_dixon` now shares
+the audio decode/render pipeline with `arzt` while preserving the existing MIDI
+follower path.
+
+The FluidSynth/RustySynth Chroma run first differs at frame 18, with maximum
+error 0.280 beats and 100% of positions within 0.3 beats. LSE first differs at
+frame 3, with maximum position error 0.400 beats; 99.2% of positions and 99.7%
+of reconstructed path frames are within 0.5 beats. RustySynth produces one more
+LSE score-reference frame than the FluidSynth golden (379 vs. 378); the E2E test
+allows only that one-frame tail difference, checks all shared timestamps exactly,
+and verifies every reported beat stays within the synthesized score-frame map.
 
 ### T002: Dependency and target checks complete
 
@@ -246,7 +274,6 @@ audio `arzt`; Dixon facade wiring, audio exports, and benchmarks remain open.
 
 The full `cargo deny check` did not reach advisory validation: fetching the
 RustSec database failed with proxy HTTP 407. The full advisory gate remains
-unverified and must be rerun when network access is available. Processor goldens
-and local SF2 score-render smoke tests now pass. Arzt end-to-end alignment has
-been measured under T012; Dixon alignment parity and the benchmark remain open.
-FluidSynth/RustySynth waveform parity is not claimed.
+unverified and must be rerun when network access is available. Arzt and Dixon
+end-to-end alignment have been measured; audio exports and the benchmark remain
+open. FluidSynth/RustySynth waveform parity is not claimed.

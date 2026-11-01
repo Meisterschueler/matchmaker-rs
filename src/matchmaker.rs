@@ -19,6 +19,7 @@ use crate::dp::Distance;
 use crate::dp::arzt::{ArztEvent, ArztEventConfig};
 use crate::dp::arzt_frame::ArztFrame;
 use crate::dp::dixon::{DixonEvent, DixonEventConfig};
+use crate::dp::dixon_frame::DixonFrame;
 use crate::error::{Error, Result};
 use crate::features::{
     AudioProcessor, Observation, Processor, chord_onset::ChordOnsetProcessor,
@@ -817,7 +818,7 @@ pub struct AudioMatchmaker {
     reference: ScoreAudioReference,
     processor: Box<dyn AudioProcessor>,
     cache_size: usize,
-    follower: ArztFrame,
+    follower: Box<dyn OnlineAlignment>,
 }
 
 impl AudioMatchmaker {
@@ -828,7 +829,27 @@ impl AudioMatchmaker {
         tempo: Option<f64>,
         unfold: bool,
     ) -> Result<Self> {
-        config.validate(AudioMethod::Arzt)?;
+        Self::new_audio(score_path, AudioMethod::Arzt, config, tempo, unfold)
+    }
+
+    /// Load a score and build its audio reference for the audio `dixon` method.
+    pub fn new_dixon(
+        score_path: impl AsRef<Path>,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        Self::new_audio(score_path, AudioMethod::Dixon, config, tempo, unfold)
+    }
+
+    fn new_audio(
+        score_path: impl AsRef<Path>,
+        method: AudioMethod,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        config.validate(method)?;
         let soundfont_path = config
             .soundfont_path
             .as_ref()
@@ -851,13 +872,21 @@ impl AudioMatchmaker {
             score.tempo = Some(tempo);
         }
         let tempo = score.tempo.unwrap_or(DEFAULT_TEMPO);
-        let reference = build_reference(&score, soundfont_path, &config, AudioMethod::Arzt)?;
-        let follower = ArztFrame::new(
-            reference.features.clone(),
-            reference.score_positions.clone(),
-            reference.frame_to_beat.clone(),
-            config.clone(),
-        )?;
+        let reference = build_reference(&score, soundfont_path, &config, method)?;
+        let follower: Box<dyn OnlineAlignment> = match method {
+            AudioMethod::Arzt => Box::new(ArztFrame::new(
+                reference.features.clone(),
+                reference.score_positions.clone(),
+                reference.frame_to_beat.clone(),
+                config.clone(),
+            )?),
+            AudioMethod::Dixon => Box::new(DixonFrame::new(
+                reference.features.clone(),
+                reference.score_positions.clone(),
+                reference.frame_to_beat.clone(),
+                config.clone(),
+            )?),
+        };
         let (processor, cache_size) = make_audio_processor(&config, hop_length);
 
         Ok(Self {
