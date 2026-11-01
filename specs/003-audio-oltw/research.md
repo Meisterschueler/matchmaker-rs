@@ -159,6 +159,18 @@ stateful LSE FFT/frequency mapping, normalization, reset, and DEBUG spans.
 an alignment observation, preserving the reference's LSE history. Processor
 goldens pass for all four method/processor configurations.
 
+### T009/T010: Synthesized score reference
+
+Added `ScoreAudioReference` and an explicit SF2-backed RustySynth renderer. The
+builder processes the rendered samples through the selected audio processor,
+keeps per-frame beat mapping and score onset positions, and adds a DEBUG render
+span. Tests verify the local pinned SF2 render, onset padding, final 0.1-second
+crop, feature/map cardinality, and deterministic processor reset. The local SF2
+tests pass; they skip when that ignored local asset is absent. WASM, Rust 1.88,
+format, clippy, and the 22 focused audio/MIDI regression tests pass. Waveform and
+end-to-end parity against FluidSynth remains unmeasured because FluidSynth is
+unavailable; T011 remains open for its end-to-end fixture/golden outputs.
+
 ### T002: Dependency and target checks complete
 
 - Symphonia 0.6.1: MPL-2.0, declared MSRV 1.85; defaults disabled, with only
