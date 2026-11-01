@@ -122,6 +122,16 @@ Therefore no WAV or golden outputs were generated; T011 remains open. The
 generator documents the optional FluidSynth prerequisite, which is not a Rust
 runtime dependency.
 
+### T004: Audio core types
+
+Added separate `AudioMethod`, `AudioProcessorKind`, `AudioDistance`, and
+`AudioMethodConfig` types with the reference's arzt/chroma/30-fps/Manhattan and
+dixon/lse/50-fps/Euclidean defaults. Added typed audio decode, render, and
+configuration errors; existing MIDI method and config defaults are unchanged.
+`cargo test --test method_config` passes (13 tests), as does
+`cargo fmt --all -- --check`. Pipeline wiring and decoder/processor behavior
+remain unimplemented.
+
 ### T002: Dependency and target checks complete
 
 - Symphonia 0.6.1: MPL-2.0, declared MSRV 1.85; defaults disabled, with only

@@ -110,6 +110,46 @@ impl FromStr for Method {
     }
 }
 
+/// A frame-level score-following method for prerecorded audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioMethod {
+    /// Frame-level OLTW with a bounded step advance.
+    Arzt,
+    /// Frame-level OLTW with a normalized sparse cost search.
+    Dixon,
+}
+
+impl AudioMethod {
+    /// Reference names of the supported audio methods.
+    pub const AVAILABLE: [&'static str; 2] = ["arzt", "dixon"];
+
+    /// Reference name of this method.
+    pub fn name(self) -> &'static str {
+        match self {
+            AudioMethod::Arzt => "arzt",
+            AudioMethod::Dixon => "dixon",
+        }
+    }
+}
+
+impl FromStr for AudioMethod {
+    type Err = Error;
+
+    fn from_str(name: &str) -> Result<Self> {
+        match name {
+            "arzt" => Ok(AudioMethod::Arzt),
+            "dixon" => Ok(AudioMethod::Dixon),
+            _ => Err(Error::AudioConfig {
+                key: "method".into(),
+                reason: format!(
+                    "unknown audio method {name:?}; available: {:?}",
+                    AudioMethod::AVAILABLE
+                ),
+            }),
+        }
+    }
+}
+
 /// Feature processor (processor keys of the reference's `methods.yaml`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessorKind {
@@ -147,6 +187,184 @@ impl FromStr for ProcessorKind {
                 ),
             }),
         }
+    }
+}
+
+/// Feature processor used by a frame-level audio method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioProcessorKind {
+    /// Twelve-bin chromagram from an STFT.
+    Chroma,
+    /// Log-spectral energy onset feature.
+    Lse,
+}
+
+impl AudioProcessorKind {
+    /// Reference names of the supported audio processors.
+    pub const AVAILABLE: [&'static str; 2] = ["chroma", "lse"];
+
+    /// Reference name of this processor.
+    pub fn name(self) -> &'static str {
+        match self {
+            AudioProcessorKind::Chroma => "chroma",
+            AudioProcessorKind::Lse => "lse",
+        }
+    }
+}
+
+impl FromStr for AudioProcessorKind {
+    type Err = Error;
+
+    fn from_str(name: &str) -> Result<Self> {
+        match name {
+            "chroma" => Ok(AudioProcessorKind::Chroma),
+            "lse" => Ok(AudioProcessorKind::Lse),
+            _ => Err(Error::AudioConfig {
+                key: "processor".into(),
+                reason: format!(
+                    "unknown audio processor {name:?}; available: {:?}",
+                    AudioProcessorKind::AVAILABLE
+                ),
+            }),
+        }
+    }
+}
+
+/// Local distance functions used by audio-frame followers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioDistance {
+    /// Manhattan (L1) distance, the audio Arzt default.
+    Manhattan,
+    /// Euclidean (L2) distance, the audio Dixon default.
+    Euclidean,
+}
+
+impl FromStr for AudioDistance {
+    type Err = Error;
+
+    fn from_str(name: &str) -> Result<Self> {
+        match name {
+            "manhattan" => Ok(AudioDistance::Manhattan),
+            "euclidean" => Ok(AudioDistance::Euclidean),
+            _ => Err(Error::AudioConfig {
+                key: "distance_func".into(),
+                reason: format!(
+                    "unknown audio distance {name:?}; available: [\"manhattan\", \"euclidean\"]"
+                ),
+            }),
+        }
+    }
+}
+
+/// Configuration kept separate from [`MethodConfig`] so audio defaults cannot change MIDI.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioMethodConfig {
+    /// Feature processor.
+    pub processor: AudioProcessorKind,
+    /// Target mono sample rate in hertz.
+    pub sample_rate: u32,
+    /// Frame rate when `hop_length` is `None`.
+    pub frame_rate: u32,
+    /// Explicit hop length in samples; overrides `frame_rate` when set.
+    pub hop_length: Option<usize>,
+    /// Per-frame processor norm (`None` disables normalization; infinity is valid).
+    pub norm: Option<f64>,
+    /// Required local SF2 path for runtime score synthesis.
+    pub soundfont_path: Option<std::path::PathBuf>,
+    /// Search window in seconds.
+    pub window_size: f64,
+    /// Arzt initial search window in seconds.
+    pub start_window_size: Option<f64>,
+    /// Arzt maximum score-frame advance per input frame.
+    pub step_size: Option<usize>,
+    /// Dixon maximum consecutive one-sided advances.
+    pub max_run_count: Option<usize>,
+    /// Local feature distance.
+    pub distance_func: AudioDistance,
+}
+
+impl AudioMethodConfig {
+    /// Reference defaults for the selected audio method.
+    pub fn for_method(method: AudioMethod) -> Self {
+        let arzt = method == AudioMethod::Arzt;
+        Self {
+            processor: if arzt {
+                AudioProcessorKind::Chroma
+            } else {
+                AudioProcessorKind::Lse
+            },
+            sample_rate: 44_100,
+            frame_rate: if arzt { 30 } else { 50 },
+            hop_length: None,
+            norm: Some(if arzt { f64::INFINITY } else { 2.0 }),
+            soundfont_path: None,
+            window_size: 10.0,
+            start_window_size: arzt.then_some(0.1),
+            step_size: arzt.then_some(3),
+            max_run_count: (!arzt).then_some(3),
+            distance_func: if arzt {
+                AudioDistance::Manhattan
+            } else {
+                AudioDistance::Euclidean
+            },
+        }
+    }
+
+    /// Validate shared audio values and method-specific parameter ranges.
+    pub fn validate(&self, method: AudioMethod) -> Result<()> {
+        let invalid = |key: &str, reason: &str| Error::AudioConfig {
+            key: key.into(),
+            reason: reason.into(),
+        };
+        if self.sample_rate == 0 {
+            return Err(invalid("sample_rate", "must be at least 1 Hz"));
+        }
+        if self.hop_length == Some(0) {
+            return Err(invalid("hop_length", "must be at least 1 sample"));
+        }
+        if self.hop_length.is_none() && self.frame_rate == 0 {
+            return Err(invalid("frame_rate", "must be at least 1 frame per second"));
+        }
+        if !self.window_size.is_finite() || self.window_size <= 0.0 {
+            return Err(invalid(
+                "window_size",
+                "must be a positive number of seconds",
+            ));
+        }
+        if self.norm.is_some_and(|norm| norm.is_nan() || norm <= 0.0) {
+            return Err(invalid("norm", "must be positive or None"));
+        }
+        match method {
+            AudioMethod::Arzt => {
+                if self.max_run_count.is_some() {
+                    return Err(invalid("max_run_count", "is only valid for audio dixon"));
+                }
+                if self
+                    .start_window_size
+                    .is_some_and(|size| !size.is_finite() || size <= 0.0)
+                {
+                    return Err(invalid(
+                        "start_window_size",
+                        "must be a positive number of seconds",
+                    ));
+                }
+                if self.step_size == Some(0) {
+                    return Err(invalid("step_size", "must be at least 1"));
+                }
+            }
+            AudioMethod::Dixon => {
+                if self.start_window_size.is_some() || self.step_size.is_some() {
+                    return Err(invalid(
+                        "start_window_size/step_size",
+                        "are only valid for audio arzt",
+                    ));
+                }
+                if self.max_run_count == Some(0) {
+                    return Err(invalid("max_run_count", "must be at least 1"));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
