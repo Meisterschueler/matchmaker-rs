@@ -41,6 +41,7 @@ pub fn golden_pieces() -> Vec<String> {
         .expect("tests/golden exists")
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_dir())
+        .filter(|e| e.file_name() != "audio")
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     pieces.sort();

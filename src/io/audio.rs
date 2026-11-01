@@ -5,10 +5,10 @@
 //! ```
 //! use matchmaker_rs::io::audio::AudioStream;
 //! let stream = AudioStream::open(
-//!     "tests/data/audio/simple_mozart_k265_var1_sf2.wav",
+//!     "tests/data/audio/codec_samples/decoder_tone.wav",
 //!     44_100,
-//!     1_470,
-//!     1_470,
+//!     4_410,
+//!     4_410,
 //! )?;
 //! println!("{} audio frames", stream.len());
 //! # Ok::<(), matchmaker_rs::Error>(())
