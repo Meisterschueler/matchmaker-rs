@@ -12,6 +12,7 @@
 use std::collections::BTreeSet;
 
 use super::hidden_markov::Banded;
+use crate::utils::np_sum::np_sum;
 
 /// `scipy.stats.gumbel_l.pdf(x, loc, scale) = exp(z - exp(z)) / scale`, `z = (x - loc) / scale`.
 pub fn gumbel_l_pdf(x: f64, loc: f64, scale: f64) -> f64 {
@@ -25,6 +26,8 @@ pub fn gumbel_l_pdf(x: f64, loc: f64, scale: f64) -> f64 {
 pub fn stable_transition_matrix(n: usize, scale: f64, inserted_states: bool) -> Banded {
     // gumbel_l.pdf is exactly 0 for z > ~6.6 and z < ~-745; only that band is evaluated
     let (below, above) = ((760.0 * scale) as usize, (10.0 * scale) as usize + 1);
+    // `transition_matrix.sum(1)` runs over the whole row, zeros included
+    let mut row = vec![0.0; n];
     let rows = (0..n)
         .map(|i| {
             let loc = if inserted_states && i % 2 == 0 {
@@ -34,11 +37,12 @@ pub fn stable_transition_matrix(n: usize, scale: f64, inserted_states: bool) -> 
             };
             let start = loc.saturating_sub(below).min(n);
             let end = (loc + above).min(n);
-            let mut values: Vec<f64> = (start..end)
-                .map(|j| gumbel_l_pdf(j as f64, loc as f64, scale))
-                .collect();
-            let sum: f64 = values.iter().sum();
-            values.iter_mut().for_each(|v| *v /= sum);
+            for (j, v) in row[start..end].iter_mut().enumerate() {
+                *v = gumbel_l_pdf((start + j) as f64, loc as f64, scale);
+            }
+            let sum = np_sum(&row);
+            let values = row[start..end].iter().map(|v| v / sum).collect();
+            row[start..end].fill(0.0);
             (start, values)
         })
         .collect();
@@ -111,7 +115,7 @@ pub fn compute_discrete_pitch_profiles(
         } else {
             row_eps
         };
-        let sum: f64 = row_eps.iter().sum();
+        let sum = np_sum(&row_eps);
         *row = row_eps.into_iter().map(|v| v / sum).collect();
     }
     rows

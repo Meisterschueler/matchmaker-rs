@@ -26,6 +26,7 @@ use super::hidden_markov::argmax;
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::features::Observation;
 use crate::score::Score;
+use crate::utils::np_sum::np_sum;
 
 /// Notes closer than this (seconds) to the previous note belong to the same chord.
 pub const IOI_THRESHOLD: f64 = 0.035;
@@ -183,8 +184,10 @@ fn transition_band(n: usize, transitions: &[(i64, f64)]) -> Vec<f64> {
         value + f64::EPSILON
     };
     let mut band = vec![0.0; n * BAND];
+    let mut row = vec![0.0; n];
     for j in 0..n {
-        let row_sum: f64 = (0..n).map(|i| raw(j, i)).sum();
+        row.iter_mut().enumerate().for_each(|(i, r)| *r = raw(j, i));
+        let row_sum = np_sum(&row);
         for i in j.saturating_sub(D1)..(j + D2 + 1).min(n) {
             band[j * BAND + (i + D1 - j)] = raw(j, i) / row_sum;
         }
@@ -307,7 +310,7 @@ impl OuterProductHmm {
                 b[i] * if skip >= local_max { skip } else { local_max }
             })
             .collect();
-        let sum: f64 = new_probs.iter().sum();
+        let sum = np_sum(&new_probs);
         if sum > 0.0 {
             new_probs.iter_mut().for_each(|v| *v /= sum);
             new_probs
