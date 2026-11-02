@@ -155,8 +155,12 @@ Extended `generate_audio.py --processors-only` to produce a deterministic
 three-tone signal and locked pymatchmaker outputs for `chroma`/`lse` at both
 method frame rates. `tests/golden_audio_processors.rs` checks feature arrays,
 frame counts and times for all four combinations, plus LSE reset and silence.
-The checked-in comparisons pass at the documented `2e-4` relative and `1e-6`
-absolute feature tolerances.
+The checked-in comparisons use a `2e-4` relative and `1e-6` absolute feature
+tolerance. The macOS LSE synthetic-feature test alone allows `2e-5` absolute
+error: its CI run differed from the pinned reference by at most `1.68e-5`
+(first reported difference at index 875), while Linux and Windows pass the
+stricter tolerance. The exception is isolated to that test and does not loosen
+golden metadata or general export comparisons.
 
 ### T008: Audio feature processors
 
