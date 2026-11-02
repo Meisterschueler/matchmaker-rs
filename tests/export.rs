@@ -183,10 +183,6 @@ fn audio_export_requires_a_recorded_run() {
     let soundfont = data(
         "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2",
     );
-    if !soundfont.is_file() {
-        eprintln!("skipping audio export guard test: local pinned SF2 is unavailable");
-        return;
-    }
     let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
     config.soundfont_path = Some(soundfont);
     let matchmaker =

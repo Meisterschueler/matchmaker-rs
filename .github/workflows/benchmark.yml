@@ -9,13 +9,6 @@ on:
     branches: [master]
   pull_request:
     paths: ["src/**", "crates/**", "tools/bench/**", "tools/datasets/**", ".github/workflows/benchmark.yml"]
-  workflow_dispatch:
-    inputs:
-      audio_soundfont_url:
-        description: "Override the repository AUDIO_SOUNDFONT_URL for this run"
-        required: false
-        type: string
-
 concurrency:
   group: benchmark-${{ github.ref }}
   cancel-in-progress: true
@@ -73,19 +66,18 @@ jobs:
       - name: Audio benchmark
         if: matrix.dataset == 'bundled'
         env:
-          AUDIO_SOUNDFONT_URL: ${{ inputs.audio_soundfont_url || vars.AUDIO_SOUNDFONT_URL || '' }}
+          AUDIO_SOUNDFONT_URL: https://freepats.zenvoid.org/Piano/UprightPianoKW/UprightPianoKW-small-SF2-20190703.7z
         run: |
           mkdir -p out/audio/rust out/audio/python
-          if [ -z "$AUDIO_SOUNDFONT_URL" ]; then
-            echo "Set the repository variable AUDIO_SOUNDFONT_URL to the pinned CC0 SF2 URL." >&2
-            exit 1
-          fi
-          case "$AUDIO_SOUNDFONT_URL" in https://*) ;; *) echo "audio_soundfont_url must use HTTPS" >&2; exit 1 ;; esac
           sudo apt-get update
-          sudo apt-get install -y libfluidsynth3
-          mkdir -p target/audio-assets/UprightPianoKW-small-SF2-20190703
-          curl -fsSL "$AUDIO_SOUNDFONT_URL" -o target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2
-          echo "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F  target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2" | sha256sum --check
+          sudo apt-get install -y libfluidsynth3 7zip
+          mkdir -p target/audio-assets
+          archive=target/audio-assets/UprightPianoKW-small-SF2-20190703.7z
+          curl -fsSL "$AUDIO_SOUNDFONT_URL" -o "$archive"
+          echo "3BD025E7C2FFA9E6F3F99215CE383C9CEBBAC991CFBF9BE1453CDB4328EC3492  $archive" | sha256sum --check
+          7z x "$archive" -otarget/audio-assets -y
+          soundfont=target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2
+          echo "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F  $soundfont" | sha256sum --check
           touch tools/golden/.venv/lib/python3.12/site-packages/partitura/assets/MuseScore_General.sf3
           cargo run --release -p matchmaker-cli -- bench tools/bench/audio.toml --out out/audio/rust/records.json --runs "$RUNS_RUST" --methods arzt,dixon
           cd tools/golden

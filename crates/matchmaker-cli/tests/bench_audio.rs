@@ -21,10 +21,10 @@ fn npy_f64(path: &Path) -> Vec<f64> {
 
 #[test]
 fn bench_writes_audio_records_and_alignment_path() {
+    let root_dir = root();
     let dir = std::env::temp_dir().join("matchmaker_cli_bench_audio");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let root_dir = root();
     let manifest = dir.join("audio.toml");
     std::fs::write(
         &manifest,

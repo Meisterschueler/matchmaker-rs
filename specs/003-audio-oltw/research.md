@@ -273,10 +273,11 @@ smoke run correctly reports the expected first score-feature renderer deviation.
 
 `tools/bench/audio.toml` runs the same bundled WAV through Rust and pinned
 pymatchmaker with five runs per implementation. The benchmark workflow reads
-the direct SF2 URL from the repository variable `AUDIO_SOUNDFONT_URL`, with a
-workflow-dispatch override, verifies the pinned SoundFont SHA-256, installs
-native FluidSynth, and publishes only derived benchmark records. It fails
-instead of silently skipping the audio benchmark when no URL is configured.
+the fixed, direct HTTPS URL of the pinned FreePats 7-Zip archive. It verifies
+the archive and extracted SF2 SHA-256 values, installs 7-Zip and native
+FluidSynth, and publishes only derived benchmark records. The general CI
+workflow performs the same verified download once and supplies the SF2 as an
+artifact to the Rust platform matrix and Python binding tests.
 
 The paired five-run Windows report measured median feature/inference latency of
 1.778/0.0039 ms Rust and 2.464/0.08515 ms Python for Arzt, and

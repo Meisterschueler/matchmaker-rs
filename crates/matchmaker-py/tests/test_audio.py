@@ -33,9 +33,6 @@ def make_audio(method="arzt", **kwargs):
 
 
 def test_audio_arzt_defaults_yield_positions_and_return_path():
-    if not SOUNDFONT.is_file():
-        pytest.skip("local pinned SF2 is unavailable")
-
     assert matchmaker_rs.AVAILABLE_METHODS["audio"] == ["arzt", "dixon"]
     defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["arzt"]
     assert defaults["processor"] == "chroma"
@@ -66,9 +63,6 @@ def test_audio_arzt_defaults_yield_positions_and_return_path():
 
 
 def test_audio_arzt_reports_typed_configuration_and_file_errors():
-    if not SOUNDFONT.is_file():
-        pytest.skip("local pinned SF2 is unavailable")
-
     with pytest.raises(ValueError, match="soundfont_path"):
         Matchmaker(
             score_file=str(SCORE),
@@ -92,9 +86,6 @@ def test_audio_arzt_reports_typed_configuration_and_file_errors():
 
 
 def test_audio_dixon_defaults_yield_positions_and_allow_processor_override():
-    if not SOUNDFONT.is_file():
-        pytest.skip("local pinned SF2 is unavailable")
-
     defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["dixon"]
     assert defaults["processor"] == "lse"
     assert defaults["frame_rate"] == 50
@@ -144,9 +135,6 @@ def test_audio_dixon_defaults_yield_positions_and_allow_processor_override():
 
 
 def test_audio_arzt_lse_override_uses_l2_default():
-    if not SOUNDFONT.is_file():
-        pytest.skip("local pinned SF2 is unavailable")
-
     mm = make_audio("arzt", processor="lse")
     positions = list(mm.run(verbose=False))
     expected = np.load(GOLDEN / "arzt_lse" / "positions.npy")
@@ -155,9 +143,6 @@ def test_audio_arzt_lse_override_uses_l2_default():
 
 @pytest.mark.parametrize("method,processor", [("arzt", "chroma"), ("dixon", "lse")])
 def test_audio_export_writes_pipeline_stages_without_consuming_run(method, processor, tmp_path):
-    if not SOUNDFONT.is_file():
-        pytest.skip("local pinned SF2 is unavailable")
-
     mm = make_audio(method, processor=processor)
     mm.export(tmp_path)
     for name in [

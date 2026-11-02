@@ -58,7 +58,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py` | MIDI/audio CLI surface |
 | `tools/bench/run_reference.py` | `matchmaker/matchmaker.py`, `matchmaker/utils/eval.py` | pinned MIDI/audio benchmark runner |
 
-Not ported: audio `outerhmm`, `OnlineTimeWarpingArztMultiFold`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`, `ArztTempoModel` (`utils/tempo_models.py`), live audio/MIDI devices and thread/queue plumbing, and audio ground-truth CLI evaluation. Audio benchmark CI requires the repository variable `AUDIO_SOUNDFONT_URL` to point to the pinned SF2; the workflow verifies its hash and does not bundle it.
+Not ported: audio `outerhmm`, `OnlineTimeWarpingArztMultiFold`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`, `ArztTempoModel` (`utils/tempo_models.py`), live audio/MIDI devices and thread/queue plumbing, and audio ground-truth CLI evaluation. The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.
 
 ## Procedure: a new upstream release
 

@@ -17,10 +17,6 @@ fn pinned_soundfont() -> PathBuf {
 #[test]
 fn score_audio_includes_onset_padding_tail_features_and_beat_map() {
     let soundfont = pinned_soundfont();
-    if !soundfont.is_file() {
-        eprintln!("skipping score audio renderer test: local pinned SF2 is unavailable");
-        return;
-    }
     let score = Score::load(data("simple_mozart_k265_var1.musicxml"), true).unwrap();
     let config = AudioMethodConfig::for_method(AudioMethod::Arzt);
     let reference = build_reference(&score, &soundfont, &config, AudioMethod::Arzt).unwrap();
@@ -70,10 +66,6 @@ fn score_audio_includes_onset_padding_tail_features_and_beat_map() {
 #[test]
 fn score_audio_renders_a_leading_rest_only_once() {
     let soundfont = pinned_soundfont();
-    if !soundfont.is_file() {
-        eprintln!("skipping score audio renderer test: local pinned SF2 is unavailable");
-        return;
-    }
     let score = Score::load(data("audio/leading_rest.musicxml"), false).unwrap();
     let tempo = score.tempo.unwrap_or(120.0);
     let padding = (f64::from(score.notes[0].onset_quarter) * 60.0 / tempo
@@ -95,10 +87,6 @@ fn score_audio_renders_a_leading_rest_only_once() {
 #[test]
 fn score_audio_processor_state_resets_between_builds() {
     let soundfont = pinned_soundfont();
-    if !soundfont.is_file() {
-        eprintln!("skipping score audio reset test: local pinned SF2 is unavailable");
-        return;
-    }
     let score = Score::load(data("simple_mozart_k265_var1.musicxml"), true).unwrap();
     let config = AudioMethodConfig::for_method(AudioMethod::Dixon);
     let first = build_reference(&score, &soundfont, &config, AudioMethod::Dixon).unwrap();

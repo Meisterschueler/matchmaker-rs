@@ -42,9 +42,9 @@ cargo run --release -p matchmaker-cli -- follow score.musicxml performance.wav -
 ```
 
 The runtime is pure Rust; FluidSynth is only needed to generate Python reference fixtures and
-benchmark records. Audio `--ground-truth` evaluation is not implemented yet. The audio benchmark
-uses the repository variable `AUDIO_SOUNDFONT_URL` (or a workflow-dispatch override)
-to retrieve the pinned SF2; CI verifies its SHA-256 and does not retain the binary asset.
+benchmark records. Audio `--ground-truth` evaluation is not implemented yet. The CI workflows
+download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2
+hashes, and provide the SoundFont to audio tests as a temporary artifact.
 
 ## Python
 

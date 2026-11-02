@@ -281,11 +281,6 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
     let soundfont = data(
         "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2",
     );
-    if !soundfont.is_file() {
-        eprintln!("skipping audio edge test: local pinned SF2 is unavailable");
-        return;
-    }
-
     let short = audio_wav("audio_short", 1, &[0; 100]);
     let silent = audio_wav("audio_silent", 1, &vec![0; 44_100]);
     let empty = audio_wav("audio_empty", 1, &[]);

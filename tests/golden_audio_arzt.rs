@@ -109,11 +109,6 @@ fn report_renderer_deviation(processor: &str, expected: &[f64], actual: &[f64]) 
 #[test]
 fn rust_audio_pipeline_matches_reference_alignment() {
     let soundfont = pinned_soundfont();
-    if !soundfont.is_file() {
-        eprintln!("skipping audio Arzt end-to-end test: local pinned SF2 is unavailable");
-        return;
-    }
-
     for (name, norm) in [("chroma", f64::INFINITY), ("lse", 2.0)] {
         let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
         config.set_processor(name.parse().unwrap());

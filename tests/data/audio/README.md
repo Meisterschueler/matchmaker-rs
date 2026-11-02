@@ -36,6 +36,11 @@ Keep the archive and extracted files outside tracked fixture directories, for
 example in `target/audio-assets/`. Pass the local SF2 path explicitly to the
 audio constructor, `--soundfont-path`, or Python `soundfont_path` option. The
 generator verifies the pinned SF2 hash and records it in score-derived metadata.
+The CI workflows download the exact pinned `.7z` archive from its fixed HTTPS
+URL, verify the archive hash, extract it under `target/audio-assets/`, and
+verify the extracted SF2 hash. The general CI workflow distributes the
+verified SF2 to platform and Python test jobs as a short-lived artifact; it is
+not committed to the repository or included in benchmark reports.
 
 ### Verification status (2026-11-01)
 

@@ -125,11 +125,6 @@ fn replayed_audio_observations_match_reference() {
 #[test]
 fn rust_audio_pipeline_matches_reference_alignment() {
     let soundfont = pinned_soundfont();
-    if !soundfont.is_file() {
-        eprintln!("skipping audio Dixon end-to-end test: local pinned SF2 is unavailable");
-        return;
-    }
-
     for (name, norm) in [("chroma", f64::INFINITY), ("lse", 2.0)] {
         let mut config = AudioMethodConfig::for_method(AudioMethod::Dixon);
         config.set_processor(name.parse().unwrap());

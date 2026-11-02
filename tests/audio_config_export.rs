@@ -47,11 +47,6 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
 #[test]
 fn recorded_audio_run_exports_all_stages_as_numpy_arrays() {
     let soundfont = pinned_soundfont();
-    if !soundfont.is_file() {
-        eprintln!("skipping audio export test: local pinned SF2 is unavailable");
-        return;
-    }
-
     let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
     config.set_processor(AudioProcessorKind::Lse);
     config.norm = Some(2.0);
