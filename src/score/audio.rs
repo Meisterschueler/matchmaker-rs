@@ -124,13 +124,13 @@ pub fn render_score_audio(
         .round()
         .max(0.0) as usize;
         events.push(MidiEvent {
-            sample: start,
+            sample: start.saturating_sub(padding),
             pitch: note.pitch,
             velocity: 64,
             is_note_on: true,
         });
         events.push(MidiEvent {
-            sample: end,
+            sample: end.saturating_sub(padding),
             pitch: note.pitch,
             velocity: 0,
             is_note_on: false,

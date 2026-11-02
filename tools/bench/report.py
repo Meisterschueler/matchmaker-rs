@@ -37,6 +37,12 @@ REGRESSION = 1.10
 DATASETS = Path(__file__).parent.parent / "datasets" / "datasets.toml"
 
 
+def regression_status(current: float | None, previous: float | None) -> bool | None:
+    if current is None or previous is None:
+        return None
+    return current > REGRESSION * previous
+
+
 def load(paths: list[Path]) -> dict:
     """(records, directory of their paths/) grouped by (method, dataset, piece)."""
     groups: dict = {}
@@ -152,7 +158,7 @@ def main() -> None:
                 "speed_up": p["total_s"] / r["total_s"] if r["total_s"] and p["total_s"] else None,
                 "metric_parity": metric_parity,
                 "position_parity": parity,
-                "regression": bool(previous and r["inference_ms"] and r["inference_ms"] > REGRESSION * previous),
+                "regression": regression_status(r["inference_ms"], previous),
             }
         )
 
@@ -175,12 +181,14 @@ def main() -> None:
         pos_text = "-" if pos is None else flag(pos["ok"]) + f" {pos['class']} max {pos['max_diff']:.2e}" + (
             "" if pos["first_differing_step"] is None else f" (step {pos['first_differing_step']})"
         )
+        regression = row["regression"]
+        regression_text = "n/a" if regression is None else "REGRESSION" if regression else "ok"
         lines.append(
             f"| {row['method']} | {row['dataset']} | {row['piece']} "
             f"| {fmt(r['feature_ms'])} / {fmt(p['feature_ms'])} | {fmt(r['inference_ms'])} / {fmt(p['inference_ms'])} "
             f"| {fmt(row['speed_up'], '.1f')} | {fmt(r['real_time_factor'])} | {fmt(ev.get('mean_b'))} "
             f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "
-            f"| {pos_text} | {'REGRESSION' if row['regression'] else ''} |"
+            f"| {pos_text} | {regression_text} |"
         )
     datasets = tomllib.loads(DATASETS.read_text(encoding="utf-8"))
     used = sorted({row["dataset"] for row in rows} & set(datasets))

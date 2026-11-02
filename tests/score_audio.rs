@@ -5,7 +5,7 @@ mod common;
 use common::data;
 use matchmaker_rs::matchmaker::{AudioMethod, AudioMethodConfig};
 use matchmaker_rs::score::Score;
-use matchmaker_rs::score::audio::build_reference;
+use matchmaker_rs::score::audio::{build_reference, render_score_audio};
 use std::path::PathBuf;
 
 fn pinned_soundfont() -> PathBuf {
@@ -65,6 +65,31 @@ fn score_audio_includes_onset_padding_tail_features_and_beat_map() {
             .iter()
             .all(|&sample| sample == 0.0)
     );
+}
+
+#[test]
+fn score_audio_renders_a_leading_rest_only_once() {
+    let soundfont = pinned_soundfont();
+    if !soundfont.is_file() {
+        eprintln!("skipping score audio renderer test: local pinned SF2 is unavailable");
+        return;
+    }
+    let score = Score::load(data("audio/leading_rest.musicxml"), false).unwrap();
+    let tempo = score.tempo.unwrap_or(120.0);
+    let padding = (f64::from(score.notes[0].onset_quarter) * 60.0 / tempo
+        * f64::from(AudioMethodConfig::for_method(AudioMethod::Arzt).sample_rate))
+        as usize;
+    let samples = render_score_audio(
+        &score,
+        &soundfont,
+        AudioMethodConfig::for_method(AudioMethod::Arzt).sample_rate,
+        tempo,
+    )
+    .unwrap();
+
+    assert!(padding > 0);
+    assert!(samples[..padding].iter().all(|&sample| sample == 0.0));
+    assert!(samples[padding..].iter().any(|&sample| sample.abs() > 1e-5));
 }
 
 #[test]
