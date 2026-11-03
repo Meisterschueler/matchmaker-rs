@@ -23,20 +23,32 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 
 ## Methods and processors
 
-| Method | Processor | Note |
-|---|---|---|
-| `pthmm` (default) | `pitch`, `chord_onset` | pitch-vector HMM, MIDI score |
-| `hmm` | `pitch`, `chord_onset` | pitch lists, tempo-aware (`beat_period`) |
-| `outerhmm` | `pitch`, `chord_onset` | outer-product HMM with pitch-error model |
-| `arzt` | `chord_onset`, `pitch` | event-level online time warping over the score's onset pianoroll (cosine) |
-| `dixon` | `chord_onset`, `pitch` | event-level online time warping with a sparse, path-normalised cost matrix |
+| Method | Input | Processor | Note |
+|---|---|---|---|
+| `pthmm` (default) | MIDI | `pitch`, `chord_onset` | pitch-vector HMM |
+| `hmm` | MIDI | `pitch`, `chord_onset` | pitch lists, tempo-aware (`beat_period`) |
+| `outerhmm` | MIDI | `pitch`, `chord_onset` | outer-product HMM with pitch-error model |
+| `arzt` | MIDI | `chord_onset`, `pitch` | event-level online time warping over the onset pianoroll |
+| `dixon` | MIDI | `chord_onset`, `pitch` | event-level online time warping with sparse path-normalized costs |
+| `arzt` | Audio | `chroma`, `lse` | frame-level online time warping; defaults to `chroma` at 30 fps |
+| `dixon` | Audio | `chroma`, `lse` | frame-level online time warping; defaults to `lse` at 50 fps |
 
 Select with `--method` and `--processor`; override parameters with `--set KEY=VALUE`.
-Audio methods are not implemented yet (see Roadmap).
+Audio files support WAV, FLAC, MP3 and Ogg/Vorbis. For score synthesis, provision the pinned
+CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/README.md), then run:
+
+```text
+cargo run --release -p matchmaker-cli -- follow score.musicxml performance.wav --input-type audio --method arzt --soundfont-path target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2 --output path.tsv --export export/
+```
+
+The runtime is pure Rust; FluidSynth is only needed to generate Python reference fixtures and
+benchmark records. Audio `--ground-truth` evaluation is not implemented yet. The CI workflows
+download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2
+hashes, and provide the SoundFont to audio tests as a temporary artifact.
 
 ## Python
 
-Drop-in `Matchmaker` for MIDI input (needs Python 3.10–3.13 and `maturin`):
+`Matchmaker` supports MIDI and prerecorded audio input (needs Python 3.10–3.13 and `maturin`):
 
 ```text
 cd crates/matchmaker-py
@@ -47,6 +59,21 @@ python -m uv run --with maturin maturin develop --release
 from matchmaker_rs import Matchmaker
 mm = Matchmaker("score.musicxml", "performance.mid", input_type="midi", method="pthmm")
 positions = list(mm.run(verbose=False))
+```
+
+Audio `arzt` and `dixon` use the same generator API. Supply the pinned SF2 path in `kwargs`:
+
+```python
+mm = Matchmaker(
+  "score.musicxml",
+  "performance.wav",
+  input_type="audio",
+  method="dixon",
+  kwargs={"soundfont_path": "target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"},
+)
+positions = list(mm.run(verbose=False))
+alignment_path = mm.score_follower.alignment_path
+mm.export("export/")
 ```
 
 ## Parity and accuracy
@@ -89,7 +116,7 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 ## Roadmap
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
-2. Audio score following: frame-level `arzt`, `dixon`; processors `lse`, `chroma`.
+2. Audio score following: frame-level `arzt`, `dixon`; processors `lse`, `chroma` (implemented).
 3. Later: remaining methods (audio `outerhmm`, `skf`, `pfkorz`, `arzt_tempo`,
    `arzt_multi_fold`) and parangonar methods.
 
@@ -103,6 +130,9 @@ violation). Datasets are
 downloaded in CI at pinned commits ([tools/datasets/datasets.toml](tools/datasets/datasets.toml),
 [fetch.py](tools/datasets/fetch.py)); they are not part of this repository and keep their own
 licenses — only derived metrics are published:
+
+The bundled audio fixture can be benchmarked with `workflow_dispatch` by supplying a direct
+HTTPS URL to the pinned CC0 SF2 SoundFont; CI verifies its SHA-256 and does not retain the asset.
 
 - [(n)ASAP](https://github.com/CPJKU/asap-dataset) (CC BY-NC-SA 4.0): S. D. Peter et al.,
   TISMIR 2023, doi:10.5334/tismir.149

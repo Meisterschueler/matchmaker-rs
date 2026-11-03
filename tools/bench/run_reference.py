@@ -12,14 +12,20 @@ tools/golden environment (from tools/golden):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
 import time
 import tomllib
+from ctypes import c_int
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
+import partitura
+import soundfile as sf
 
 import matchmaker
 from matchmaker import Matchmaker
@@ -27,7 +33,13 @@ from matchmaker.utils.eval import evaluate_alignment, resolve_gt
 from matchmaker.utils.symbolic import midi_messages_from_performance
 
 METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"]
-PROCESSORS = {"PitchProcessor": "pitch", "ChordOnsetProcessor": "chord_onset"}
+SOUNDFONT_SHA256 = "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F"
+PROCESSORS = {
+    "PitchProcessor": "pitch",
+    "ChordOnsetProcessor": "chord_onset",
+    "ChromagramProcessor": "chroma",
+    "LogSpectralEnergyProcessor": "lse",
+}
 
 
 def timed(obj, times: list, only_results: bool = False) -> None:
@@ -45,6 +57,26 @@ def timed(obj, times: list, only_results: bool = False) -> None:
     obj.__class__ = type(f"Timed{base.__name__}", (base,), {"__call__": __call__})
 
 
+@contextmanager
+def use_soundfont(soundfont: Path):
+    renderer = partitura.save_wav_fluidsynth
+
+    def pinned_renderer(*args, **kwargs):
+        kwargs["soundfont"] = str(soundfont)
+        return renderer(*args, **kwargs)
+
+    with patch.object(partitura, "save_wav_fluidsynth", pinned_renderer):
+        yield
+
+
+def fluidsynth_version() -> str:
+    import fluidsynth
+
+    major, minor, micro = c_int(), c_int(), c_int()
+    fluidsynth.fluid_version(major, minor, micro)
+    return f"{major.value}.{minor.value}.{micro.value}"
+
+
 def latency(times: list) -> dict:
     if not times:
         return {"mean": None, "median": None, "p95": None, "max": None}
@@ -55,6 +87,77 @@ def latency(times: list) -> dict:
         "p95": float(np.percentile(ms, 95)),
         "max": float(ms.max()),
     }
+
+
+def run_audio_piece(piece, base, out_dir, methods, runs, environment):
+    score = base / piece["score"]
+    performance = base / piece["performance"]
+    soundfont = base / piece["soundfont"]
+    soundfont_hash = hashlib.sha256(soundfont.read_bytes()).hexdigest().upper()
+    if soundfont_hash != SOUNDFONT_SHA256:
+        raise ValueError(f"unexpected SoundFont SHA-256 {soundfont_hash}")
+    duration = float(sf.info(performance).duration)
+    records = []
+
+    for method in methods:
+        kwargs = dict(matchmaker.DEFAULT_KWARGS["audio"][method])
+        kwargs.update(piece.get("kwargs", {}))
+        kwargs["soundfont_path"] = str(soundfont)
+        if piece.get("processor"):
+            kwargs["processor"] = piece["processor"]
+        for run in range(runs):
+            feature, inference = [], []
+            with use_soundfont(soundfont):
+                mm = Matchmaker(
+                    score_file=str(score),
+                    performance_file=str(performance),
+                    input_type="audio",
+                    method=method,
+                    kwargs=kwargs,
+                )
+                processor = PROCESSORS[type(mm.processor).__name__]
+                timed(mm.processor, feature, only_results=True)
+                timed(mm.score_follower, inference)
+                for _ in mm.run(verbose=False):
+                    pass
+            path = np.asarray(mm.score_follower.alignment_path, dtype=float).reshape(2, -1)
+            frame_to_beat = mm.ref_frame_to_beat()
+            frame_indices = np.clip(path[0] * mm.frame_rate, 0, len(frame_to_beat) - 1)
+            expected_beats = np.interp(
+                frame_indices,
+                np.arange(len(frame_to_beat), dtype=float),
+                frame_to_beat,
+            )
+            evaluation = evaluate_alignment(
+                path[1], path[0], expected_beats, path[0]
+            )
+            if run == 0:
+                tsv = out_dir / "paths" / piece["dataset"] / piece["piece"] / f"{method}.tsv"
+                tsv.parent.mkdir(parents=True, exist_ok=True)
+                np.savetxt(tsv, path.T, delimiter="\t", fmt="%.17g", header="perf_sec\tscore_beat", comments="")
+            total = sum(feature) + sum(inference)
+            records.append({
+                "implementation": "python",
+                "implementation_version": matchmaker.__version__,
+                "input_type": "audio",
+                "method": method,
+                "processor": processor,
+                "dataset": piece["dataset"],
+                "piece": piece["piece"],
+                "run": run,
+                "n_observations": len(inference),
+                "performance_duration_s": duration,
+                "latency_ms": {"feature": latency(feature), "inference": latency(inference)},
+                "total_processing_s": total,
+                "real_time_factor": total / duration if duration else None,
+                "evaluation": evaluation,
+                "renderer": "FluidSynth",
+                "renderer_version": fluidsynth_version(),
+                "soundfont_sha256": soundfont_hash,
+                "environment": environment,
+            })
+            print(f"{piece['piece']} {method} run {run}: {len(inference)} observations, {total:.4f} s")
+    return records
 
 
 def main() -> None:
@@ -77,6 +180,18 @@ def main() -> None:
 
     records = []
     for p in manifest["pieces"]:
+        if p.get("input_type") == "audio":
+            records.extend(
+                run_audio_piece(
+                    p,
+                    base,
+                    out_dir,
+                    args.methods.split(","),
+                    args.runs,
+                    environment,
+                )
+            )
+            continue
         score, perf = base / p["score"], base / p["performance"]
         _, msg_times = midi_messages_from_performance(str(perf))
         duration = float(msg_times[-1]) if len(msg_times) else 0.0

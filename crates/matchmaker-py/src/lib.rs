@@ -8,11 +8,14 @@ use std::path::PathBuf;
 
 use matchmaker_rs::Error;
 use matchmaker_rs::base::AlignmentPath;
-use matchmaker_rs::export::write_run;
+use matchmaker_rs::export::{write_audio_run, write_run};
 use matchmaker_rs::io::stream::MidiMessage;
-use matchmaker_rs::matchmaker::{ConfigValue, Matchmaker as Core, Method, MethodConfig};
+use matchmaker_rs::matchmaker::{
+    AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind, ConfigValue,
+    Matchmaker as Core, Method, MethodConfig,
+};
 use matchmaker_rs::performance::Performance;
-use matchmaker_rs::score::AnnotationLevel;
+use matchmaker_rs::score::{AnnotationLevel, Score};
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::exceptions::{
@@ -30,10 +33,16 @@ fn available_methods() -> String {
     format!("[{}]", names.join(", "))
 }
 
+fn available_audio_methods() -> String {
+    "['arzt', 'dixon']".into()
+}
+
 /// Errors about parameters are `ValueError`; a file that cannot be read is `OSError`.
 fn to_py_err(err: Error) -> PyErr {
     match err {
-        Error::Io { .. } => PyOSError::new_err(err.to_string()),
+        Error::Io { .. } | Error::AudioDecode { .. } | Error::AudioRender { .. } => {
+            PyOSError::new_err(err.to_string())
+        }
         _ => PyValueError::new_err(err.to_string()),
     }
 }
@@ -93,6 +102,113 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
     Ok(kwargs)
 }
 
+fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<Bound<'py, PyDict>> {
+    let kwargs = PyDict::new(py);
+    match method {
+        AudioMethod::Arzt => {
+            kwargs.set_item("processor", "chroma")?;
+            kwargs.set_item("sample_rate", 44_100)?;
+            kwargs.set_item("frame_rate", 30)?;
+            kwargs.set_item("window_size", 10.0)?;
+            kwargs.set_item("start_window_size", 0.1)?;
+            kwargs.set_item("step_size", 3)?;
+            kwargs.set_item("distance_func", "manhattan")?;
+        }
+        AudioMethod::Dixon => {
+            kwargs.set_item("processor", "lse")?;
+            kwargs.set_item("sample_rate", 44_100)?;
+            kwargs.set_item("frame_rate", 50)?;
+            kwargs.set_item("window_size", 10.0)?;
+            kwargs.set_item("max_run_count", 3)?;
+            kwargs.set_item("distance_func", "euclidean")?;
+        }
+    }
+    Ok(kwargs)
+}
+
+fn set_audio_config(
+    config: &mut AudioMethodConfig,
+    method: AudioMethod,
+    key: &str,
+    value: ConfigValue,
+) -> PyResult<()> {
+    let number = |value: &ConfigValue| match value {
+        ConfigValue::Int(value) => Ok(*value as f64),
+        ConfigValue::Float(value) => Ok(*value),
+        _ => Err(PyValueError::new_err(format!(
+            "Invalid audio parameter {key}"
+        ))),
+    };
+    let integer = |value: &ConfigValue| match value {
+        ConfigValue::Int(value) => usize::try_from(*value)
+            .map_err(|_| PyValueError::new_err(format!("Invalid audio parameter {key}"))),
+        _ => Err(PyValueError::new_err(format!(
+            "Invalid audio parameter {key}"
+        ))),
+    };
+    match key {
+        "sample_rate" => {
+            config.sample_rate = u32::try_from(integer(&value)?)
+                .map_err(|_| PyValueError::new_err("Invalid audio parameter sample_rate"))?;
+        }
+        "frame_rate" => {
+            config.frame_rate = u32::try_from(integer(&value)?)
+                .map_err(|_| PyValueError::new_err("Invalid audio parameter frame_rate"))?;
+        }
+        "hop_length" => {
+            config.hop_length = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
+        "norm" => {
+            config.norm = match value {
+                ConfigValue::None => None,
+                ConfigValue::Str(ref value)
+                    if value.eq_ignore_ascii_case("inf")
+                        || value.eq_ignore_ascii_case("infinity") =>
+                {
+                    Some(f64::INFINITY)
+                }
+                _ => Some(number(&value)?),
+            };
+        }
+        "window_size" => config.window_size = number(&value)?,
+        "start_window_size" => {
+            config.start_window_size = match value {
+                ConfigValue::None => None,
+                _ => Some(number(&value)?),
+            };
+        }
+        "step_size" if method == AudioMethod::Arzt => {
+            config.step_size = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
+        "max_run_count" => {
+            config.max_run_count = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
+        "distance_func" => {
+            let ConfigValue::Str(value) = value else {
+                return Err(PyValueError::new_err(
+                    "Invalid audio parameter distance_func",
+                ));
+            };
+            config.distance_func = value.parse().map_err(to_py_err)?;
+        }
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid audio parameter {key}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Remove `key` from `config` and return its value.
 fn pop<'py>(config: &Bound<'py, PyDict>, key: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
     let value = config.get_item(key)?;
@@ -105,11 +221,12 @@ fn pop<'py>(config: &Bound<'py, PyDict>, key: &str) -> PyResult<Option<Bound<'py
 /// Online score following of a MIDI performance (drop-in for `matchmaker.Matchmaker`).
 #[pyclass(name = "Matchmaker", module = "matchmaker_rs", unsendable)]
 struct PyMatchmaker {
-    inner: Core,
+    inner: CorePipeline,
     performance_path: PathBuf,
     // what `export` needs to build a second, recording pipeline
     method_kind: Method,
     method_config: MethodConfig,
+    audio_config: Option<AudioMethodConfig>,
     tempo_arg: Option<f64>,
     unfold: bool,
     started: bool,
@@ -129,6 +246,140 @@ struct PyMatchmaker {
     polling_period: Option<f64>,
     #[pyo3(get, name = "_has_run")]
     has_run: bool,
+}
+
+enum CorePipeline {
+    Midi(Box<Core>),
+    Audio(Box<AudioMatchmaker>),
+}
+
+impl CorePipeline {
+    fn score(&self) -> &Score {
+        match self {
+            Self::Midi(core) => core.score(),
+            Self::Audio(core) => core.score(),
+        }
+    }
+
+    fn tempo(&self) -> f64 {
+        match self {
+            Self::Midi(core) => core.tempo(),
+            Self::Audio(core) => core.tempo(),
+        }
+    }
+
+    fn alignment_path(&self) -> &AlignmentPath {
+        match self {
+            Self::Midi(core) => core.alignment_path(),
+            Self::Audio(core) => core.alignment_path(),
+        }
+    }
+
+    fn score_positions(&self) -> Vec<f32> {
+        match self {
+            Self::Midi(core) => core.score_positions(),
+            Self::Audio(core) => core.score_positions().to_vec(),
+        }
+    }
+
+    fn follower_score_positions(&self) -> &[f32] {
+        match self {
+            Self::Midi(core) => core.follower_score_positions(),
+            Self::Audio(core) => core.score_positions(),
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn new_audio_matchmaker(
+    py: Python<'_>,
+    score_file: PathBuf,
+    performance_file: Option<PathBuf>,
+    method: Option<&str>,
+    stream: Option<&Bound<'_, PyAny>>,
+    processor: Option<&str>,
+    device_name_or_index: Option<&Bound<'_, PyAny>>,
+    tempo: Option<f64>,
+    unfold_score: bool,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<PyMatchmaker> {
+    let method_name = method.unwrap_or("arzt");
+    let audio_method: AudioMethod = method_name.parse().map_err(|_| {
+        PyValueError::new_err(format!(
+            "Invalid method '{method_name}' for audio. Available: {}",
+            available_audio_methods()
+        ))
+    })?;
+    if stream.is_some() || device_name_or_index.is_some() {
+        return Err(PyNotImplementedError::new_err(
+            "audio devices and custom streams are not supported; pass `performance_file`",
+        ));
+    }
+    let Some(performance_path) = performance_file else {
+        return Err(PyNotImplementedError::new_err(
+            "live audio input is not supported; pass `performance_file`",
+        ));
+    };
+
+    let kwargs = match kwargs {
+        Some(kwargs) => kwargs.copy()?,
+        None => default_audio_kwargs(py, audio_method)?,
+    };
+    let mut audio_config = AudioMethodConfig::for_method(audio_method);
+    let configured_processor: String = match pop(&kwargs, "processor")? {
+        Some(value) => value.extract()?,
+        None => audio_config.processor().name().into(),
+    };
+    let processor_name = processor.unwrap_or(&configured_processor);
+    audio_config.set_processor(
+        processor_name
+            .parse::<AudioProcessorKind>()
+            .map_err(to_py_err)?,
+    );
+
+    let soundfont_path = match pop(&kwargs, "soundfont_path")? {
+        Some(value) => Some(PathBuf::from(value.extract::<String>()?)),
+        None => None,
+    };
+    for (key, value) in kwargs.iter() {
+        let key = key.extract::<String>()?;
+        set_audio_config(&mut audio_config, audio_method, &key, config_value(&value)?)?;
+    }
+    audio_config.soundfont_path = soundfont_path;
+    audio_config.validate(audio_method).map_err(to_py_err)?;
+    let stored_audio_config = audio_config.clone();
+    let inner = match audio_method {
+        AudioMethod::Arzt => {
+            AudioMatchmaker::new_arzt(&score_file, audio_config, tempo, unfold_score)
+        }
+        AudioMethod::Dixon => {
+            AudioMatchmaker::new_dixon(&score_file, audio_config, tempo, unfold_score)
+        }
+    }
+    .map_err(to_py_err)?;
+    let method_kind = match audio_method {
+        AudioMethod::Arzt => Method::Arzt,
+        AudioMethod::Dixon => Method::Dixon,
+    };
+
+    Ok(PyMatchmaker {
+        tempo: inner.tempo(),
+        polling_period: None,
+        inner: CorePipeline::Audio(Box::new(inner)),
+        score_file: score_file.to_string_lossy().into_owned(),
+        performance_file: performance_path.to_string_lossy().into_owned(),
+        performance_path,
+        method_kind,
+        method_config: MethodConfig::for_method(method_kind),
+        audio_config: Some(stored_audio_config),
+        tempo_arg: tempo,
+        unfold: unfold_score,
+        input_type: "audio".into(),
+        method: method_name.into(),
+        config: kwargs.unbind(),
+        started: false,
+        has_run: false,
+    })
 }
 
 #[pymethods]
@@ -165,11 +416,23 @@ impl PyMatchmaker {
     ) -> PyResult<Self> {
         // the simulation always runs as fast as possible
         let _ = wait;
+        if input_type == "audio" {
+            return new_audio_matchmaker(
+                py,
+                score_file,
+                performance_file,
+                method,
+                stream,
+                processor,
+                device_name_or_index,
+                tempo,
+                unfold_score,
+                kwargs,
+            );
+        }
         if input_type != "midi" {
             return Err(PyValueError::new_err(format!(
-                "Invalid input_type '{input_type}': matchmaker-rs supports MIDI input only. \
-                 Available methods for midi: {}",
-                available_methods()
+                "Invalid input_type '{input_type}'. Available input types: ['midi', 'audio']"
             )));
         }
         let method_name = method.unwrap_or("pthmm");
@@ -253,12 +516,13 @@ impl PyMatchmaker {
         Ok(PyMatchmaker {
             tempo: inner.tempo(),
             polling_period: inner.polling_period(),
-            inner,
+            inner: CorePipeline::Midi(Box::new(inner)),
             score_file: score_file.to_string_lossy().into_owned(),
             performance_file: performance_path.to_string_lossy().into_owned(),
             performance_path,
             method_kind,
             method_config,
+            audio_config: None,
             tempo_arg: tempo,
             unfold: unfold_score,
             input_type: input_type.to_string(),
@@ -286,6 +550,7 @@ impl PyMatchmaker {
             messages: None,
             cursor: 0,
             pending: VecDeque::new(),
+            audio_positions: None,
             finished: false,
         })
     }
@@ -307,19 +572,50 @@ impl PyMatchmaker {
     /// Re-run the performance with recording and write the intermediate data in the layout of
     /// the golden data (compare with `tools/golden/compare.py`).
     fn export(&self, directory: PathBuf) -> PyResult<()> {
-        let mut recorded = Core::with_config(
-            &self.score_file,
-            self.method_kind,
-            self.method_config.clone(),
-            self.tempo_arg,
-            self.unfold,
-        )
-        .map_err(to_py_err)?
-        .record();
-        recorded
-            .run_file(&self.performance_path)
-            .map_err(to_py_err)?;
-        write_run(&recorded, directory).map_err(to_py_err)
+        match self.inner {
+            CorePipeline::Midi(_) => {
+                let mut recorded = Core::with_config(
+                    &self.score_file,
+                    self.method_kind,
+                    self.method_config.clone(),
+                    self.tempo_arg,
+                    self.unfold,
+                )
+                .map_err(to_py_err)?
+                .record();
+                recorded
+                    .run_file(&self.performance_path)
+                    .map_err(to_py_err)?;
+                write_run(&recorded, directory).map_err(to_py_err)
+            }
+            CorePipeline::Audio(_) => {
+                let config = self
+                    .audio_config
+                    .clone()
+                    .ok_or_else(|| PyRuntimeError::new_err("missing audio config"))?;
+                let method: AudioMethod = self.method.parse().map_err(to_py_err)?;
+                let mut recorded = match method {
+                    AudioMethod::Arzt => AudioMatchmaker::new_arzt(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                    AudioMethod::Dixon => AudioMatchmaker::new_dixon(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                }
+                .map_err(to_py_err)?
+                .record();
+                recorded
+                    .run_file(&self.performance_path)
+                    .map_err(to_py_err)?;
+                write_audio_run(&recorded, directory).map_err(to_py_err)
+            }
+        }
     }
 
     /// Score annotations: whole beats (`level="beat"`) or every onset (`"note"`), in beats
@@ -373,6 +669,7 @@ struct Run {
     messages: Option<Vec<MidiMessage>>,
     cursor: usize,
     pending: VecDeque<f64>,
+    audio_positions: Option<Vec<f64>>,
     finished: bool,
 }
 
@@ -392,25 +689,43 @@ impl Run {
                 let path = path_array(py, matchmaker.inner.alignment_path());
                 return Err(PyStopIteration::new_err(path.unbind()));
             }
-            let messages = match &self.messages {
-                Some(messages) => messages,
-                None => {
-                    let loaded = Performance::load(&matchmaker.performance_path)
-                        .map_err(to_py_err)?
-                        .messages();
-                    self.messages.insert(loaded)
-                }
-            };
-            match messages.get(self.cursor) {
-                Some(&message) => {
+            if let Some(positions) = &self.audio_positions {
+                if let Some(&position) = positions.get(self.cursor) {
                     self.cursor += 1;
-                    let positions = matchmaker.inner.push(message).map_err(to_py_err)?;
-                    self.pending.extend(positions);
+                    return Ok(position);
                 }
-                None => {
-                    self.pending.extend(matchmaker.inner.finish());
-                    self.finished = true;
-                    matchmaker.has_run = true;
+                self.finished = true;
+                matchmaker.has_run = true;
+                let path = path_array(py, matchmaker.inner.alignment_path());
+                return Err(PyStopIteration::new_err(path.unbind()));
+            }
+            let performance_path = matchmaker.performance_path.clone();
+            match &mut matchmaker.inner {
+                CorePipeline::Audio(audio) => {
+                    self.audio_positions =
+                        Some(audio.run_file(&performance_path).map_err(to_py_err)?);
+                }
+                CorePipeline::Midi(core) => {
+                    let messages = match &self.messages {
+                        Some(messages) => messages,
+                        None => {
+                            let loaded = Performance::load(&performance_path)
+                                .map_err(to_py_err)?
+                                .messages();
+                            self.messages.insert(loaded)
+                        }
+                    };
+                    match messages.get(self.cursor) {
+                        Some(&message) => {
+                            self.cursor += 1;
+                            self.pending.extend(core.push(message).map_err(to_py_err)?);
+                        }
+                        None => {
+                            self.pending.extend(core.finish());
+                            self.finished = true;
+                            matchmaker.has_run = true;
+                        }
+                    }
                 }
             }
         }
@@ -465,6 +780,7 @@ fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let methods = PyDict::new(py);
     methods.set_item("midi", Method::AVAILABLE.to_vec())?;
+    methods.set_item("audio", vec!["arzt", "dixon"])?;
     m.add("AVAILABLE_METHODS", methods)?;
 
     let defaults = PyDict::new(py);
@@ -473,6 +789,12 @@ fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
         midi.set_item(name, default_kwargs(py, name.parse().map_err(to_py_err)?)?)?;
     }
     defaults.set_item("midi", midi)?;
+    let audio = PyDict::new(py);
+    for name in AudioMethod::AVAILABLE {
+        let method: AudioMethod = name.parse().map_err(to_py_err)?;
+        audio.set_item(name, default_audio_kwargs(py, method)?)?;
+    }
+    defaults.set_item("audio", audio)?;
     m.add("DEFAULT_KWARGS", defaults)?;
 
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

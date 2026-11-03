@@ -37,6 +37,12 @@ REGRESSION = 1.10
 DATASETS = Path(__file__).parent.parent / "datasets" / "datasets.toml"
 
 
+def regression_status(current: float | None, previous: float | None) -> bool | None:
+    if current is None or previous is None:
+        return None
+    return current > REGRESSION * previous
+
+
 def load(paths: list[Path]) -> dict:
     """(records, directory of their paths/) grouped by (method, dataset, piece)."""
     groups: dict = {}
@@ -62,15 +68,19 @@ def same(a, b) -> bool:
     return (nan(a) and nan(b)) or (not nan(a) and not nan(b) and abs(a - b) <= METRIC_TOL)
 
 
-def position_parity(method: str, rust: Path, python: Path) -> dict | None:
+def position_parity(method: str, rust: Path, python: Path, audio: bool = False) -> dict | None:
     if not rust.exists() or not python.exists():
         return None
     r = np.loadtxt(rust, delimiter="\t", skiprows=1, ndmin=2)
     p = np.loadtxt(python, delimiter="\t", skiprows=1, ndmin=2)
     n = min(len(r), len(p))
     diff = np.abs(r[:n] - p[:n])
-    close = np.all(diff <= POSITION_TOL, axis=1)
-    strict = bool(close.all()) and len(r) == len(p)
+    if audio:
+        close = (diff[:, 0] <= POSITION_TOL) & (diff[:, 1] <= 0.6)
+        strict = bool(close.all()) and len(r) == len(p)
+    else:
+        close = np.all(diff <= POSITION_TOL, axis=1)
+        strict = bool(close.all()) and len(r) == len(p)
     # a step where Rust's best state leads by less than TIE_GAP is a numerical tie (repeated score
     # chords have exactly equal probabilities; the reference's BLAS rounding picks one of them)
     gaps = rust.with_suffix(".gap.tsv")
@@ -79,13 +89,16 @@ def position_parity(method: str, rust: Path, python: Path) -> dict | None:
     differing = np.flatnonzero(~close)
     first = int(differing[0]) if len(differing) else (n if len(r) != len(p) else None)
     share = float(close.sum()) / max(len(r), len(p), 1)
-    ok = share >= HMM_MIN_SHARE if method == "hmm" else first is None
+    if audio:
+        ok = abs(len(r) - len(p)) <= 1 and share >= 0.99
+    else:
+        ok = share >= HMM_MIN_SHARE if method == "hmm" else first is None
     max_diff = float(diff.max()) if diff.size else 0.0
     # EXACT: bit-equal; WITHIN_TOL: all steps < POSITION_TOL; TIE: otherwise only tie steps differ;
     # SHARE: hmm only, >= HMM_MIN_SHARE of the steps agree; EXCEEDS: parity violated
     cls = "EXACT" if strict and max_diff == 0 else "WITHIN_TOL" if strict else "EXCEEDS"
     if ok and not strict:
-        cls = "TIE" if first is None else "SHARE"
+        cls = "AUDIO_TOL" if audio else "TIE" if first is None else "SHARE"
     return {
         "ok": bool(ok),
         "class": cls,
@@ -118,6 +131,7 @@ def main() -> None:
             records, dirs[name] = groups.get(key, ([], None))
             side[name] = {
                 "runs": len(records),
+                "input_type": records[0].get("input_type", "midi") if records else None,
                 "feature_ms": median(records, "latency_ms", "feature", "median"),
                 "inference_ms": median(records, "latency_ms", "inference", "median"),
                 "total_s": median(records, "total_processing_s"),
@@ -132,7 +146,8 @@ def main() -> None:
         previous = baseline.get(key)
         parity = None
         if dirs["rust"] and dirs["python"]:
-            parity = position_parity(method, dirs["rust"] / rel, dirs["python"] / rel)
+            audio = side["rust"]["input_type"] == "audio" or side["python"]["input_type"] == "audio"
+            parity = position_parity(method, dirs["rust"] / rel, dirs["python"] / rel, audio)
         rows.append(
             {
                 "method": method,
@@ -143,7 +158,7 @@ def main() -> None:
                 "speed_up": p["total_s"] / r["total_s"] if r["total_s"] and p["total_s"] else None,
                 "metric_parity": metric_parity,
                 "position_parity": parity,
-                "regression": bool(previous and r["inference_ms"] and r["inference_ms"] > REGRESSION * previous),
+                "regression": regression_status(r["inference_ms"], previous),
             }
         )
 
@@ -166,12 +181,14 @@ def main() -> None:
         pos_text = "-" if pos is None else flag(pos["ok"]) + f" {pos['class']} max {pos['max_diff']:.2e}" + (
             "" if pos["first_differing_step"] is None else f" (step {pos['first_differing_step']})"
         )
+        regression = row["regression"]
+        regression_text = "n/a" if regression is None else "REGRESSION" if regression else "ok"
         lines.append(
             f"| {row['method']} | {row['dataset']} | {row['piece']} "
             f"| {fmt(r['feature_ms'])} / {fmt(p['feature_ms'])} | {fmt(r['inference_ms'])} / {fmt(p['inference_ms'])} "
             f"| {fmt(row['speed_up'], '.1f')} | {fmt(r['real_time_factor'])} | {fmt(ev.get('mean_b'))} "
             f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "
-            f"| {pos_text} | {'REGRESSION' if row['regression'] else ''} |"
+            f"| {pos_text} | {regression_text} |"
         )
     datasets = tomllib.loads(DATASETS.read_text(encoding="utf-8"))
     used = sorted({row["dataset"] for row in rows} & set(datasets))

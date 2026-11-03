@@ -12,7 +12,9 @@ use matchmaker_rs::Error;
 use matchmaker_rs::base::OnlineAlignment;
 use matchmaker_rs::features::Observation;
 use matchmaker_rs::io::stream::MidiMessageKind;
-use matchmaker_rs::matchmaker::{Matchmaker, Method};
+use matchmaker_rs::matchmaker::{
+    AudioMatchmaker, AudioMethod, AudioMethodConfig, Matchmaker, Method,
+};
 use matchmaker_rs::performance::Performance;
 use matchmaker_rs::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
 use matchmaker_rs::score::Score;
@@ -62,6 +64,41 @@ fn temp_file(name: &str, bytes: &[u8]) -> PathBuf {
     let path = std::env::temp_dir().join(format!("matchmaker_edge_{name}"));
     std::fs::write(&path, bytes).unwrap();
     path
+}
+
+fn audio_wav(name: &str, channels: u16, samples: &[i16]) -> PathBuf {
+    let data_len = (samples.len() * 2) as u32;
+    let block_align = channels * 2;
+    let mut bytes = Vec::with_capacity(data_len as usize + 44);
+    bytes.extend(b"RIFF");
+    bytes.extend((36 + data_len).to_le_bytes());
+    bytes.extend(b"WAVEfmt ");
+    bytes.extend(16u32.to_le_bytes());
+    bytes.extend(1u16.to_le_bytes());
+    bytes.extend(channels.to_le_bytes());
+    bytes.extend(44_100u32.to_le_bytes());
+    bytes.extend((44_100u32 * u32::from(block_align)).to_le_bytes());
+    bytes.extend(block_align.to_le_bytes());
+    bytes.extend(16u16.to_le_bytes());
+    bytes.extend(b"data");
+    bytes.extend(data_len.to_le_bytes());
+    bytes.extend(samples.iter().flat_map(|sample| sample.to_le_bytes()));
+    temp_file(&format!("{name}.wav"), &bytes)
+}
+
+fn audio_melody_wav(name: &str, duration_seconds: usize) -> PathBuf {
+    let sample_rate = 44_100usize;
+    let note_length = sample_rate / 2;
+    let frequencies = [261.63, 293.66, 329.63, 349.23, 392.0, 440.0, 493.88, 523.25];
+    let samples: Vec<i16> = (0..sample_rate * duration_seconds)
+        .map(|index| {
+            let frequency = frequencies[(index / note_length) % frequencies.len()];
+            let value =
+                (std::f64::consts::TAU * frequency * index as f64 / sample_rate as f64).sin() * 0.4;
+            (value * f64::from(i16::MAX)) as i16
+        })
+        .collect();
+    audio_wav(name, 1, &samples)
 }
 
 #[test]
@@ -236,5 +273,62 @@ fn oltw_zero_vector_observations_do_not_panic() {
             positions.iter().all(|p| (0.0..=last).contains(p)),
             "{method:?}: position outside the score"
         );
+    }
+}
+
+#[test]
+fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
+    let soundfont = data(
+        "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2",
+    );
+    let short = audio_wav("audio_short", 1, &[0; 100]);
+    let silent = audio_wav("audio_silent", 1, &vec![0; 44_100]);
+    let empty = audio_wav("audio_empty", 1, &[]);
+    let overrun = audio_melody_wav("audio_overrun", 30);
+    let one_onset = midi_file("audio_one_onset_score", &[(0, 60, 80), (480, 60, 0)]);
+
+    for method in [AudioMethod::Arzt, AudioMethod::Dixon] {
+        let make = |score: &PathBuf| {
+            let mut config = AudioMethodConfig::for_method(method);
+            config.soundfont_path = Some(soundfont.clone());
+            match method {
+                AudioMethod::Arzt => AudioMatchmaker::new_arzt(score, config, None, true).unwrap(),
+                AudioMethod::Dixon => {
+                    AudioMatchmaker::new_dixon(score, config, None, true).unwrap()
+                }
+            }
+        };
+
+        let mut short_run = make(&data(SCORE));
+        assert!(short_run.run_file(&short).unwrap().is_empty(), "{method:?}");
+
+        let mut silent_run = make(&data(SCORE));
+        let silent_positions = silent_run.run_file(&silent).unwrap();
+        assert!(
+            silent_positions.iter().all(|position| position.is_finite()),
+            "{method:?} produced a non-finite position"
+        );
+
+        let mut long_run = make(&data(SCORE));
+        let long_positions = long_run.run_file(&overrun).unwrap();
+        let frame_to_beat = &long_run.reference().frame_to_beat;
+        assert!(
+            long_positions.len() <= frame_to_beat.len(),
+            "{method:?}: {} positions for {} score frames; final beat {}",
+            long_positions.len(),
+            frame_to_beat.len(),
+            frame_to_beat.last().unwrap()
+        );
+        assert!(long_positions.iter().all(|position| {
+            *position >= frame_to_beat[0]
+                && *position <= *frame_to_beat.last().expect("score frame beat map")
+        }));
+
+        let mut one_onset_run = make(&one_onset);
+        assert!(
+            one_onset_run.run_file(&empty).unwrap().is_empty(),
+            "{method:?}"
+        );
+        assert!(one_onset_run.alignment_path().perf_time.is_empty());
     }
 }

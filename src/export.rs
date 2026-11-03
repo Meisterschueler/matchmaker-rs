@@ -18,7 +18,7 @@ use serde_json::json;
 use crate::error::{Error, Result};
 use crate::features::Observation;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
-use crate::matchmaker::{Matchmaker, Method, ProcessorKind};
+use crate::matchmaker::{AudioMatchmaker, Matchmaker, Method, ProcessorKind};
 
 /// Reference skips `probabilities.npy` above this many values (`MAX_PROBABILITY_VALUES`).
 const MAX_PROBABILITY_VALUES: usize = 5_000_000;
@@ -302,6 +302,120 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
                 "processor": kind.name(),
                 "piano_range": config.piano_range,
                 "polling_period": config.polling_period,
+                "tempo": mm.tempo(),
+            },
+        }),
+    )
+}
+
+/// Write recorded audio stages in a NumPy-readable layout.
+pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()> {
+    let dir = dir.as_ref();
+    let recording = mm.recording().ok_or_else(|| Error::InvalidParameter {
+        key: "export".into(),
+        reason: "the audio run was not recorded; call AudioMatchmaker::record before running"
+            .into(),
+    })?;
+    let config = mm.config();
+    let method = mm.method();
+    let processor = config.processor().name();
+    let reference = mm.reference();
+    let steps = &recording.steps;
+
+    f4(
+        &dir.join("score/audio/features.npy"),
+        &[
+            reference.features.len(),
+            reference.features.first().map_or(0, Vec::len),
+        ],
+        reference
+            .features
+            .iter()
+            .flat_map(|frame| frame.iter().copied()),
+    )?;
+    f8(
+        &dir.join("score/audio/frame_to_beat.npy"),
+        &[reference.frame_to_beat.len()],
+        reference.frame_to_beat.iter().copied(),
+    )?;
+    f4(
+        &dir.join("score/audio/score_positions.npy"),
+        &[reference.score_positions.len()],
+        reference.score_positions.iter().copied(),
+    )?;
+    write_json(
+        &dir.join("score/meta.json"),
+        &json!({
+            "score_tempo": mm.score().tempo,
+            "tempo": mm.tempo(),
+            "unfolded": mm.score().unfolded,
+            "audio_method": method.name(),
+            "processor": processor,
+        }),
+    )?;
+
+    write_json(
+        &dir.join("audio/meta.json"),
+        &json!({
+            "performance": recording.performance_path,
+            "source_sample_rate": recording.source_sample_rate,
+            "source_channels": recording.source_channels,
+            "sample_rate": config.sample_rate,
+            "frame_rate": reference.frame_rate,
+            "hop_length": mm.config().hop_length.unwrap_or(mm.config().sample_rate as usize / mm.config().frame_rate as usize),
+            "frames": recording.frame_times.len(),
+        }),
+    )?;
+    f8(
+        &dir.join("audio/frame_times.npy"),
+        &[recording.frame_times.len()],
+        recording.frame_times.iter().copied(),
+    )?;
+
+    let processor_outputs: Vec<&Observation> = recording.processor_outputs.iter().collect();
+    observations(
+        &dir.join("processor").join(processor),
+        "",
+        &processor_outputs,
+    )?;
+
+    let method_dir = dir.join(method.name());
+    let fed: Vec<&Observation> = steps.iter().map(|step| &step.observation).collect();
+    observations(&method_dir, "observations_", &fed)?;
+    f4(
+        &method_dir.join("score_positions.npy"),
+        &[mm.score_positions().len()],
+        mm.score_positions().iter().copied(),
+    )?;
+    f8(
+        &method_dir.join("positions.npy"),
+        &[steps.len()],
+        steps.iter().map(|step| step.position),
+    )?;
+    i8s(
+        &method_dir.join("current_index.npy"),
+        &[steps.len()],
+        steps.iter().map(|step| step.debug.current_index),
+    )?;
+    let path = mm.alignment_path();
+    f8(
+        &method_dir.join("alignment_path.npy"),
+        &[2, path.perf_time.len()],
+        path.perf_time.iter().chain(&path.score_beat).copied(),
+    )?;
+    write_json(
+        &method_dir.join("meta.json"),
+        &json!({
+            "reference": {"implementation": "matchmaker-rs", "version": env!("CARGO_PKG_VERSION")},
+            "generator": "matchmaker-rs audio export",
+            "config": {
+                "method": method.name(),
+                "processor": processor,
+                "sample_rate": config.sample_rate,
+                "frame_rate": reference.frame_rate,
+                "hop_length": config.hop_length.unwrap_or(config.sample_rate as usize / config.frame_rate as usize),
+                "window_size": config.window_size,
+                "distance_func": format!("{:?}", config.distance_func).to_lowercase(),
                 "tempo": mm.tempo(),
             },
         }),

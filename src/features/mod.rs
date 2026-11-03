@@ -1,7 +1,8 @@
 //! Feature processors (port of `matchmaker.features`): turn a stream [`Frame`] into an
 //! [`Observation`] for the score follower.
 //!
-//! Upstream: `matchmaker/features/processor.py`, `matchmaker/features/midi.py`.
+//! Upstream: `matchmaker/features/processor.py`, `matchmaker/features/midi.py`, and
+//! `matchmaker/features/audio.py`.
 //!
 //! ```
 //! use matchmaker_rs::features::{pitch::PitchProcessor, Processor};
@@ -13,6 +14,8 @@
 //! ```
 
 pub mod chord_onset;
+pub mod chroma;
+pub mod lse;
 pub mod pitch;
 
 use crate::io::stream::Frame;
@@ -20,7 +23,7 @@ use crate::io::stream::Frame;
 /// Processor output for one frame: `(features, perf_time)` in the reference.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Observation {
-    /// Binary pitch vector (88 or 128 values) or pitch list, depending on the processor.
+    /// Processor feature vector (MIDI pitches or audio chroma/LSE values).
     pub features: Vec<f32>,
     /// Performance time in seconds the observation refers to.
     pub perf_time: f64,
@@ -35,4 +38,13 @@ pub trait Processor {
     fn flush_remaining(&mut self) -> Option<Observation> {
         None
     }
+}
+
+/// Processes one decoded audio frame into a feature observation.
+pub trait AudioProcessor {
+    /// Process one mono audio frame; `None` if its sample block is too short.
+    fn process(&mut self, frame: &crate::io::audio::AudioFrame) -> Option<Observation>;
+
+    /// Reset state between separate performance and score streams.
+    fn reset(&mut self) {}
 }

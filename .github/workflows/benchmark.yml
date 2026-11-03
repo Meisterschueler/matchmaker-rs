@@ -9,8 +9,6 @@ on:
     branches: [master]
   pull_request:
     paths: ["src/**", "crates/**", "tools/bench/**", "tools/datasets/**", ".github/workflows/benchmark.yml"]
-  workflow_dispatch:
-
 concurrency:
   group: benchmark-${{ github.ref }}
   cancel-in-progress: true
@@ -22,7 +20,7 @@ env:
   CARGO_TERM_COLOR: always
   PIECES_PER_DATASET: 10
   RUNS_RUST: 5
-  RUNS_PYTHON: 3
+  RUNS_PYTHON: 5
   # methods compared against the reference
   METHODS: pthmm,hmm,outerhmm,arzt,dixon
 
@@ -65,6 +63,25 @@ jobs:
       - name: Python reference
         working-directory: tools/golden
         run: python -m uv run ../bench/run_reference.py "$MANIFEST" --out "$GITHUB_WORKSPACE/out/python/records.json" --runs "$RUNS_PYTHON" --methods "$METHODS"
+      - name: Audio benchmark
+        if: matrix.dataset == 'bundled'
+        env:
+          AUDIO_SOUNDFONT_URL: https://freepats.zenvoid.org/Piano/UprightPianoKW/UprightPianoKW-small-SF2-20190703.7z
+        run: |
+          mkdir -p out/audio/rust out/audio/python
+          sudo apt-get update
+          sudo apt-get install -y libfluidsynth3 7zip
+          mkdir -p target/audio-assets
+          archive=target/audio-assets/UprightPianoKW-small-SF2-20190703.7z
+          curl -fsSL "$AUDIO_SOUNDFONT_URL" -o "$archive"
+          echo "3BD025E7C2FFA9E6F3F99215CE383C9CEBBAC991CFBF9BE1453CDB4328EC3492  $archive" | sha256sum --check
+          7z x "$archive" -otarget/audio-assets -y
+          soundfont=target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2
+          echo "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F  $soundfont" | sha256sum --check
+          touch tools/golden/.venv/lib/python3.12/site-packages/partitura/assets/MuseScore_General.sf3
+          cargo run --release -p matchmaker-cli -- bench tools/bench/audio.toml --out out/audio/rust/records.json --runs "$RUNS_RUST" --methods arzt,dixon
+          cd tools/golden
+          python -m uv run ../bench/run_reference.py ../bench/audio.toml --out "$GITHUB_WORKSPACE/out/audio/python/records.json" --runs "$RUNS_PYTHON" --methods arzt,dixon
       - uses: actions/upload-artifact@v4
         with:
           name: bench-${{ matrix.dataset }}
@@ -88,7 +105,7 @@ jobs:
           python -m pip install numpy
           curl -fsSL "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/report.json" -o baseline.json || rm -f baseline.json
           set +e
-          python tools/bench/report.py --rust out/*/rust/records.json --python out/*/python/records.json --baseline baseline.json --out site
+          python tools/bench/report.py --rust out/*/rust/records.json out/*/audio/rust/records.json --python out/*/python/records.json out/*/audio/python/records.json --baseline baseline.json --out site
           echo "status=$?" >> "$GITHUB_OUTPUT"
           cat site/index.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/jekyll-build-pages@v1

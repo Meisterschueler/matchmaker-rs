@@ -12,7 +12,9 @@
 //! ```
 
 pub mod arzt;
+pub mod arzt_frame;
 pub mod dixon;
+pub mod dixon_frame;
 
 use std::str::FromStr;
 

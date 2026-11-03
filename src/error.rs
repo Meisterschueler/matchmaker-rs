@@ -74,6 +74,30 @@ pub enum Error {
         /// Why.
         reason: String,
     },
+    /// Audio decoding failed for a performance file.
+    #[error("cannot decode audio {path}: {message}")]
+    AudioDecode {
+        /// Audio file that failed.
+        path: PathBuf,
+        /// Decoder failure details.
+        message: String,
+    },
+    /// Audio score rendering failed for a SoundFont or score asset.
+    #[error("cannot render audio with {path}: {message}")]
+    AudioRender {
+        /// SoundFont or input asset that failed.
+        path: PathBuf,
+        /// Renderer failure details.
+        message: String,
+    },
+    /// An audio method, processor, or parameter is invalid.
+    #[error("invalid audio {key}: {reason}")]
+    AudioConfig {
+        /// What was invalid.
+        key: String,
+        /// Why.
+        reason: String,
+    },
     /// A ground-truth file (`.match` or TSV) cannot be used.
     #[error("invalid ground truth {path}: {reason}")]
     GroundTruth {

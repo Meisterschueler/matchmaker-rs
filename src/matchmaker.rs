@@ -11,23 +11,29 @@
 //! # Ok::<(), matchmaker_rs::Error>(())
 //! ```
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::{Duration, Instant};
 
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::dp::Distance;
 use crate::dp::arzt::{ArztEvent, ArztEventConfig};
+use crate::dp::arzt_frame::ArztFrame;
 use crate::dp::dixon::{DixonEvent, DixonEventConfig};
+use crate::dp::dixon_frame::DixonFrame;
 use crate::error::{Error, Result};
 use crate::features::{
-    Observation, Processor, chord_onset::ChordOnsetProcessor, pitch::PitchProcessor,
+    AudioProcessor, Observation, Processor, chord_onset::ChordOnsetProcessor,
+    chroma::ChromaProcessor, lse::LseProcessor, pitch::PitchProcessor,
 };
+use crate::io::audio::AudioStream;
 use crate::io::stream::{Frame, MidiMessage};
 use crate::performance::Performance;
 use crate::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
 use crate::prob::outerhmm::{OuterProductHmm, OuterProductHmmConfig};
 use crate::prob::pthmm::PitchHmm;
 use crate::score::Score;
+use crate::score::audio::{ScoreAudioReference, build_reference};
 
 /// `DEFAULT_TEMPO` of the reference (BPM) when neither the user nor the score gives one.
 pub const DEFAULT_TEMPO: f64 = 120.0;
@@ -110,6 +116,46 @@ impl FromStr for Method {
     }
 }
 
+/// A frame-level score-following method for prerecorded audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioMethod {
+    /// Frame-level OLTW with a bounded step advance.
+    Arzt,
+    /// Frame-level OLTW with a normalized sparse cost search.
+    Dixon,
+}
+
+impl AudioMethod {
+    /// Reference names of the supported audio methods.
+    pub const AVAILABLE: [&'static str; 2] = ["arzt", "dixon"];
+
+    /// Reference name of this method.
+    pub fn name(self) -> &'static str {
+        match self {
+            AudioMethod::Arzt => "arzt",
+            AudioMethod::Dixon => "dixon",
+        }
+    }
+}
+
+impl FromStr for AudioMethod {
+    type Err = Error;
+
+    fn from_str(name: &str) -> Result<Self> {
+        match name {
+            "arzt" => Ok(AudioMethod::Arzt),
+            "dixon" => Ok(AudioMethod::Dixon),
+            _ => Err(Error::AudioConfig {
+                key: "method".into(),
+                reason: format!(
+                    "unknown audio method {name:?}; available: {:?}",
+                    AudioMethod::AVAILABLE
+                ),
+            }),
+        }
+    }
+}
+
 /// Feature processor (processor keys of the reference's `methods.yaml`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessorKind {
@@ -146,6 +192,206 @@ impl FromStr for ProcessorKind {
                     ProcessorKind::AVAILABLE
                 ),
             }),
+        }
+    }
+}
+
+/// Feature processor used by a frame-level audio method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioProcessorKind {
+    /// Twelve-bin chromagram from an STFT.
+    Chroma,
+    /// Log-spectral energy onset feature.
+    Lse,
+}
+
+impl AudioProcessorKind {
+    /// Reference names of the supported audio processors.
+    pub const AVAILABLE: [&'static str; 2] = ["chroma", "lse"];
+
+    /// Reference name of this processor.
+    pub fn name(self) -> &'static str {
+        match self {
+            AudioProcessorKind::Chroma => "chroma",
+            AudioProcessorKind::Lse => "lse",
+        }
+    }
+}
+
+impl FromStr for AudioProcessorKind {
+    type Err = Error;
+
+    fn from_str(name: &str) -> Result<Self> {
+        match name {
+            "chroma" => Ok(AudioProcessorKind::Chroma),
+            "lse" => Ok(AudioProcessorKind::Lse),
+            _ => Err(Error::AudioConfig {
+                key: "processor".into(),
+                reason: format!(
+                    "unknown audio processor {name:?}; available: {:?}",
+                    AudioProcessorKind::AVAILABLE
+                ),
+            }),
+        }
+    }
+}
+
+/// Local distance functions used by audio-frame followers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioDistance {
+    /// Manhattan (L1) distance, the audio Arzt default.
+    Manhattan,
+    /// Euclidean (L2) distance, the audio Dixon default.
+    Euclidean,
+}
+
+impl FromStr for AudioDistance {
+    type Err = Error;
+
+    fn from_str(name: &str) -> Result<Self> {
+        match name {
+            "manhattan" => Ok(AudioDistance::Manhattan),
+            "euclidean" => Ok(AudioDistance::Euclidean),
+            _ => Err(Error::AudioConfig {
+                key: "distance_func".into(),
+                reason: format!(
+                    "unknown audio distance {name:?}; available: [\"manhattan\", \"euclidean\"]"
+                ),
+            }),
+        }
+    }
+}
+
+/// Configuration kept separate from [`MethodConfig`] so audio defaults cannot change MIDI.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioMethodConfig {
+    /// Feature processor.
+    processor: AudioProcessorKind,
+    /// Target mono sample rate in hertz.
+    pub sample_rate: u32,
+    /// Frame rate when `hop_length` is `None`.
+    pub frame_rate: u32,
+    /// Explicit hop length in samples; overrides `frame_rate` when set.
+    pub hop_length: Option<usize>,
+    /// Per-frame processor norm (`None` disables normalization; infinity is valid).
+    pub norm: Option<f64>,
+    /// Required local SF2 path for runtime score synthesis.
+    pub soundfont_path: Option<std::path::PathBuf>,
+    /// Search window in seconds.
+    pub window_size: f64,
+    /// Arzt initial search window in seconds.
+    pub start_window_size: Option<f64>,
+    /// Arzt maximum score-frame advance per input frame.
+    pub step_size: Option<usize>,
+    /// Dixon maximum consecutive one-sided advances.
+    pub max_run_count: Option<usize>,
+    /// Local feature distance.
+    pub distance_func: AudioDistance,
+}
+
+impl AudioMethodConfig {
+    /// Reference defaults for the selected audio method.
+    pub fn for_method(method: AudioMethod) -> Self {
+        let arzt = method == AudioMethod::Arzt;
+        let processor = if arzt {
+            AudioProcessorKind::Chroma
+        } else {
+            AudioProcessorKind::Lse
+        };
+        Self {
+            processor,
+            sample_rate: 44_100,
+            frame_rate: if arzt { 30 } else { 50 },
+            hop_length: None,
+            norm: Some(processor.default_norm()),
+            soundfont_path: None,
+            window_size: 10.0,
+            start_window_size: arzt.then_some(0.1),
+            step_size: arzt.then_some(3),
+            max_run_count: (!arzt).then_some(3),
+            distance_func: if arzt {
+                AudioDistance::Manhattan
+            } else {
+                AudioDistance::Euclidean
+            },
+        }
+    }
+
+    /// Selected feature processor.
+    pub fn processor(&self) -> AudioProcessorKind {
+        self.processor
+    }
+
+    /// Select a processor and restore its reference normalization default.
+    /// Set `norm` afterward to provide an explicit override.
+    pub fn set_processor(&mut self, processor: AudioProcessorKind) {
+        self.processor = processor;
+        self.norm = Some(processor.default_norm());
+    }
+
+    /// Validate shared audio values and method-specific parameter ranges.
+    pub fn validate(&self, method: AudioMethod) -> Result<()> {
+        let invalid = |key: &str, reason: &str| Error::AudioConfig {
+            key: key.into(),
+            reason: reason.into(),
+        };
+        if self.sample_rate == 0 {
+            return Err(invalid("sample_rate", "must be at least 1 Hz"));
+        }
+        if self.hop_length == Some(0) {
+            return Err(invalid("hop_length", "must be at least 1 sample"));
+        }
+        if self.hop_length.is_none() && self.frame_rate == 0 {
+            return Err(invalid("frame_rate", "must be at least 1 frame per second"));
+        }
+        if !self.window_size.is_finite() || self.window_size <= 0.0 {
+            return Err(invalid(
+                "window_size",
+                "must be a positive number of seconds",
+            ));
+        }
+        if self.norm.is_some_and(|norm| norm.is_nan() || norm <= 0.0) {
+            return Err(invalid("norm", "must be positive or None"));
+        }
+        match method {
+            AudioMethod::Arzt => {
+                if self.max_run_count.is_some() {
+                    return Err(invalid("max_run_count", "is only valid for audio dixon"));
+                }
+                if self
+                    .start_window_size
+                    .is_some_and(|size| !size.is_finite() || size <= 0.0)
+                {
+                    return Err(invalid(
+                        "start_window_size",
+                        "must be a positive number of seconds",
+                    ));
+                }
+                if self.step_size == Some(0) {
+                    return Err(invalid("step_size", "must be at least 1"));
+                }
+            }
+            AudioMethod::Dixon => {
+                if self.start_window_size.is_some() || self.step_size.is_some() {
+                    return Err(invalid(
+                        "start_window_size/step_size",
+                        "are only valid for audio arzt",
+                    ));
+                }
+                if self.max_run_count == Some(0) {
+                    return Err(invalid("max_run_count", "must be at least 1"));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl AudioProcessorKind {
+    fn default_norm(self) -> f64 {
+        match self {
+            AudioProcessorKind::Chroma => f64::INFINITY,
+            AudioProcessorKind::Lse => 2.0,
         }
     }
 }
@@ -584,5 +830,248 @@ impl Matchmaker {
     /// States of the follower in beats (with inserted states for `pthmm` and `hmm`).
     pub fn follower_score_positions(&self) -> &[f32] {
         self.follower.score_positions()
+    }
+}
+
+/// Core pipeline for following prerecorded audio with frame-level `arzt`.
+pub struct AudioMatchmaker {
+    method: AudioMethod,
+    score: Score,
+    config: AudioMethodConfig,
+    tempo: f64,
+    reference: ScoreAudioReference,
+    processor: Box<dyn AudioProcessor>,
+    cache_size: usize,
+    follower: Box<dyn OnlineAlignment>,
+    recording: Option<AudioRecording>,
+}
+
+/// Intermediate audio stages retained by [`AudioMatchmaker::record`].
+#[derive(Debug, Clone, Default)]
+pub struct AudioRecording {
+    /// Path of the decoded performance file.
+    pub performance_path: Option<PathBuf>,
+    /// Input sample rate before resampling.
+    pub source_sample_rate: u32,
+    /// Input channel count before mono conversion.
+    pub source_channels: usize,
+    /// Time of each emitted audio frame.
+    pub frame_times: Vec<f64>,
+    /// Processor outputs for each emitted audio frame.
+    pub processor_outputs: Vec<Observation>,
+    /// Time spent extracting each yielded performance feature frame.
+    pub feature_durations: Vec<Duration>,
+    /// Time spent on each follower inference step.
+    pub inference_durations: Vec<Duration>,
+    /// Follower calls before the score stop condition.
+    pub steps: Vec<Step>,
+}
+
+impl AudioMatchmaker {
+    /// Load a score and build its audio reference for the audio `arzt` method.
+    pub fn new_arzt(
+        score_path: impl AsRef<Path>,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        Self::new_audio(score_path, AudioMethod::Arzt, config, tempo, unfold)
+    }
+
+    /// Load a score and build its audio reference for the audio `dixon` method.
+    pub fn new_dixon(
+        score_path: impl AsRef<Path>,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        Self::new_audio(score_path, AudioMethod::Dixon, config, tempo, unfold)
+    }
+
+    fn new_audio(
+        score_path: impl AsRef<Path>,
+        method: AudioMethod,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        config.validate(method)?;
+        let soundfont_path = config
+            .soundfont_path
+            .as_ref()
+            .ok_or_else(|| Error::AudioConfig {
+                key: "soundfont_path".into(),
+                reason: "is required for score rendering".into(),
+            })?;
+        let hop_length = config
+            .hop_length
+            .unwrap_or((config.sample_rate / config.frame_rate) as usize);
+        if hop_length == 0 {
+            return Err(Error::AudioConfig {
+                key: "frame_rate".into(),
+                reason: "must not exceed sample_rate".into(),
+            });
+        }
+
+        let mut score = Score::load(score_path, unfold)?;
+        if let Some(tempo) = tempo {
+            score.tempo = Some(tempo);
+        }
+        let tempo = score.tempo.unwrap_or(DEFAULT_TEMPO);
+        let reference = build_reference(&score, soundfont_path, &config, method)?;
+        let follower: Box<dyn OnlineAlignment> = match method {
+            AudioMethod::Arzt => Box::new(ArztFrame::new(
+                reference.features.clone(),
+                reference.score_positions.clone(),
+                reference.frame_to_beat.clone(),
+                config.clone(),
+            )?),
+            AudioMethod::Dixon => Box::new(DixonFrame::new(
+                reference.features.clone(),
+                reference.score_positions.clone(),
+                reference.frame_to_beat.clone(),
+                config.clone(),
+            )?),
+        };
+        let (processor, cache_size) = make_audio_processor(&config, hop_length);
+
+        Ok(Self {
+            method,
+            score,
+            config,
+            tempo,
+            reference,
+            processor,
+            cache_size,
+            follower,
+            recording: None,
+        })
+    }
+
+    /// Retain the intermediate stages for [`crate::export::write_audio_run`].
+    pub fn record(mut self) -> Self {
+        self.recording = Some(AudioRecording::default());
+        self
+    }
+
+    /// Recorded stage data, if [`AudioMatchmaker::record`] was called.
+    pub fn recording(&self) -> Option<&AudioRecording> {
+        self.recording.as_ref()
+    }
+
+    /// Decode and follow one prerecorded audio file, returning one beat position per consumed frame.
+    pub fn run_file(&mut self, performance_path: impl AsRef<Path>) -> Result<Vec<f64>> {
+        let performance_path = performance_path.as_ref();
+        let mut stream = AudioStream::open(
+            performance_path,
+            self.config.sample_rate,
+            self.hop_length(),
+            self.cache_size,
+        )?;
+        if let Some(recording) = &mut self.recording {
+            recording.performance_path = Some(performance_path.to_path_buf());
+            recording.source_sample_rate = stream.source_sample_rate();
+            recording.source_channels = stream.source_channels();
+        }
+        stream.prime(self.processor.as_mut());
+        let mut positions = Vec::new();
+        for frame in stream {
+            if !self.follower.is_still_following() {
+                break;
+            }
+            if let Some(recording) = &mut self.recording {
+                recording.frame_times.push(frame.perf_time);
+            }
+            let observation = if self.recording.is_some() {
+                let start = Instant::now();
+                let observation = self.processor.process(&frame);
+                if observation.is_some()
+                    && let Some(recording) = &mut self.recording
+                {
+                    recording.feature_durations.push(start.elapsed());
+                }
+                observation
+            } else {
+                self.processor.process(&frame)
+            };
+            if let Some(observation) = observation {
+                if let Some(recording) = &mut self.recording {
+                    recording.processor_outputs.push(observation.clone());
+                }
+                let inference_start = self.recording.as_ref().map(|_| Instant::now());
+                let position = self.follower.call(&observation);
+                positions.push(position);
+                if let Some(recording) = &mut self.recording {
+                    if let Some(start) = inference_start {
+                        recording.inference_durations.push(start.elapsed());
+                    }
+                    recording.steps.push(Step {
+                        observation,
+                        position,
+                        debug: self.follower.debug_state(),
+                    });
+                }
+            }
+        }
+        Ok(positions)
+    }
+
+    /// The loaded score.
+    pub fn score(&self) -> &Score {
+        &self.score
+    }
+
+    /// Effective audio configuration.
+    pub fn config(&self) -> &AudioMethodConfig {
+        &self.config
+    }
+
+    /// The frame-level audio method used by this run.
+    pub fn method(&self) -> AudioMethod {
+        self.method
+    }
+
+    /// Effective score tempo in quarter-note BPM.
+    pub fn tempo(&self) -> f64 {
+        self.tempo
+    }
+
+    /// Synthesized reference waveform, features and per-frame beat map.
+    pub fn reference(&self) -> &ScoreAudioReference {
+        &self.reference
+    }
+
+    /// Alignment path so far.
+    pub fn alignment_path(&self) -> &AlignmentPath {
+        self.follower.alignment_path()
+    }
+
+    /// Score onsets used to stop the follower.
+    pub fn score_positions(&self) -> &[f32] {
+        self.follower.score_positions()
+    }
+
+    fn hop_length(&self) -> usize {
+        self.config
+            .hop_length
+            .unwrap_or((self.config.sample_rate / self.config.frame_rate) as usize)
+    }
+}
+
+fn make_audio_processor(
+    config: &AudioMethodConfig,
+    hop_length: usize,
+) -> (Box<dyn AudioProcessor>, usize) {
+    match config.processor {
+        AudioProcessorKind::Chroma => {
+            let processor = ChromaProcessor::new(config.sample_rate, hop_length, config.norm);
+            let cache_size = processor.n_fft().saturating_sub(hop_length);
+            (Box::new(processor), cache_size)
+        }
+        AudioProcessorKind::Lse => {
+            let processor = LseProcessor::new(config.sample_rate, hop_length, config.norm);
+            let cache_size = processor.n_fft().saturating_sub(hop_length);
+            (Box::new(processor), cache_size)
+        }
     }
 }

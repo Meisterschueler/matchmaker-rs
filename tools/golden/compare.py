@@ -28,10 +28,10 @@ TOLERANCES = {
 PROBABILITIES_RTOL = {"pthmm": 1.5e-13, "hmm": 1e-13, "outerhmm": 1e-14}
 
 
-def first_difference(name, expected, actual, stage=None):
+def first_difference(name, expected, actual, stage=None, tolerance=None):
     if expected.shape != actual.shape:
         return f"shape differs: expected {expected.shape}, actual {actual.shape}"
-    rtol, atol = TOLERANCES.get(name, (0.0, 0.0))
+    rtol, atol = tolerance or TOLERANCES.get(name, (0.0, 0.0))
     if name == "probabilities.npy":
         rtol, atol = PROBABILITIES_RTOL[stage], 1e-300
     bad = ~np.isclose(actual, expected, rtol=rtol, atol=atol, equal_nan=True)
@@ -80,7 +80,71 @@ def compare_file(stage, rel, expected_path, actual_path):
     return None
 
 
+def compare_audio_case(golden_dir, export_dir, metadata):
+    method = metadata["method"]
+    processor = metadata["processor"]
+    mapping = {
+        "performance_features.npy": Path("processor") / processor / "features.npy",
+        "performance_times.npy": Path("processor") / processor / "times.npy",
+        "score_features.npy": Path("score/audio/features.npy"),
+        "score_frame_to_beat.npy": Path("score/audio/frame_to_beat.npy"),
+        "score_positions.npy": Path("score/audio/score_positions.npy"),
+        "positions.npy": Path(method) / "positions.npy",
+        "alignment_path.npy": Path(method) / "alignment_path.npy",
+    }
+    for golden_name, export_rel in mapping.items():
+        expected = np.load(golden_dir / golden_name)
+        exported_path = export_dir / export_rel
+        if not exported_path.is_file():
+            print(f"first differing stage: {export_rel.parent}, missing {export_rel}")
+            return 1
+        actual = np.load(exported_path)
+
+        if golden_name == "alignment_path.npy":
+            if expected.ndim != 2 or actual.ndim != 2 or expected.shape[0] != 2 or actual.shape[0] != 2:
+                print(f"first differing stage: {method}, file {golden_name}: expected a (2, T) path")
+                return 1
+            frame_count = min(expected.shape[1], actual.shape[1])
+            frame_delta = abs(expected.shape[1] - actual.shape[1])
+            if frame_delta > 1:
+                print(f"first differing stage: {method}, file {golden_name}: frame count differs by {frame_delta}")
+                return 1
+            differences = (
+                first_difference("perf_time.npy", expected[0, :frame_count], actual[0, :frame_count], tolerance=(0.0, 1e-6)),
+                first_difference("score_beat.npy", expected[1, :frame_count], actual[1, :frame_count], tolerance=(0.0, 0.6)),
+            )
+        else:
+            frame_series = golden_name != "score_positions.npy"
+            if frame_series and expected.ndim and actual.ndim and expected.shape[1:] == actual.shape[1:]:
+                frame_count = min(expected.shape[0], actual.shape[0])
+                frame_delta = abs(expected.shape[0] - actual.shape[0])
+                if frame_delta > 1:
+                    print(f"first differing stage: {export_rel.parent}, file {golden_name}: frame count differs by {frame_delta}")
+                    return 1
+                expected, actual = expected[:frame_count], actual[:frame_count]
+            tolerance = {
+                "performance_features.npy": (2e-4, 1e-6),
+                "performance_times.npy": (0.0, 0.0),
+                "score_frame_to_beat.npy": (0.0, 1e-6),
+                "positions.npy": (0.0, 0.5),
+            }.get(golden_name, (0.0, 0.0))
+            differences = (first_difference(golden_name, expected, actual, tolerance=tolerance),)
+
+        difference = next((value for value in differences if value), None)
+        if difference:
+            print(f"first differing stage: {export_rel.parent}, file {golden_name}: {difference}")
+            return 1
+    print("all audio stages within configured tolerances (7 files compared)")
+    return 0
+
+
 def main(golden_dir, export_dir):
+    meta = golden_dir / "meta.json"
+    if meta.is_file():
+        metadata = json.loads(meta.read_text())
+        if metadata.get("method") in ("arzt", "dixon") and metadata.get("processor") in ("chroma", "lse"):
+            return compare_audio_case(golden_dir, export_dir, metadata)
+
     compared = 0
     for stage in STAGES:
         golden, export = golden_dir / stage, export_dir / stage

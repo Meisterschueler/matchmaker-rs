@@ -1,0 +1,10 @@
+# Synthetic score-audio benchmark fixture; SoundFont is provisioned locally from tests/data/audio/README.md.
+# Usage: matchmaker bench tools/bench/audio.toml --out target/bench/audio/records.json --runs 5 --methods arzt,dixon
+
+[[pieces]]
+dataset = "audio-bundled"
+piece = "mozart_k265_sf2"
+input_type = "audio"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"

@@ -24,6 +24,10 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 |---|---|---|
 | `src/base.rs` | `matchmaker/base.py` | `OnlineAlignment` |
 | `src/matchmaker.rs` | `matchmaker/matchmaker.py`, `matchmaker/methods.yaml` | `Matchmaker`, per-method defaults |
+| `src/io/audio.rs` | `matchmaker/io/audio.py` | mono decode, resample, frame-hop stream |
+| `src/features/chroma.rs` | `matchmaker/features/audio.py` | `ChromagramProcessor` |
+| `src/features/lse.rs` | `matchmaker/features/audio.py` | `LogSpectralEnergyProcessor` |
+| `src/score/audio.rs` | `matchmaker/utils/misc.py`, `matchmaker/registry.py` | synthesized score reference, frame-to-beat map |
 | `src/features/pitch.rs` | `matchmaker/features/midi.py` | `PitchProcessor` |
 | `src/features/chord_onset.rs` | `matchmaker/features/midi.py` | `ChordOnsetProcessor` |
 | `src/io/stream.rs` | `matchmaker/io/midi.py`, `matchmaker/utils/symbolic.py` | `MidiStream`, `Buffer`, `midi_messages_to_framed_midi` |
@@ -35,7 +39,10 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/prob/hidden_markov.rs` | `hiddenmarkov/__init__.py` | `forward_algorithm_step`, `ConstantTransitionModel` |
 | `src/dp/mod.rs` | `matchmaker/dp/direction.py`, SciPy `cdist` | `Direction`; metrics `cosine`, `euclidean` |
 | `src/dp/arzt.rs` | `matchmaker/dp/oltw_arzt.py` | `OnlineTimeWarpingArztEvent` |
+| `src/dp/arzt_frame.rs` | `matchmaker/dp/oltw_arzt.py`, `matchmaker/dp/dtw_loop.pyx` | `OnlineTimeWarpingArztFrame` |
 | `src/dp/dixon.rs` | `matchmaker/dp/oltw_dixon.py` | `OnlineTimeWarpingDixonEvent` |
+| `src/dp/dixon_frame.rs` | `matchmaker/dp/oltw_dixon.py` | `OnlineTimeWarpingDixonFrame` |
+| `src/export.rs` | `matchmaker-rs audio pipeline` | recorded MIDI/audio stage exports |
 | `src/utils/tempo_models.rs` | `matchmaker/utils/tempo_models.py` | `KalmanTempoModel` |
 | `src/utils/eval.rs` | `matchmaker/utils/eval.py` | `evaluate_alignment`, `evaluate_beat_errors`, `compute_sparc` |
 | `src/score/mod.rs` | `matchmaker/matchmaker.py` | `Matchmaker.__init__` score loading |
@@ -47,10 +54,11 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/score/unfold.rs` | `partitura/score.py` | `unfold_part_maximal`, `add_segments`, `Path`, `get_paths`, `new_part_from_path` |
 | `src/score/merge.rs` | `partitura/score.py` | `merge_parts` |
 | `src/score/tempo.rs` | `matchmaker/utils/misc.py`, `partitura/utils/music.py` | `get_tempo_from_score`, `to_quarter_tempo` |
-| `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py` | public `Matchmaker` API (MIDI methods only) |
-| `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py` | CLI surface |
+| `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py` | public `Matchmaker` API (MIDI plus audio `arzt`/`dixon`) |
+| `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py` | MIDI/audio CLI surface |
+| `tools/bench/run_reference.py` | `matchmaker/matchmaker.py`, `matchmaker/utils/eval.py` | pinned MIDI/audio benchmark runner |
 
-Not ported: audio features and followers (`dp/` frame-level classes `OnlineTimeWarpingArztFrame`, `OnlineTimeWarpingArztMultiFold`, `OnlineTimeWarpingDixonFrame` and `dp/dtw_loop.pyx`, `features/audio.py`, `io/audio.py`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`), `ArztTempoModel` (`utils/tempo_models.py`), live MIDI devices and the thread/queue plumbing.
+Not ported: audio `outerhmm`, `OnlineTimeWarpingArztMultiFold`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`, `ArztTempoModel` (`utils/tempo_models.py`), live audio/MIDI devices and thread/queue plumbing, and audio ground-truth CLI evaluation. The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.
 
 ## Procedure: a new upstream release
 

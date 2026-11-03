@@ -10,8 +10,33 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  soundfont:
+    name: pinned audio SoundFont
+    runs-on: ubuntu-latest
+    env:
+      AUDIO_SOUNDFONT_URL: https://freepats.zenvoid.org/Piano/UprightPianoKW/UprightPianoKW-small-SF2-20190703.7z
+    steps:
+      - name: Download and verify pinned SoundFont
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y 7zip
+          mkdir -p target/audio-assets
+          archive=target/audio-assets/UprightPianoKW-small-SF2-20190703.7z
+          curl -fsSL "$AUDIO_SOUNDFONT_URL" -o "$archive"
+          echo "3BD025E7C2FFA9E6F3F99215CE383C9CEBBAC991CFBF9BE1453CDB4328EC3492  $archive" | sha256sum --check
+          7z x "$archive" -otarget/audio-assets -y
+          soundfont=target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2
+          echo "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F  $soundfont" | sha256sum --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pinned-soundfont
+          path: target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2
+          if-no-files-found: error
+          retention-days: 1
+
   test:
     name: test (${{ matrix.os }})
+    needs: soundfont
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -23,6 +48,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pinned-soundfont
+          path: target/audio-assets/UprightPianoKW-small-SF2-20190703
       - run: cargo fmt --all --check
       # The PyO3 crate links libpython and is built in the `bindings` job (constitution V).
       - run: cargo clippy --workspace --exclude matchmaker-py --all-targets --all-features
@@ -50,6 +79,7 @@ jobs:
 
   bindings:
     name: python bindings (${{ matrix.python }})
+    needs: soundfont
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -65,6 +95,10 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: cargo clippy -p matchmaker-py --all-targets
+      - uses: actions/download-artifact@v4
+        with:
+          name: pinned-soundfont
+          path: target/audio-assets/UprightPianoKW-small-SF2-20190703
       - name: Build and test
         working-directory: crates/matchmaker-py
         run: |

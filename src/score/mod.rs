@@ -25,6 +25,8 @@ mod tempo;
 mod timeline;
 mod unfold;
 
+pub mod audio;
+
 use std::collections::BTreeSet;
 use std::path::Path;
 
