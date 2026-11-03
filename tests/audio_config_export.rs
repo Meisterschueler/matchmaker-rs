@@ -17,6 +17,38 @@ fn pinned_soundfont() -> PathBuf {
 }
 
 #[test]
+fn tempo_arzt_exports_state_and_accumulated_cost_windows() {
+    let mut config = AudioMethodConfig::for_method(AudioMethod::ArztTempo);
+    config.soundfont_path = Some(pinned_soundfont());
+    let mut follower = AudioMatchmaker::new_arzt_tempo(
+        data("simple_mozart_k265_var1.musicxml"),
+        config,
+        None,
+        true,
+    )
+    .unwrap()
+    .record();
+    follower
+        .run_file(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .unwrap();
+    let output = std::env::temp_dir().join("matchmaker_audio_tempo_export");
+    write_audio_run(&follower, &output).unwrap();
+    let method = output.join("arzt_tempo");
+    let count = follower.alignment_path().perf_time.len();
+    assert_eq!(npy(method.join("tempo_states.npy")).shape, [count, 8]);
+    assert_eq!(
+        npy(method.join("cost_window_offsets.npy")).shape,
+        [count + 1]
+    );
+    assert_eq!(npy(method.join("cost_window_start.npy")).shape, [count]);
+    assert!(
+        !npy(method.join("cost_window_values.npy"))
+            .values()
+            .is_empty()
+    );
+}
+
+#[test]
 fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
     for (method, processor) in [
         (AudioMethod::Arzt, AudioProcessorKind::Chroma),

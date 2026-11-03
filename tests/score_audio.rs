@@ -3,6 +3,8 @@
 mod common;
 
 use common::data;
+use matchmaker_rs::features::{AudioProcessor, lse::LseProcessor};
+use matchmaker_rs::io::audio::AudioFrame;
 use matchmaker_rs::matchmaker::{AudioMethod, AudioMethodConfig};
 use matchmaker_rs::score::Score;
 use matchmaker_rs::score::audio::{build_reference, render_score_audio};
@@ -12,6 +14,34 @@ fn pinned_soundfont() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target/audio-assets/UprightPianoKW-small-SF2-20190703")
         .join("UprightPianoKW-small-20190703.sf2")
+}
+
+#[test]
+fn score_lse_uses_unprimed_center_false_windows() {
+    let score = Score::load(data("simple_mozart_k265_var1.musicxml"), true).unwrap();
+    for frame_rate in [30, 50] {
+        let method = AudioMethod::ArztTempo;
+        let mut config = AudioMethodConfig::for_method(method);
+        config.frame_rate = frame_rate;
+        config.set_processor("lse".parse().unwrap());
+        let reference = build_reference(&score, pinned_soundfont(), &config, method).unwrap();
+        let hop = (config.sample_rate / config.frame_rate) as usize;
+        let mut processor = LseProcessor::new(config.sample_rate, hop, config.norm);
+        let n_fft = processor.n_fft();
+        let expected_count = reference.samples.windows(n_fft).step_by(hop).count();
+        assert_eq!(reference.features.len(), expected_count);
+        let expected_first = processor
+            .process(&AudioFrame {
+                index: 0,
+                perf_time: 0.0,
+                samples: reference.samples[..n_fft].to_vec(),
+            })
+            .unwrap();
+        assert_eq!(
+            reference.features[0], expected_first.features,
+            "score features must not inherit performance-stream priming"
+        );
+    }
 }
 
 #[test]

@@ -148,7 +148,7 @@ fn write_gaps(file: &Path, score: &Path, method: Method, messages: &[MidiMessage
 
 /// Run the benchmark and write the records (JSON array) to `out`; the alignment path of run 0
 /// goes to `<out dir>/paths/<dataset>/<piece>/<method>.tsv` (margins in `<method>.gap.tsv`).
-pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) -> Result<()> {
+pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[String]) -> Result<()> {
     let text = std::fs::read_to_string(manifest_path)
         .with_context(|| format!("cannot read {}", manifest_path.display()))?;
     let manifest: Manifest = toml::from_str(&text)
@@ -192,7 +192,8 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) ->
             }
             None => None,
         };
-        for &method in methods {
+        for method_name in methods {
+            let method: Method = method_name.parse()?;
             let processor = MethodConfig::for_method(method).processor.name();
             for run in 0..runs {
                 let (feature, inference) = (Times::default(), Times::default());
@@ -267,7 +268,7 @@ fn run_audio_piece(
     base: &Path,
     out_dir: &Path,
     runs: usize,
-    methods: &[Method],
+    methods: &[String],
     environment: &Value,
     records: &mut Vec<Value>,
 ) -> Result<()> {
@@ -276,11 +277,10 @@ fn run_audio_piece(
         .as_ref()
         .map(|path| base.join(path))
         .context("audio benchmark piece requires a soundfont path")?;
-    for &method in methods {
+    for method in methods {
         let audio_method: AudioMethod = method
-            .name()
             .parse()
-            .with_context(|| format!("{} is not an audio method", method.name()))?;
+            .with_context(|| format!("{method} is not an audio method"))?;
         let processor = piece.processor.as_deref().unwrap_or_else(|| {
             AudioMethodConfig::for_method(audio_method)
                 .processor()
@@ -293,6 +293,9 @@ fn run_audio_piece(
             let mut mm = match audio_method {
                 AudioMethod::Arzt => AudioMatchmaker::new_arzt(score_path, config, None, true)?,
                 AudioMethod::Dixon => AudioMatchmaker::new_dixon(score_path, config, None, true)?,
+                AudioMethod::ArztTempo => {
+                    AudioMatchmaker::new_arzt_tempo(score_path, config, None, true)?
+                }
             }
             .record();
             mm.run_file(performance)?;
@@ -332,7 +335,7 @@ fn run_audio_piece(
                     .join("paths")
                     .join(&piece.dataset)
                     .join(&piece.piece)
-                    .join(format!("{}.tsv", method.name()));
+                    .join(format!("{method}.tsv"));
                 crate::write_path_tsv(&path, mm.alignment_path())?;
             }
             records.push(json!({
@@ -341,7 +344,8 @@ fn run_audio_piece(
                 "input_type": "audio",
                 "renderer": "RustySynth",
                 "renderer_version": "1.3.8",
-                "method": method.name(),
+                "method": method,
+                "random_seed": mm.config().random_seed,
                 "processor": processor,
                 "dataset": piece.dataset,
                 "piece": piece.piece,

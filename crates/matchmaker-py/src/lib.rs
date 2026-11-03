@@ -105,7 +105,7 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
 fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<Bound<'py, PyDict>> {
     let kwargs = PyDict::new(py);
     match method {
-        AudioMethod::Arzt => {
+        AudioMethod::Arzt | AudioMethod::ArztTempo => {
             kwargs.set_item("processor", "chroma")?;
             kwargs.set_item("sample_rate", 44_100)?;
             kwargs.set_item("frame_rate", 30)?;
@@ -122,6 +122,9 @@ fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<B
             kwargs.set_item("max_run_count", 3)?;
             kwargs.set_item("distance_func", "euclidean")?;
         }
+    }
+    if method == AudioMethod::ArztTempo {
+        kwargs.set_item("random_seed", 1984)?;
     }
     Ok(kwargs)
 }
@@ -180,7 +183,7 @@ fn set_audio_config(
                 _ => Some(number(&value)?),
             };
         }
-        "step_size" if method == AudioMethod::Arzt => {
+        "step_size" if matches!(method, AudioMethod::Arzt | AudioMethod::ArztTempo) => {
             config.step_size = match value {
                 ConfigValue::None => None,
                 _ => Some(integer(&value)?),
@@ -191,6 +194,12 @@ fn set_audio_config(
                 ConfigValue::None => None,
                 _ => Some(integer(&value)?),
             };
+        }
+        "random_seed" if method == AudioMethod::ArztTempo => {
+            config.random_seed = Some(
+                u32::try_from(integer(&value)?)
+                    .map_err(|_| PyValueError::new_err("Invalid audio parameter random_seed"))?,
+            );
         }
         "distance_func" => {
             let ConfigValue::Str(value) = value else {
@@ -355,10 +364,13 @@ fn new_audio_matchmaker(
         AudioMethod::Dixon => {
             AudioMatchmaker::new_dixon(&score_file, audio_config, tempo, unfold_score)
         }
+        AudioMethod::ArztTempo => {
+            AudioMatchmaker::new_arzt_tempo(&score_file, audio_config, tempo, unfold_score)
+        }
     }
     .map_err(to_py_err)?;
     let method_kind = match audio_method {
-        AudioMethod::Arzt => Method::Arzt,
+        AudioMethod::Arzt | AudioMethod::ArztTempo => Method::Arzt,
         AudioMethod::Dixon => Method::Dixon,
     };
 
@@ -607,6 +619,12 @@ impl PyMatchmaker {
                         self.tempo_arg,
                         self.unfold,
                     ),
+                    AudioMethod::ArztTempo => AudioMatchmaker::new_arzt_tempo(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
                 }
                 .map_err(to_py_err)?
                 .record();
@@ -780,7 +798,7 @@ fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let methods = PyDict::new(py);
     methods.set_item("midi", Method::AVAILABLE.to_vec())?;
-    methods.set_item("audio", vec!["arzt", "dixon"])?;
+    methods.set_item("audio", AudioMethod::AVAILABLE.to_vec())?;
     m.add("AVAILABLE_METHODS", methods)?;
 
     let defaults = PyDict::new(py);

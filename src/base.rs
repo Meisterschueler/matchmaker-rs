@@ -28,6 +28,17 @@ impl AlignmentPath {
     }
 }
 
+/// Frame-level tempo diagnostics and the accumulated OLTW window computed by a call.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TempoStepDebug {
+    /// Frame, onset index, relative tempo, beat period, inserted/deleted/postponed counts, length.
+    pub state: [f64; 8],
+    /// First reference-frame index of the accumulated cost window.
+    pub window_start: usize,
+    /// Accumulated float32 costs for the reference window.
+    pub costs: Vec<f32>,
+}
+
 /// Inspectable follower state after a call, for the export of a run (FR-018).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StepDebug {
@@ -39,6 +50,8 @@ pub struct StepDebug {
     pub beat_period: Option<f64>,
     /// `outerhmm`: whether the call folded a note into the previous chord.
     pub is_continuation: Option<bool>,
+    /// Tempo-aware frame diagnostics; absent for existing non-tempo followers.
+    pub tempo: Option<TempoStepDebug>,
 }
 
 /// A score follower (`OnlineAlignment`).

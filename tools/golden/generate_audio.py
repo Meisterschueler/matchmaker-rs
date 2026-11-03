@@ -26,7 +26,9 @@ from matchmaker.features.audio import (
     ChromagramProcessor,
     LogSpectralEnergyProcessor,
 )
+from matchmaker.dp.oltw_arzt import OnlineTimeWarpingArztFrame
 from matchmaker.matchmaker import DEFAULT_TEMPO
+from matchmaker.utils.tempo_models import ArztTempoModel
 from matchmaker.utils import misc as reference_misc
 from scipy.io import wavfile
 
@@ -206,6 +208,114 @@ def generate_processor_goldens(output: Path) -> None:
             print(f"{method}/{processor_name}: {len(feature_rows)} frames")
 
 
+def generate_tempo_replay_goldens(output: Path) -> None:
+    """Record seeded tempo tracking independently of audio synthesis."""
+    reference_frames = 480
+    frame_rate = 30
+    indices = np.arange(reference_frames)
+    reference = np.zeros((reference_frames, 12), dtype=np.float32)
+    reference[indices, (indices // 12) % 12] = 1.0 + (indices % 12) / 20.0
+    frame_to_beat = indices.astype(np.float64) / 12.0
+    score_positions = np.arange(40, dtype=np.float32)
+
+    class RecordingRandom:
+        def __init__(self, rng):
+            self.rng = rng
+            self.draws = []
+
+        def uniform(self, low, high):
+            value = self.rng.uniform(low, high)
+            self.draws.append(float(value))
+            return value
+
+    for name, lengths in (
+        ("steady", (160, 160, 160)),
+        ("accelerating", (220, 160, 110)),
+        ("slowing", (110, 160, 220)),
+    ):
+        replay_indices = np.concatenate([
+            np.linspace(start, start + 159, length).astype(np.int64)
+            for start, length in zip((0, 160, 320), lengths)
+        ])
+        observations = reference[replay_indices].copy()
+        times = np.arange(len(observations), dtype=np.float64) / frame_rate
+        follower = OnlineTimeWarpingArztFrame(
+            reference_features=reference.copy(),
+            score_positions=score_positions.copy(),
+            ref_frame_to_beat=frame_to_beat.copy(),
+            frame_rate=frame_rate,
+            window_size=10,
+            start_window_size=0.1,
+            step_size=3,
+            tempo_model=ArztTempoModel,
+        )
+
+        def replay():
+            random = RecordingRandom(follower.tempo_model._rng)
+            follower.tempo_model._rng = random
+            positions, states, draws = [], [], []
+            for observation, perf_time in zip(observations, times):
+                before = len(random.draws)
+                positions.append(follower(observation, float(perf_time)))
+                model = follower.tempo_model
+                states.append([
+                    follower._current_frame,
+                    follower.current_index,
+                    model.current_tempo,
+                    model.beat_period,
+                    model.n_inserted,
+                    model.n_deleted,
+                    model.n_postponed,
+                    follower.N_ref,
+                ])
+                draws.append(random.draws[before:])
+            return np.asarray(positions), np.asarray(states), draws
+
+        positions, states, draws = replay()
+        final_features = follower.reference_features.copy()
+        final_mapping = follower._ref_frame_to_beat.copy()
+        follower.reset()
+        repeated_positions, repeated_states, repeated_draws = replay()
+        np.testing.assert_array_equal(positions, repeated_positions)
+        np.testing.assert_array_equal(states, repeated_states)
+        assert draws == repeated_draws
+        assert np.isfinite(states).all()
+
+        directory = output / "tempo_replay" / name
+        for filename, values, dtype in (
+            ("score_features", reference, "<f4"),
+            ("score_positions", score_positions, "<f4"),
+            ("score_frame_to_beat", frame_to_beat, "<f8"),
+            ("performance_features", observations, "<f4"),
+            ("performance_times", times, "<f8"),
+            ("positions", positions, "<f8"),
+            ("tempo_states", states, "<f8"),
+            ("final_score_features", final_features, "<f4"),
+            ("final_score_frame_to_beat", final_mapping, "<f8"),
+        ):
+            write_array(directory / f"{filename}.npy", values, dtype)
+        write_json(directory / "meta.json", {
+            "reference": reference_info(),
+            "generator": "tools/golden/generate_audio.py",
+            "input": "synthetic pitched feature vectors; no rendered audio",
+            "method": "arzt_tempo",
+            "frame_rate": frame_rate,
+            "window_size": 10,
+            "start_window_size": 0.1,
+            "step_size": 3,
+            "random_seed": 1984,
+            "frames": len(observations),
+            "state_columns": [
+                "current_frame", "current_index", "relative_tempo", "beat_period",
+                "n_inserted", "n_deleted", "n_postponed", "reference_frames",
+            ],
+            "uniform_draws_per_step": draws,
+            "reset_repeat": "exact",
+        })
+        print(f"arzt_tempo/{name}: {len(positions)} frames, "
+              f"inserted={int(states[-1, 4])}, deleted={int(states[-1, 5])}")
+
+
 def generate_codec_fixtures(output: Path) -> None:
     """Write tiny, synthetic mono assets for the supported decoder containers."""
     sample_rate = 44_100
@@ -260,6 +370,13 @@ def record_follower(follower, recorder: dict) -> None:
         )
         recorder["times"].append(float(perf_time))
         recorder["positions"].append(float(position))
+        if "tempo_states" in recorder:
+            model = self.tempo_model
+            recorder["tempo_states"].append([
+                self._current_frame, self.current_index, model.current_tempo,
+                model.beat_period, model.n_inserted, model.n_deleted,
+                model.n_postponed, self.N_ref,
+            ])
         return position
 
     follower.__class__ = type(
@@ -277,8 +394,13 @@ def generate_case(
     processor: str,
 ) -> None:
     recorder = {"features": [], "times": [], "positions": []}
+    if method == "arzt_tempo":
+        recorder["tempo_states"] = []
+    defaults = METHODS["arzt"] if method == "arzt_tempo" else METHODS[method]
     kwargs = {"sample_rate": SAMPLE_RATE, "processor": processor}
-    kwargs.update(METHODS[method])
+    kwargs.update(defaults)
+    if method == "arzt_tempo":
+        kwargs["tempo_model"] = ArztTempoModel
 
     with use_soundfont(soundfont):
         mm = Matchmaker(
@@ -290,6 +412,8 @@ def generate_case(
             kwargs=kwargs,
         )
         record_follower(mm.score_follower, recorder)
+        initial_reference = mm.reference_features.copy()
+        initial_mapping = mm.ref_frame_to_beat().copy()
         yielded = list(mm.run(verbose=False))
 
     if not np.array_equal(np.asarray(yielded), np.asarray(recorder["positions"])):
@@ -303,11 +427,15 @@ def generate_case(
     case = output / f"{method}_{processor}"
     write_array(case / "performance_features.npy", features, "<f4")
     write_array(case / "performance_times.npy", recorder["times"], "<f8")
-    write_array(case / "score_features.npy", mm.reference_features, "<f4")
-    write_array(case / "score_frame_to_beat.npy", mm.ref_frame_to_beat(), "<f8")
+    write_array(case / "score_features.npy", initial_reference, "<f4")
+    write_array(case / "score_frame_to_beat.npy", initial_mapping, "<f8")
     write_array(case / "score_positions.npy", mm.score_positions, "<f8")
     write_array(case / "positions.npy", recorder["positions"], "<f8")
     write_array(case / "alignment_path.npy", mm.score_follower.alignment_path, "<f8")
+    if method == "arzt_tempo":
+        write_array(case / "tempo_states.npy", recorder["tempo_states"], "<f8")
+        write_array(case / "final_score_features.npy", mm.score_follower.reference_features, "<f4")
+        write_array(case / "final_score_frame_to_beat.npy", mm.score_follower._ref_frame_to_beat, "<f8")
     write_json(
         case / "meta.json",
         {
@@ -322,7 +450,7 @@ def generate_case(
             "hop_length": mm.hop_length,
             "method": method,
             "processor": processor,
-            "follower_config": METHODS[method],
+            "follower_config": defaults,
         },
     )
     print(f"{method}/{processor}: {len(recorder['positions'])} frames")
@@ -349,7 +477,20 @@ def main() -> None:
         action="store_true",
         help="write synthetic WAV/FLAC/MP3/Ogg decoder test assets",
     )
+    parser.add_argument(
+        "--tempo-replay-only",
+        action="store_true",
+        help="generate seeded arzt_tempo replay goldens without score rendering",
+    )
+    parser.add_argument(
+        "--arzt-tempo-only",
+        action="store_true",
+        help="generate only arzt_tempo audio pipeline goldens under tempo_pipeline/",
+    )
     args = parser.parse_args()
+    if args.tempo_replay_only:
+        generate_tempo_replay_goldens(args.out.resolve())
+        return
     if args.codec_fixtures_only:
         generate_codec_fixtures(ROOT / "tests/data/audio/codec_samples")
         return
@@ -379,6 +520,14 @@ def main() -> None:
             f"performance WAV does not exist: {performance_path}; "
             "pass --render-performance to create it from the score"
         )
+
+    if args.arzt_tempo_only:
+        for processor in PROCESSORS:
+            generate_case(
+                score_path, performance_path, output / "tempo_pipeline",
+                soundfont_hash, soundfont, "arzt_tempo", processor,
+            )
+        return
 
     for method in METHODS:
         for processor in PROCESSORS:

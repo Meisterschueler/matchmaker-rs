@@ -32,8 +32,11 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `dixon` | MIDI | `chord_onset`, `pitch` | event-level online time warping with sparse path-normalized costs |
 | `arzt` | Audio | `chroma`, `lse` | frame-level online time warping; defaults to `chroma` at 30 fps |
 | `dixon` | Audio | `chroma`, `lse` | frame-level online time warping; defaults to `lse` at 50 fps |
+| `arzt_tempo` | Audio | `chroma`, `lse` | seeded tempo-aware Arzt; defaults to `chroma` at 30 fps |
 
 Select with `--method` and `--processor`; override parameters with `--set KEY=VALUE`.
+Tempo-aware Arzt uses seed 1984 by default; `--set random_seed=VALUE` selects another
+reproducible MT19937 stream. Its export includes tempo state and accumulated cost windows.
 Audio files support WAV, FLAC, MP3 and Ogg/Vorbis. For score synthesis, provision the pinned
 CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/README.md), then run:
 
@@ -61,7 +64,7 @@ mm = Matchmaker("score.musicxml", "performance.mid", input_type="midi", method="
 positions = list(mm.run(verbose=False))
 ```
 
-Audio `arzt` and `dixon` use the same generator API. Supply the pinned SF2 path in `kwargs`:
+Audio `arzt`, `dixon` and `arzt_tempo` use the same generator API. Supply the pinned SF2 path in `kwargs`:
 
 ```python
 mm = Matchmaker(
@@ -81,6 +84,12 @@ mm.export("export/")
 Golden tests compare against the reference with documented tolerances; each comparison reports
 its class (`EXACT`, `WITHIN_TOL`, `EXCEEDS`) and the maximum deviation, see
 [golden-data.md](specs/001-midi-score-following/contracts/golden-data.md#deviation-classes).
+
+The score renderer initializes Reverb Send (CC91) to zero, matching the pinned FluidSynth
+reference rather than RustySynth's default 40. Tempo-Arzt uses batch score tuning and
+unprimed score FFT windows; existing Arzt/Dixon score framing is retained for compatibility.
+Renderer metrics are checked separately from exact feature-replay parity, see
+[the audio contract](specs/004-audio-methods/contracts/audio-api.md).
 
 ## Development
 
@@ -116,8 +125,8 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 ## Roadmap
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
-2. Audio score following: frame-level `arzt`, `dixon`; processors `lse`, `chroma` (implemented).
-3. Later: remaining methods (audio `outerhmm`, `skf`, `pfkorz`, `arzt_tempo`,
+2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`; processors `lse`, `chroma` (implemented).
+3. Later: remaining methods (audio `outerhmm`, `skf`, `pfkorz`,
    `arzt_multi_fold`) and parangonar methods.
 
 ## Benchmark datasets

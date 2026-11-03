@@ -171,6 +171,7 @@ impl OnlineAlignment for PitchIoiHmm {
             probabilities: self.forward_variable.clone().unwrap_or_default(),
             beat_period: Some(self.tempo.beat_period()),
             is_continuation: None,
+            tempo: None,
         }
     }
 }

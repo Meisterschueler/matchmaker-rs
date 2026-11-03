@@ -1,5 +1,5 @@
 # Synthetic score-audio benchmark fixture; SoundFont is provisioned locally from tests/data/audio/README.md.
-# Usage: matchmaker bench tools/bench/audio.toml --out target/bench/audio/records.json --runs 5 --methods arzt,dixon
+# Usage: matchmaker bench tools/bench/audio.toml --out target/bench/audio/records.json --runs 5 --methods arzt,dixon,arzt_tempo
 
 [[pieces]]
 dataset = "audio-bundled"

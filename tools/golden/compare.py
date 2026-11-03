@@ -80,6 +80,58 @@ def compare_file(stage, rel, expected_path, actual_path):
     return None
 
 
+def compare_tempo_audio_case(golden_dir, export_dir, metadata):
+    """Compare deterministic input stages and the declared renderer metric limits."""
+    from matchmaker.utils.eval import evaluate_alignment
+
+    method = metadata["method"]
+    processor = metadata["processor"]
+    for name, path, tolerance in (
+        ("performance_features.npy", f"processor/{processor}/features.npy", (1e-5, 1e-5)),
+        ("performance_times.npy", f"processor/{processor}/times.npy", (0.0, 1e-9)),
+        ("score_frame_to_beat.npy", "score/audio/frame_to_beat.npy", (0.0, 1e-9)),
+        ("score_positions.npy", "score/audio/score_positions.npy", (0.0, 0.0)),
+    ):
+        difference = first_difference(name, np.load(golden_dir / name), np.load(export_dir / path), tolerance=tolerance)
+        if difference:
+            print(f"first differing stage: {path}: {difference}")
+            return 1
+    expected_features = np.load(golden_dir / "score_features.npy")
+    actual_features = np.load(export_dir / "score/audio/features.npy")
+    difference = first_difference("score_features.npy", expected_features, actual_features)
+    if difference:
+        print(f"SYNTHESIS_DIFFERENCE: score/audio/features.npy: {difference}")
+    expected = np.load(golden_dir / "alignment_path.npy")
+    actual = np.load(export_dir / method / "alignment_path.npy")
+    if expected.ndim != 2 or actual.shape != expected.shape or expected.shape[0] != 2:
+        print("first differing stage: alignment_path.npy: incompatible path shape")
+        return 1
+    difference = first_difference("times", expected[0], actual[0], tolerance=(0.0, 1e-9))
+    if difference:
+        print(f"first differing stage: alignment timestamps: {difference}")
+        return 1
+    mapping = np.load(golden_dir / "score_frame_to_beat.npy")
+    truth = np.interp(expected[0] * metadata["frame_rate"], np.arange(len(mapping)), mapping)
+    reference_metrics = evaluate_alignment(expected[1], expected[0], truth, expected[0])
+    actual_metrics = evaluate_alignment(actual[1], actual[0], truth, expected[0])
+    for key in ("median_b", *(key for key in reference_metrics if key.startswith("accuracy_"))):
+        delta = abs(actual_metrics[key] - reference_metrics[key])
+        print(f"METRIC\t{key}\tRust={actual_metrics[key]}\treference={reference_metrics[key]}\tdelta={delta}")
+        if delta > 0.01 + 1e-12:
+            print(f"EXCEEDS: {key} exceeds the declared 0.01 difference")
+            return 1
+    delta = abs(np.percentile(np.abs(actual[1] - truth), 95) - np.percentile(np.abs(expected[1] - truth), 95))
+    if delta > 0.05 + 1e-12:
+        print(f"EXCEEDS: p95 beat-error difference {delta} exceeds 0.05")
+        return 1
+    states = np.load(export_dir / method / "tempo_states.npy")
+    if states.shape != (len(actual[0]), 8) or not np.isfinite(states).all():
+        print("first differing stage: tempo_states.npy: invalid shape or non-finite state")
+        return 1
+    print(f"WITHIN_TOL: tempo audio stages and renderer metrics; p95 difference={delta}")
+    return 0
+
+
 def compare_audio_case(golden_dir, export_dir, metadata):
     method = metadata["method"]
     processor = metadata["processor"]
@@ -142,6 +194,8 @@ def main(golden_dir, export_dir):
     meta = golden_dir / "meta.json"
     if meta.is_file():
         metadata = json.loads(meta.read_text())
+        if metadata.get("method") == "arzt_tempo":
+            return compare_tempo_audio_case(golden_dir, export_dir, metadata)
         if metadata.get("method") in ("arzt", "dixon") and metadata.get("processor") in ("chroma", "lse"):
             return compare_audio_case(golden_dir, export_dir, metadata)
 

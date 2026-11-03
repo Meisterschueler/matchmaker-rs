@@ -19,6 +19,7 @@ use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::dp::Distance;
 use crate::dp::arzt::{ArztEvent, ArztEventConfig};
 use crate::dp::arzt_frame::ArztFrame;
+use crate::dp::arzt_tempo::ArztTempoFrame;
 use crate::dp::dixon::{DixonEvent, DixonEventConfig};
 use crate::dp::dixon_frame::DixonFrame;
 use crate::error::{Error, Result};
@@ -123,17 +124,20 @@ pub enum AudioMethod {
     Arzt,
     /// Frame-level OLTW with a normalized sparse cost search.
     Dixon,
+    /// Seeded tempo-aware frame-level Arzt OLTW.
+    ArztTempo,
 }
 
 impl AudioMethod {
     /// Reference names of the supported audio methods.
-    pub const AVAILABLE: [&'static str; 2] = ["arzt", "dixon"];
+    pub const AVAILABLE: [&'static str; 3] = ["arzt", "dixon", "arzt_tempo"];
 
     /// Reference name of this method.
     pub fn name(self) -> &'static str {
         match self {
             AudioMethod::Arzt => "arzt",
             AudioMethod::Dixon => "dixon",
+            AudioMethod::ArztTempo => "arzt_tempo",
         }
     }
 }
@@ -145,6 +149,7 @@ impl FromStr for AudioMethod {
         match name {
             "arzt" => Ok(AudioMethod::Arzt),
             "dixon" => Ok(AudioMethod::Dixon),
+            "arzt_tempo" => Ok(AudioMethod::ArztTempo),
             _ => Err(Error::AudioConfig {
                 key: "method".into(),
                 reason: format!(
@@ -287,12 +292,14 @@ pub struct AudioMethodConfig {
     pub max_run_count: Option<usize>,
     /// Local feature distance.
     pub distance_func: AudioDistance,
+    /// Explicit MT19937 seed for tempo-aware Arzt; invalid on deterministic frame methods.
+    pub random_seed: Option<u32>,
 }
 
 impl AudioMethodConfig {
     /// Reference defaults for the selected audio method.
     pub fn for_method(method: AudioMethod) -> Self {
-        let arzt = method == AudioMethod::Arzt;
+        let arzt = matches!(method, AudioMethod::Arzt | AudioMethod::ArztTempo);
         let processor = if arzt {
             AudioProcessorKind::Chroma
         } else {
@@ -314,6 +321,7 @@ impl AudioMethodConfig {
             } else {
                 AudioDistance::Euclidean
             },
+            random_seed: (method == AudioMethod::ArztTempo).then_some(1984),
         }
     }
 
@@ -353,8 +361,11 @@ impl AudioMethodConfig {
         if self.norm.is_some_and(|norm| norm.is_nan() || norm <= 0.0) {
             return Err(invalid("norm", "must be positive or None"));
         }
+        if self.random_seed.is_some() && method != AudioMethod::ArztTempo {
+            return Err(invalid("random_seed", "is only valid for audio arzt_tempo"));
+        }
         match method {
-            AudioMethod::Arzt => {
+            AudioMethod::Arzt | AudioMethod::ArztTempo => {
                 if self.max_run_count.is_some() {
                     return Err(invalid("max_run_count", "is only valid for audio dixon"));
                 }
@@ -878,6 +889,16 @@ impl AudioMatchmaker {
         Self::new_audio(score_path, AudioMethod::Arzt, config, tempo, unfold)
     }
 
+    /// Load a score and build its audio reference for seeded tempo-aware Arzt.
+    pub fn new_arzt_tempo(
+        score_path: impl AsRef<Path>,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        Self::new_audio(score_path, AudioMethod::ArztTempo, config, tempo, unfold)
+    }
+
     /// Load a score and build its audio reference for the audio `dixon` method.
     pub fn new_dixon(
         score_path: impl AsRef<Path>,
@@ -927,6 +948,12 @@ impl AudioMatchmaker {
                 config.clone(),
             )?),
             AudioMethod::Dixon => Box::new(DixonFrame::new(
+                reference.features.clone(),
+                reference.score_positions.clone(),
+                reference.frame_to_beat.clone(),
+                config.clone(),
+            )?),
+            AudioMethod::ArztTempo => Box::new(ArztTempoFrame::new(
                 reference.features.clone(),
                 reference.score_positions.clone(),
                 reference.frame_to_beat.clone(),

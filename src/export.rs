@@ -403,6 +403,42 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
         &[2, path.perf_time.len()],
         path.perf_time.iter().chain(&path.score_beat).copied(),
     )?;
+    if steps.first().is_some_and(|step| step.debug.tempo.is_some()) {
+        let tempo = steps
+            .iter()
+            .filter_map(|step| step.debug.tempo.as_ref())
+            .collect::<Vec<_>>();
+        f8(
+            &method_dir.join("tempo_states.npy"),
+            &[tempo.len(), 8],
+            tempo.iter().flat_map(|state| state.state),
+        )?;
+        f8(
+            &method_dir.join("beat_period.npy"),
+            &[tempo.len()],
+            tempo.iter().map(|state| state.state[3]),
+        )?;
+        let mut offsets = vec![0];
+        for state in &tempo {
+            offsets.push(offsets.last().copied().unwrap() + state.costs.len());
+        }
+        i8s(
+            &method_dir.join("cost_window_offsets.npy"),
+            &[offsets.len()],
+            offsets.into_iter(),
+        )?;
+        i8s(
+            &method_dir.join("cost_window_start.npy"),
+            &[tempo.len()],
+            tempo.iter().map(|state| state.window_start),
+        )?;
+        let count = tempo.iter().map(|state| state.costs.len()).sum::<usize>();
+        f4(
+            &method_dir.join("cost_window_values.npy"),
+            &[count],
+            tempo.iter().flat_map(|state| state.costs.iter().copied()),
+        )?;
+    }
     write_json(
         &method_dir.join("meta.json"),
         &json!({
@@ -417,6 +453,7 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
                 "window_size": config.window_size,
                 "distance_func": format!("{:?}", config.distance_func).to_lowercase(),
                 "tempo": mm.tempo(),
+                "random_seed": config.random_seed,
             },
         }),
     )

@@ -39,8 +39,8 @@ enum Command {
         #[arg(long, value_enum, default_value_t = InputType::Midi)]
         input_type: InputType,
         /// Score-following method
-        #[arg(long, default_value = "pthmm")]
-        method: Method,
+        #[arg(long, default_value = "pthmm", value_parser = parse_method_name)]
+        method: String,
         /// Local SF2 SoundFont required for audio score rendering
         #[arg(long)]
         soundfont_path: Option<PathBuf>,
@@ -97,8 +97,8 @@ enum Command {
         #[arg(long, default_value_t = 5)]
         runs: usize,
         /// Comma-separated methods (default: all available)
-        #[arg(long, value_delimiter = ',')]
-        methods: Vec<Method>,
+        #[arg(long, value_delimiter = ',', value_parser = parse_method_name)]
+        methods: Vec<String>,
     },
 }
 
@@ -106,6 +106,18 @@ enum Command {
 enum InputType {
     Midi,
     Audio,
+}
+
+fn parse_method_name(name: &str) -> Result<String, String> {
+    if Method::AVAILABLE.contains(&name) || AudioMethod::AVAILABLE.contains(&name) {
+        Ok(name.to_string())
+    } else {
+        Err(format!(
+            "invalid method {name:?}; MIDI: {:?}; audio: {:?}",
+            Method::AVAILABLE,
+            AudioMethod::AVAILABLE,
+        ))
+    }
 }
 
 /// Write an alignment path as TSV with header `perf_sec\tscore_beat`.
@@ -190,6 +202,7 @@ fn audio_config(
         match key {
             "processor" => {}
             "sample_rate" => config.sample_rate = audio_u32(key, &value)?,
+            "random_seed" => config.random_seed = Some(audio_u32(key, &value)?),
             "frame_rate" => config.frame_rate = audio_u32(key, &value)?,
             "hop_length" => config.hop_length = audio_optional_usize(key, &value)?,
             "norm" => {
@@ -285,6 +298,7 @@ fn main() -> Result<()> {
             quiet,
         } => match input_type {
             InputType::Midi => {
+                let method: Method = method.parse()?;
                 anyhow::ensure!(
                     soundfont_path.is_none(),
                     "--soundfont-path requires --input-type audio"
@@ -333,7 +347,7 @@ fn main() -> Result<()> {
                     ground_truth.is_none(),
                     "audio ground-truth evaluation is not implemented yet"
                 );
-                let audio_method: AudioMethod = method.name().parse()?;
+                let audio_method: AudioMethod = method.parse()?;
                 let config =
                     audio_config(audio_method, processor.as_deref(), soundfont_path, &set)?;
                 let mut mm = match audio_method {
@@ -342,6 +356,9 @@ fn main() -> Result<()> {
                     }
                     AudioMethod::Dixon => {
                         AudioMatchmaker::new_dixon(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::ArztTempo => {
+                        AudioMatchmaker::new_arzt_tempo(&score, config, tempo, !no_unfold)?
                     }
                 };
                 if export.is_some() {
@@ -398,8 +415,8 @@ fn main() -> Result<()> {
             let methods = if methods.is_empty() {
                 Method::AVAILABLE
                     .iter()
-                    .map(|m| m.parse())
-                    .collect::<Result<_, _>>()?
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>()
             } else {
                 methods
             };

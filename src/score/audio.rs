@@ -27,7 +27,7 @@ use tracing::debug_span;
 
 use crate::error::{Error, Result};
 use crate::features::{AudioProcessor, Observation, chroma::ChromaProcessor, lse::LseProcessor};
-use crate::io::audio::AudioStream;
+use crate::io::audio::{AudioFrame, AudioStream};
 use crate::matchmaker::{AudioMethod, AudioMethodConfig, AudioProcessorKind};
 use crate::score::Score;
 use crate::score::timeline::{TimeMap, Unit};
@@ -92,6 +92,7 @@ pub fn render_score_audio(
             path: path.to_path_buf(),
             message: error.to_string(),
         })?;
+    synthesizer.process_midi_message(0, 0xB0, 91, 0);
 
     let seconds_per_quarter = 60.0 / tempo;
     let first_onset = score
@@ -197,33 +198,60 @@ pub fn build_reference(
         .unwrap_or((config.sample_rate / config.frame_rate) as usize);
     let frame_rate = f64::from(config.sample_rate) / hop_length as f64;
     let mut processor: Box<dyn AudioProcessor> = match config.processor() {
-        AudioProcessorKind::Chroma => Box::new(ChromaProcessor::new(
-            config.sample_rate,
-            hop_length,
-            config.norm,
-        )),
+        AudioProcessorKind::Chroma => {
+            if method == AudioMethod::ArztTempo {
+                Box::new(ChromaProcessor::for_reference(
+                    config.sample_rate,
+                    hop_length,
+                    config.norm,
+                    &samples,
+                )?)
+            } else {
+                Box::new(ChromaProcessor::new(
+                    config.sample_rate,
+                    hop_length,
+                    config.norm,
+                ))
+            }
+        }
         AudioProcessorKind::Lse => Box::new(LseProcessor::new(
             config.sample_rate,
             hop_length,
             config.norm,
         )),
     };
-    let cache_size = match config.processor() {
-        AudioProcessorKind::Chroma => hop_length,
+    let n_fft = match config.processor() {
+        AudioProcessorKind::Chroma => 2 * hop_length,
         AudioProcessorKind::Lse => {
-            LseProcessor::new(config.sample_rate, hop_length, config.norm).n_fft() - hop_length
+            LseProcessor::new(config.sample_rate, hop_length, config.norm).n_fft()
         }
     };
-    let mut stream = AudioStream::from_mono_samples(
-        samples.clone(),
-        config.sample_rate,
-        hop_length,
-        cache_size,
-    )?;
-    stream.prime(processor.as_mut());
-    let observations: Vec<Observation> = stream
-        .filter_map(|frame| processor.process(&frame))
-        .collect();
+    // shortcut: delivered methods retain legacy score features, migrate after a separate parity review.
+    let observations: Vec<Observation> = if method == AudioMethod::ArztTempo {
+        samples
+            .windows(n_fft)
+            .step_by(hop_length)
+            .enumerate()
+            .filter_map(|(index, samples)| {
+                processor.process(&AudioFrame {
+                    index,
+                    samples: samples.to_vec(),
+                    perf_time: index as f64 / frame_rate,
+                })
+            })
+            .collect()
+    } else {
+        let mut stream = AudioStream::from_mono_samples(
+            samples.clone(),
+            config.sample_rate,
+            hop_length,
+            n_fft - hop_length,
+        )?;
+        stream.prime(processor.as_mut());
+        stream
+            .filter_map(|frame| processor.process(&frame))
+            .collect()
+    };
     let features: Vec<Vec<f32>> = observations
         .iter()
         .map(|observation| observation.features.clone())

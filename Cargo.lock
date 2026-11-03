@@ -330,6 +330,7 @@ name = "matchmaker-rs"
 version = "0.1.0"
 dependencies = [
  "midly",
+ "rand_mt",
  "realfft",
  "roxmltree",
  "rubato",
@@ -565,6 +566,12 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "rand_mt"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab79b42e3c44cf58883b476bbcfa5750130c28cb0c6a9bcbc76ad820aed05873"
 
 [[package]]
 name = "rawpointer"

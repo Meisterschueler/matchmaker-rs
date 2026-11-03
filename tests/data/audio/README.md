@@ -97,6 +97,25 @@ is 1,340,698 bytes with SHA-256
 reference runs are checked in under `tests/golden/audio/`; metadata records
 FluidSynth, pymatchmaker, Partitura, and SoundFont versions/hashes.
 
+### Tempo-aware Arzt references
+
+`generate_audio.py --tempo-replay-only` writes fixed, synthetic feature-vector cases
+under `tests/golden/audio/tempo_replay/` (steady, accelerating, slowing). The cases
+record eight tempo-state columns, every MT19937 uniform draw, final altered score
+features/mapping, and exact reset reproducibility with seed 1984. They contain no
+third-party recording or SoundFont-derived samples.
+
+`generate_audio.py --arzt-tempo-only` writes separate Chroma/LSE references under
+`tests/golden/audio/tempo_pipeline/` using the existing verified WAV and SF2.
+Initial score frames and mappings are saved before the tempo model alters them.
+The same FluidSynth 2.6.2 archive pin above applies. On Windows, put its `bin`
+directory on PATH and in the DLL search path before importing Partitura.
+
+The Rust score renderer explicitly initializes CC91 to zero. The reference
+FluidSynth channel has CC91=0, whereas RustySynth initializes it to 40; accepting
+that default introduces additional reverb and changes the score reference.
+This is renderer calibration, not a relaxed test tolerance or a new native runtime dependency.
+
 ### Rejected candidate
 
 GeneralUser GS 2.0.3 was considered at upstream commit

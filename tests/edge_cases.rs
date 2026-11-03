@@ -287,12 +287,19 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
     let overrun = audio_melody_wav("audio_overrun", 30);
     let one_onset = midi_file("audio_one_onset_score", &[(0, 60, 80), (480, 60, 0)]);
 
-    for method in [AudioMethod::Arzt, AudioMethod::Dixon] {
+    for method in [
+        AudioMethod::Arzt,
+        AudioMethod::Dixon,
+        AudioMethod::ArztTempo,
+    ] {
         let make = |score: &PathBuf| {
             let mut config = AudioMethodConfig::for_method(method);
             config.soundfont_path = Some(soundfont.clone());
             match method {
                 AudioMethod::Arzt => AudioMatchmaker::new_arzt(score, config, None, true).unwrap(),
+                AudioMethod::ArztTempo => {
+                    AudioMatchmaker::new_arzt_tempo(score, config, None, true).unwrap()
+                }
                 AudioMethod::Dixon => {
                     AudioMatchmaker::new_dixon(score, config, None, true).unwrap()
                 }
@@ -309,14 +316,19 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
             "{method:?} produced a non-finite position"
         );
 
-        let mut long_run = make(&data(SCORE));
+        let mut long_run = make(&data(SCORE)).record();
         let long_positions = long_run.run_file(&overrun).unwrap();
         let frame_to_beat = &long_run.reference().frame_to_beat;
+        let reference_frames = long_run
+            .recording()
+            .and_then(|recording| recording.steps.last())
+            .and_then(|step| step.debug.tempo.as_ref())
+            .map_or(frame_to_beat.len(), |tempo| tempo.state[7] as usize);
         assert!(
-            long_positions.len() <= frame_to_beat.len(),
+            long_positions.len() <= reference_frames,
             "{method:?}: {} positions for {} score frames; final beat {}",
             long_positions.len(),
-            frame_to_beat.len(),
+            reference_frames,
             frame_to_beat.last().unwrap()
         );
         assert!(long_positions.iter().all(|position| {

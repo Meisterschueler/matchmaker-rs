@@ -43,6 +43,18 @@ def regression_status(current: float | None, previous: float | None) -> bool | N
     return current > REGRESSION * previous
 
 
+def renderer_accuracy_parity(actual: dict, expected: dict) -> bool:
+    """Declared Tempo-Arzt renderer limits, distinct from strict metric identity."""
+    keys = ("median_b", "accuracy_0.05b", "accuracy_0.1b", "accuracy_0.3b", "accuracy_0.5b", "accuracy_1b", "accuracy_2b")
+    return all(
+        isinstance(actual.get(key), (int, float))
+        and isinstance(expected.get(key), (int, float))
+        and math.isfinite(actual[key]) and math.isfinite(expected[key])
+        and abs(actual[key] - expected[key]) <= 0.01 + 1e-12
+        for key in keys
+    )
+
+
 def load(paths: list[Path]) -> dict:
     """(records, directory of their paths/) grouped by (method, dataset, piece)."""
     groups: dict = {}
@@ -157,6 +169,8 @@ def main() -> None:
                 "python": p,
                 "speed_up": p["total_s"] / r["total_s"] if r["total_s"] and p["total_s"] else None,
                 "metric_parity": metric_parity,
+                "renderer_accuracy_parity": renderer_accuracy_parity(r["evaluation"], p["evaluation"])
+                    if method == "arzt_tempo" and r["evaluation"] and p["evaluation"] else None,
                 "position_parity": parity,
                 "regression": regression_status(r["inference_ms"], previous),
             }
@@ -172,8 +186,8 @@ def main() -> None:
         "",
         "Medians over runs. Latency in ms per observation; speed-up = Python / Rust total processing time.",
         "",
-        "| method | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | smoothness | metrics | positions | regression |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| method | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | smoothness | strict metrics | renderer accuracy | positions | regression |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         r, p, ev = row["rust"], row["python"], row["rust"]["evaluation"] or row["python"]["evaluation"] or {}
@@ -188,7 +202,7 @@ def main() -> None:
             f"| {fmt(r['feature_ms'])} / {fmt(p['feature_ms'])} | {fmt(r['inference_ms'])} / {fmt(p['inference_ms'])} "
             f"| {fmt(row['speed_up'], '.1f')} | {fmt(r['real_time_factor'])} | {fmt(ev.get('mean_b'))} "
             f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "
-            f"| {pos_text} | {regression_text} |"
+            f"| {flag(row['renderer_accuracy_parity'])} | {pos_text} | {regression_text} |"
         )
     datasets = tomllib.loads(DATASETS.read_text(encoding="utf-8"))
     used = sorted({row["dataset"] for row in rows} & set(datasets))
@@ -200,7 +214,8 @@ def main() -> None:
     (args.out / "index.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
 
-    violations = [row for row in rows if row["position_parity"] and not row["position_parity"]["ok"]]
+    violations = [row for row in rows if (row["position_parity"] and not row["position_parity"]["ok"])
+                  or row["renderer_accuracy_parity"] is False]
     # shields.io endpoint for the README badge: median speed-up over all pieces, red on a parity violation
     speed_ups = [row["speed_up"] for row in rows if row["speed_up"]]
     badge = {

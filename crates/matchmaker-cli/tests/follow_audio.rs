@@ -41,6 +41,39 @@ fn positions(output: &Output) -> Vec<(f64, f64)> {
 }
 
 #[test]
+fn audio_arzt_tempo_defaults_seed_and_parameter_errors() {
+    let default = follow_audio("arzt_tempo", &[]);
+    assert!(
+        default.status.success(),
+        "{}",
+        String::from_utf8_lossy(&default.stderr)
+    );
+    assert!(!positions(&default).is_empty());
+    let explicit = follow_audio(
+        "arzt_tempo",
+        &[
+            "--processor",
+            "chroma",
+            "--set",
+            "random_seed=1984",
+            "--set",
+            "frame_rate=30",
+            "--set",
+            "step_size=3",
+        ],
+    );
+    assert!(
+        explicit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+    assert_eq!(positions(&default), positions(&explicit));
+    let invalid = follow_audio("arzt_tempo", &["--set", "random_seed=-1"]);
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("random_seed"));
+}
+
+#[test]
 fn processor_overrides_use_processor_norm_defaults() {
     let arzt_lse = follow_audio("arzt", &["--processor", "lse"]);
     let arzt_lse_explicit = follow_audio("arzt", &["--processor", "lse", "--set", "norm=2"]);

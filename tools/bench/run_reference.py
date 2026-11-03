@@ -116,12 +116,15 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                     kwargs=kwargs,
                 )
                 processor = PROCESSORS[type(mm.processor).__name__]
+                frame_to_beat = mm.ref_frame_to_beat().copy()
+                tempo_model = getattr(mm.score_follower, "tempo_model", None)
+                if method == "arzt_tempo" and tempo_model is None:
+                    raise RuntimeError("arzt_tempo benchmark requires an active tempo model")
                 timed(mm.processor, feature, only_results=True)
                 timed(mm.score_follower, inference)
                 for _ in mm.run(verbose=False):
                     pass
             path = np.asarray(mm.score_follower.alignment_path, dtype=float).reshape(2, -1)
-            frame_to_beat = mm.ref_frame_to_beat()
             frame_indices = np.clip(path[0] * mm.frame_rate, 0, len(frame_to_beat) - 1)
             expected_beats = np.interp(
                 frame_indices,
@@ -141,6 +144,7 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                 "implementation_version": matchmaker.__version__,
                 "input_type": "audio",
                 "method": method,
+                "random_seed": getattr(tempo_model, "random_seed", None),
                 "processor": processor,
                 "dataset": piece["dataset"],
                 "piece": piece["piece"],

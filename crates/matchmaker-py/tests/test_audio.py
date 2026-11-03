@@ -33,7 +33,7 @@ def make_audio(method="arzt", **kwargs):
 
 
 def test_audio_arzt_defaults_yield_positions_and_return_path():
-    assert matchmaker_rs.AVAILABLE_METHODS["audio"] == ["arzt", "dixon"]
+    assert matchmaker_rs.AVAILABLE_METHODS["audio"] == ["arzt", "dixon", "arzt_tempo"]
     defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["arzt"]
     assert defaults["processor"] == "chroma"
     assert defaults["frame_rate"] == 30
@@ -60,6 +60,26 @@ def test_audio_arzt_defaults_yield_positions_and_return_path():
     np.testing.assert_allclose(returned_path[1], expected_path[1], rtol=0, atol=0.3)
     np.testing.assert_array_equal(mm.score_follower.alignment_path, returned_path)
     assert mm._has_run
+
+
+def test_audio_arzt_tempo_defaults_seed_and_path():
+    assert "arzt_tempo" in matchmaker_rs.AVAILABLE_METHODS["audio"]
+    defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["arzt_tempo"]
+    assert defaults["processor"] == "chroma"
+    assert defaults["frame_rate"] == 30
+    assert defaults["step_size"] == 3
+    default = make_audio("arzt_tempo")
+    explicit = make_audio("arzt_tempo", random_seed=1984)
+    positions = list(default.run(verbose=False))
+    assert positions and all(type(position) is float for position in positions)
+    assert positions == list(explicit.run(verbose=False))
+    assert default.score_follower.alignment_path.shape == (2, len(positions))
+    np.testing.assert_array_equal(
+        default.score_follower.alignment_path,
+        explicit.score_follower.alignment_path,
+    )
+    with pytest.raises(ValueError, match="random_seed"):
+        make_audio("arzt_tempo", random_seed=-1)
 
 
 def test_audio_arzt_reports_typed_configuration_and_file_errors():
