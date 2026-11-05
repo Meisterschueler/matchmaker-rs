@@ -537,6 +537,81 @@ def generate_multi_fold_audio(
         print(f"arzt_multi_fold/{name}: {len(recorder['positions'])} frames")
 
 
+def generate_audio_ground_truth(
+    score_path: Path,
+    performance_path: Path,
+    output: Path,
+    soundfont_hash: str,
+    soundfont: Path,
+) -> None:
+    """Record direct score-onset TSV ground truth and reference audio metrics."""
+    from matchmaker.utils.eval import evaluate_alignment
+
+    kwargs = {
+        "processor": "chroma",
+        "sample_rate": SAMPLE_RATE,
+        **METHODS["arzt"],
+    }
+    with use_soundfont(soundfont):
+        mm = Matchmaker(
+            score_file=score_path,
+            performance_file=performance_path,
+            input_type="audio",
+            method="arzt",
+            processor="chroma",
+            kwargs=kwargs,
+        )
+        list(mm.run(verbose=False))
+
+    note_beats = np.unique(mm.score_part.note_array()["onset_beat"]).astype(float)
+    frame_mapping = mm.ref_frame_to_beat().astype(float)
+    frame_indices = np.interp(
+        note_beats, frame_mapping, np.arange(len(frame_mapping), dtype=float)
+    )
+    perf_times = frame_indices / float(mm.frame_rate)
+    if len(note_beats) > 8:
+        selected = np.linspace(0, len(note_beats) - 1, 8).round().astype(int)
+        note_beats, perf_times = note_beats[selected], perf_times[selected]
+
+    directory = ROOT / "tests/data/audio/ground_truth"
+    directory.mkdir(parents=True, exist_ok=True)
+    tsv = directory / "score_onsets.tsv"
+    tsv.write_text(
+        "perf_sec\tscore_beat\n"
+        + "".join(
+            f"{time:.17g}\t{beat:.17g}\n"
+            for time, beat in zip(perf_times, note_beats)
+        ),
+        encoding="utf-8",
+    )
+    path = np.asarray(mm.score_follower.alignment_path, dtype=np.float64)
+    metrics = evaluate_alignment(path[1], path[0], note_beats, perf_times)
+    base = output / "ground_truth"
+    write_array(base / "alignment_path.npy", path, "<f8")
+    write_array(base / "ground_truth.npy", np.column_stack((perf_times, note_beats)), "<f8")
+    (base / "ground_truth.tsv").write_text(tsv.read_text(encoding="utf-8"), encoding="utf-8")
+    write_json(base / "evaluation.json", metrics)
+    write_json(
+        base / "meta.json",
+        {
+            "reference": reference_info(),
+            "generator": "tools/golden/generate_audio.py",
+            "score": score_path.name,
+            "score_sha256": sha256(score_path),
+            "performance": performance_path.name,
+            "performance_sha256": sha256(performance_path),
+            "soundfont_sha256": soundfont_hash,
+            "method": "audio_ground_truth",
+            "processor": "chroma",
+            "ground_truth": "sampled unique score onsets mapped to performance seconds",
+            "ground_truth_file": tsv.name,
+            "events": len(note_beats),
+            "metric_source": "matchmaker.utils.eval.evaluate_alignment",
+        },
+    )
+    print(f"audio/ground_truth: {len(note_beats)} note onsets")
+
+
 def generate_codec_fixtures(output: Path) -> None:
     """Write tiny, synthetic mono assets for the supported decoder containers."""
     sample_rate = 44_100
@@ -734,6 +809,11 @@ def main() -> None:
         action="store_true",
         help="generate taken/skipped-repeat arzt_multi_fold audio and follower goldens",
     )
+    parser.add_argument(
+        "--audio-ground-truth-only",
+        action="store_true",
+        help="generate a direct audio score-onset TSV and metric golden",
+    )
     args = parser.parse_args()
     if args.tempo_replay_only:
         generate_tempo_replay_goldens(args.out.resolve())
@@ -763,6 +843,30 @@ def main() -> None:
             )
         generate_multi_fold_candidates(score_path, args.out.resolve())
         generate_multi_fold_audio(score_path, args.out.resolve(), soundfont, soundfont_hash)
+        return
+    if args.audio_ground_truth_only:
+        score_path = args.score.resolve()
+        performance_path = args.performance.resolve()
+        soundfont = args.soundfont.resolve()
+        if not score_path.is_file():
+            parser.error(f"score does not exist: {score_path}")
+        if not performance_path.is_file():
+            parser.error(f"performance does not exist: {performance_path}")
+        if not soundfont.is_file():
+            parser.error(f"SoundFont does not exist: {soundfont}")
+        soundfont_hash = sha256(soundfont)
+        if soundfont_hash != SOUNDFONT_SHA256:
+            parser.error(
+                f"unexpected SoundFont SHA-256 {soundfont_hash}; "
+                f"expected pinned asset {SOUNDFONT_SHA256}"
+            )
+        generate_audio_ground_truth(
+            score_path,
+            performance_path,
+            args.out.resolve(),
+            soundfont_hash,
+            soundfont,
+        )
         return
     if args.codec_fixtures_only:
         generate_codec_fixtures(ROOT / "tests/data/audio/codec_samples")

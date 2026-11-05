@@ -18,7 +18,8 @@ use serde_json::json;
 use crate::error::{Error, Result};
 use crate::features::Observation;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
-use crate::matchmaker::{AudioMatchmaker, Matchmaker, Method, ProcessorKind};
+use crate::matchmaker::{AudioMatchmaker, AudioMethod, Matchmaker, Method, ProcessorKind};
+use crate::utils::eval::EvaluationResult;
 
 /// Reference skips `probabilities.npy` above this many values (`MAX_PROBABILITY_VALUES`).
 const MAX_PROBABILITY_VALUES: usize = 5_000_000;
@@ -530,6 +531,25 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
                 "selection_window": config.selection_window,
                 "switch_margin": config.switch_margin,
             },
+        }),
+    )
+}
+
+/// Write audio ground-truth metrics and identify the direct TSV used to compute them.
+pub fn write_audio_evaluation(
+    method: AudioMethod,
+    dir: impl AsRef<Path>,
+    ground_truth_path: &Path,
+    evaluation: &EvaluationResult,
+) -> Result<()> {
+    let method_dir = dir.as_ref().join(method.name());
+    write_json(&method_dir.join("evaluation.json"), &json!(evaluation))?;
+    write_json(
+        &method_dir.join("evaluation_meta.json"),
+        &json!({
+            "ground_truth_path": ground_truth_path.to_string_lossy(),
+            "ground_truth_format": "perf_sec/score_beat TSV",
+            "evaluation_file": "evaluation.json",
         }),
     )
 }

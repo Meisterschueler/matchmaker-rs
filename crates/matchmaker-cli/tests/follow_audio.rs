@@ -104,6 +104,95 @@ fn audio_arzt_multi_fold_defaults_and_repeat_mode() {
     }
 }
 
+#[test]
+fn audio_ground_truth_writes_reference_metric_json() {
+    let output = std::env::temp_dir().join("matchmaker_cli_audio_ground_truth");
+    let _ = std::fs::remove_dir_all(&output);
+    let ground_truth = data("audio/ground_truth/score_onsets.tsv");
+    let ground_truth = ground_truth.to_str().unwrap();
+    let output_dir = output.to_str().unwrap();
+    let run = follow_audio(
+        "arzt",
+        &["--ground-truth", ground_truth, "--export", output_dir],
+    );
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let actual: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("arzt/evaluation.json")).unwrap())
+            .unwrap();
+    let evaluation_meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("arzt/evaluation_meta.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        evaluation_meta["ground_truth_format"],
+        "perf_sec/score_beat TSV"
+    );
+    assert_eq!(evaluation_meta["ground_truth_path"], ground_truth);
+    let expected: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(data("../golden/audio/ground_truth/evaluation.json")).unwrap(),
+    )
+    .unwrap();
+    for key in [
+        "median_b",
+        "accuracy_0.05b",
+        "accuracy_0.1b",
+        "accuracy_0.3b",
+    ] {
+        assert!(
+            (actual[key].as_f64().unwrap() - expected[key].as_f64().unwrap()).abs() <= 0.01,
+            "{key}: actual {}, expected {}",
+            actual[key],
+            expected[key]
+        );
+    }
+}
+
+#[test]
+fn malformed_audio_ground_truth_does_not_overwrite_existing_output() {
+    let directory = std::env::temp_dir().join("matchmaker_cli_bad_audio_ground_truth");
+    std::fs::create_dir_all(&directory).unwrap();
+    let ground_truth = directory.join("malformed.tsv");
+    let output = directory.join("existing.tsv");
+    std::fs::write(&ground_truth, "wrong\theader\n0\t1\n").unwrap();
+    std::fs::write(&output, "preserve this file\n").unwrap();
+    let ground_truth_arg = ground_truth.to_str().unwrap();
+    let output_arg = output.to_str().unwrap();
+    let export_arg = directory.join("export").to_str().unwrap().to_owned();
+    let run = follow_audio(
+        "arzt",
+        &[
+            "--ground-truth",
+            ground_truth_arg,
+            "--output",
+            output_arg,
+            "--export",
+            &export_arg,
+        ],
+    );
+    assert!(!run.status.success());
+    assert_eq!(
+        std::fs::read_to_string(output).unwrap(),
+        "preserve this file\n"
+    );
+}
+
+#[test]
+fn audio_follow_rejects_note_id_match_ground_truth_without_midi_performance() {
+    let ground_truth = data("simple_mozart_k265_var1.match");
+    let ground_truth = ground_truth.to_str().unwrap();
+    let export = std::env::temp_dir().join("matchmaker_cli_audio_match_gt");
+    let export = export.to_str().unwrap().to_owned();
+    let run = follow_audio(
+        "arzt",
+        &["--ground-truth", ground_truth, "--export", &export],
+    );
+    assert!(!run.status.success());
+    assert!(String::from_utf8_lossy(&run.stderr).contains("separate MIDI performance"));
+}
+
 fn positions(output: &Output) -> Vec<(f64, f64)> {
     String::from_utf8_lossy(&output.stdout)
         .lines()

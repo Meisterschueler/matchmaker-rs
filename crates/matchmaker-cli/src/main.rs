@@ -346,10 +346,6 @@ fn main() -> Result<()> {
                 Ok(())
             }
             InputType::Audio => {
-                anyhow::ensure!(
-                    ground_truth.is_none(),
-                    "audio ground-truth evaluation is not implemented yet"
-                );
                 let audio_method: AudioMethod = method.parse()?;
                 let config =
                     audio_config(audio_method, processor.as_deref(), soundfont_path, &set)?;
@@ -367,10 +363,25 @@ fn main() -> Result<()> {
                         AudioMatchmaker::new_arzt_multi_fold(&score, config, tempo, !no_unfold)?
                     }
                 };
+                let ground_truth_path = ground_truth;
+                let ground_truth = if let Some(ground_truth) = &ground_truth_path {
+                    anyhow::ensure!(
+                        !ground_truth
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("match")),
+                        "audio follow requires direct perf_sec/score_beat TSV ground truth; note-ID .match files need a separate MIDI performance"
+                    );
+                    Some(GroundTruth::load(ground_truth, mm.score(), None)?)
+                } else {
+                    None
+                };
                 if export.is_some() {
                     mm = mm.record();
                 }
                 mm.run_file(&performance)?;
+                let evaluation = ground_truth
+                    .as_ref()
+                    .map(|ground_truth| evaluate_alignment(mm.alignment_path(), ground_truth));
                 let path = mm.alignment_path();
                 if !quiet {
                     let mut out = std::io::stdout().lock();
@@ -382,7 +393,17 @@ fn main() -> Result<()> {
                     write_path_tsv(&path_output, path)?;
                 }
                 if let Some(directory) = export {
-                    matchmaker_rs::export::write_audio_run(&mm, directory)?;
+                    matchmaker_rs::export::write_audio_run(&mm, &directory)?;
+                    if let (Some(ground_truth_path), Some(evaluation)) =
+                        (ground_truth_path.as_deref(), evaluation.as_ref())
+                    {
+                        matchmaker_rs::export::write_audio_evaluation(
+                            audio_method,
+                            &directory,
+                            ground_truth_path,
+                            evaluation,
+                        )?;
+                    }
                 }
                 Ok(())
             }

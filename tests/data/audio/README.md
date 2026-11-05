@@ -134,6 +134,11 @@ metadata pins the source score hash, SoundFont hash, reference lock, and FluidSy
 version. The matching `.tsv` files contain unique note-onset times and folded-score
 beats for metric evaluation, not one row for every intermediate audio frame.
 
+`ground_truth/score_onsets.tsv` is an eight-onset direct TSV fixture generated from
+the bundled score's locked-reference frame-to-beat mapping. Its score, performance,
+and CC0 SoundFont hashes and reference metric golden are under
+`tests/golden/audio/ground_truth/`.
+
 ### Rejected candidate
 
 GeneralUser GS 2.0.3 was considered at upstream commit

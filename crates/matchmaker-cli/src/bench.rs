@@ -392,6 +392,10 @@ fn run_audio_piece(
                 "real_time_factor": if duration > 0.0 { total / duration } else { 0.0 },
                 "evaluation": evaluation,
                 "ground_truth": piece.ground_truth.is_some(),
+                "ground_truth_path": piece
+                    .ground_truth
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned()),
                 "environment": environment,
             }));
         }

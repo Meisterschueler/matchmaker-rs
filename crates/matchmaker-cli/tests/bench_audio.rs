@@ -63,6 +63,42 @@ fn bench_accepts_tempo_arzt_and_records_seeded_audio_metrics() {
 }
 
 #[test]
+fn bench_records_direct_audio_ground_truth_identity_and_metrics() {
+    let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_ground_truth");
+    std::fs::create_dir_all(&output).unwrap();
+    let records_path = output.join("records.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("bench")
+        .arg(Path::new(&root()).join("tools/bench/audio.toml"))
+        .arg("--out")
+        .arg(&records_path)
+        .args(["--runs", "1", "--methods", "arzt"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&records_path).unwrap()).unwrap();
+    let rows = records.as_array().unwrap();
+    let record = rows
+        .iter()
+        .find(|row| row["piece"] == "mozart_score_onsets")
+        .unwrap();
+    assert_eq!(record["ground_truth"], true);
+    assert!(
+        record["ground_truth_path"]
+            .as_str()
+            .unwrap()
+            .ends_with("score_onsets.tsv")
+    );
+    assert!(record["evaluation"]["median_b"].as_f64().is_some());
+    assert!(record["evaluation"]["accuracy_0.05b"].as_f64().is_some());
+}
+
+#[test]
 fn bench_accepts_multi_fold_and_records_repeat_candidates() {
     let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_multi_fold");
     std::fs::create_dir_all(&output).unwrap();
@@ -96,6 +132,13 @@ fn bench_accepts_multi_fold_and_records_repeat_candidates() {
         assert_eq!(record["selection_window"], 50);
         assert_eq!(record["switch_margin"], 0.05);
         assert_eq!(record["n_observations"], frames);
+        assert_eq!(record["ground_truth"], true);
+        assert!(
+            record["ground_truth_path"]
+                .as_str()
+                .unwrap()
+                .ends_with(&format!("{piece}.tsv").replace("repeats_", "repeat_"))
+        );
         assert!(record["evaluation"]["median_b"].as_f64().is_some());
     }
 }

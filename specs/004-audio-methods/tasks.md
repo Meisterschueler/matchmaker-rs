@@ -52,19 +52,19 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T013 [US2] Add current-method configuration, compatibility validation and construction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; preserve MIDI/Audio Arzt/Dixon defaults.
 - [X] T014 [US2] Export hypothesis identities, selection history, beat mappings and costs in src/export.rs; extend tools/golden/compare.py, tests/audio_config_export.rs and tests/edge_cases.rs to diagnose the first differing hypothesis/frame.
 - [X] T015 [US2] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for repeat runs; document public module/examples, README.md and UPSTREAM.md.
-- [ ] T016 [US2] Run all quickstart gates, record per-stage/metric maxima and benchmark/platform evidence in specs/004-audio-methods/research.md, and create only C02 `feat(audio): add arzt_multi_fold`; stop before US3 until committed.
+- [X] T016 [US2] Run all quickstart gates, record per-stage/metric maxima and benchmark/platform evidence in specs/004-audio-methods/research.md, and create only C02 `feat(audio): add arzt_multi_fold`; stop before US3 until committed.
 
 ## Phase 5: US3 - Audio ground truth (P1, C03)
 
 **Goal**: Audio quality evaluation using the existing exact mapping and metrics.
 **Independent test**: Known path/TSV metric equality; invalid input never truncates existing output.
 
-- [ ] T017 [US3] Capture reference utils/eval.py mapping/threshold definitions and create small direct perf_sec/score_beat TSV plus metric goldens in tests/data/audio/ and tests/golden/audio/ using tools/golden/generate_audio.py; record provenance in specs/004-audio-methods/research.md (FR-003).
-- [ ] T018 [US3] Write failing audio ground_truth CLI tests in crates/matchmaker-cli/tests/follow_audio.rs and mapping/metric/malformed input/output preservation tests in tests/golden_eval.rs; retain existing MIDI match-format tests.
-- [ ] T019 [US3] Reuse GroundTruth and evaluate_alignment in src/utils/eval.rs, adding only required audio TSV validation; reject note-ID matches without an explicit MIDI performance and never route an audio file through src/performance.rs MIDI loading.
-- [ ] T020 [US3] Replace the audio --ground-truth rejection in crates/matchmaker-cli/src/main.rs, validate before output writes, and preserve follow/eval metric JSON and existing library evaluator behavior; update only necessary typed errors in src/error.rs.
-- [ ] T021 [US3] Add ground-truth identity and evaluator metrics to audio export/report records via src/export.rs and tools/golden/compare.py; verify non-destructive errors and legacy export schemas in tests/audio_config_export.rs and crates/matchmaker-cli/tests/follow_audio.rs.
-- [ ] T022 [US3] Integrate audio evaluation records in tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs; update evaluator examples, README.md and UPSTREAM.md without adding a second evaluation API.
+- [X] T017 [US3] Capture reference utils/eval.py mapping/threshold definitions and create small direct perf_sec/score_beat TSV plus metric goldens in tests/data/audio/ and tests/golden/audio/ using tools/golden/generate_audio.py; record provenance in specs/004-audio-methods/research.md (FR-003).
+- [X] T018 [US3] Write failing audio ground_truth CLI tests in crates/matchmaker-cli/tests/follow_audio.rs and mapping/metric/malformed input/output preservation tests in tests/golden_eval.rs; retain existing MIDI match-format tests.
+- [X] T019 [US3] Reuse GroundTruth and evaluate_alignment in src/utils/eval.rs, adding only required audio TSV validation; reject note-ID matches without an explicit MIDI performance and never route an audio file through src/performance.rs MIDI loading.
+- [X] T020 [US3] Replace the audio --ground-truth rejection in crates/matchmaker-cli/src/main.rs, validate before output writes, and preserve follow/eval metric JSON and existing library evaluator behavior; update only necessary typed errors in src/error.rs.
+- [X] T021 [US3] Add ground-truth identity and evaluator metrics to audio export/report records via src/export.rs and tools/golden/compare.py; verify non-destructive errors and legacy export schemas in tests/audio_config_export.rs and crates/matchmaker-cli/tests/follow_audio.rs.
+- [X] T022 [US3] Integrate audio evaluation records in tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs; update evaluator examples, README.md and UPSTREAM.md without adding a second evaluation API.
 - [ ] T023 [US3] Run all quickstart gates and exact-mapping metric comparisons, record evidence in specs/004-audio-methods/research.md, and create only C03 `feat(cli): evaluate audio ground truth`; stop before US4 until committed.
 
 ## Phase 6: US4 - raw_spectrum (P2, C04)

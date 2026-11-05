@@ -190,6 +190,49 @@ def compare_audio_case(golden_dir, export_dir, metadata):
     return 0
 
 
+def compare_audio_ground_truth_case(golden_dir, export_dir):
+    """Compare direct TSV identity and evaluator metrics for an audio export."""
+    metadata = json.loads((golden_dir / "meta.json").read_text())
+    method_dir = export_dir / "arzt"
+    identity_path = method_dir / "evaluation_meta.json"
+    metrics_path = method_dir / "evaluation.json"
+    if not identity_path.is_file() or not metrics_path.is_file():
+        print("first differing stage: missing audio evaluation identity or metrics")
+        return 1
+    identity = json.loads(identity_path.read_text())
+    expected_name = metadata["ground_truth_file"]
+    actual_name = Path(identity.get("ground_truth_path", "")).name
+    if actual_name != expected_name:
+        print(
+            "first differing ground-truth identity: "
+            f"expected {expected_name!r}, actual {actual_name!r}"
+        )
+        return 1
+    if identity.get("ground_truth_format") != "perf_sec/score_beat TSV":
+        print("first differing ground-truth identity: unexpected format")
+        return 1
+
+    expected = json.loads((golden_dir / "evaluation.json").read_text())
+    actual = json.loads(metrics_path.read_text())
+    keys = (
+        "median_b",
+        "accuracy_0.05b",
+        "accuracy_0.1b",
+        "accuracy_0.3b",
+        "accuracy_0.5b",
+        "accuracy_1b",
+        "accuracy_2b",
+    )
+    for key in keys:
+        delta = abs(float(actual[key]) - float(expected[key]))
+        print(f"METRIC\t{key}\tRust={actual[key]}\treference={expected[key]}\tdelta={delta}")
+        if delta > 0.01 + 1e-12:
+            print(f"EXCEEDS: {key} exceeds the declared 0.01 difference")
+            return 1
+    print("WITHIN_TOL: direct audio ground-truth identity and metrics")
+    return 0
+
+
 def compare_multi_fold_audio_case(golden_dir, export_dir, metadata):
     """Compare repeat candidates, selection trace, and note-onset metrics."""
     from matchmaker.utils.eval import evaluate_alignment
@@ -370,6 +413,8 @@ def main(golden_dir, export_dir):
     meta = golden_dir / "meta.json"
     if meta.is_file():
         metadata = json.loads(meta.read_text())
+        if metadata.get("method") == "audio_ground_truth":
+            return compare_audio_ground_truth_case(golden_dir, export_dir)
         if metadata.get("method") == "arzt_tempo":
             return compare_tempo_audio_case(golden_dir, export_dir, metadata)
         if metadata.get("method") == "arzt_multi_fold":

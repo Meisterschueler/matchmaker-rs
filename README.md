@@ -48,10 +48,16 @@ CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/REA
 cargo run --release -p matchmaker-cli -- follow score.musicxml performance.wav --input-type audio --method arzt --soundfont-path target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2 --output path.tsv --export export/
 ```
 
-The runtime is pure Rust; FluidSynth is only needed to generate Python reference fixtures and
-benchmark records. Audio `--ground-truth` evaluation is not implemented yet. The CI workflows
+Audio `--ground-truth` accepts a direct TSV with `perf_sec` and `score_beat` columns and writes
+the reference metrics to `<method>/evaluation.json` with `--export`. Note-ID `.match` files need
+a separate MIDI performance and are rejected by audio follow. The runtime is pure Rust;
+FluidSynth is only needed to generate Python reference fixtures and benchmark records. The CI workflows
 download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2
 hashes, and provide the SoundFont to audio tests as a temporary artifact.
+
+```text
+cargo run --release -p matchmaker-cli -- follow tests/data/simple_mozart_k265_var1.musicxml tests/data/audio/simple_mozart_k265_var1_sf2.wav --input-type audio --method arzt --soundfont-path target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2 --ground-truth tests/data/audio/ground_truth/score_onsets.tsv --export target/audio-follow/
+```
 
 ## Python
 

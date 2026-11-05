@@ -170,6 +170,7 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                 "real_time_factor": total / duration if duration else None,
                 "evaluation": evaluation,
                 "ground_truth": bool(piece.get("ground_truth")),
+                "ground_truth_path": piece.get("ground_truth"),
                 "renderer": "FluidSynth",
                 "renderer_version": fluidsynth_version(),
                 "soundfont_sha256": soundfont_hash,

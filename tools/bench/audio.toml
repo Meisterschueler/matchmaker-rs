@@ -10,6 +10,16 @@ performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
 
 [[pieces]]
+dataset = "audio-ground-truth"
+piece = "mozart_score_onsets"
+methods = ["arzt"]
+input_type = "audio"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+[[pieces]]
 dataset = "audio-repeat"
 piece = "repeats_taken"
 methods = ["arzt_multi_fold"]

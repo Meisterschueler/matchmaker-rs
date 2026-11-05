@@ -4,10 +4,11 @@ mod common;
 
 use common::{data, npy};
 use matchmaker_rs::Error;
-use matchmaker_rs::export::write_audio_run;
+use matchmaker_rs::export::{write_audio_evaluation, write_audio_run};
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind,
 };
+use matchmaker_rs::utils::eval::EvaluationResult;
 use std::path::PathBuf;
 
 fn pinned_soundfont() -> PathBuf {
@@ -46,6 +47,40 @@ fn tempo_arzt_exports_state_and_accumulated_cost_windows() {
             .values()
             .is_empty()
     );
+}
+
+#[test]
+fn audio_evaluation_export_records_metrics_and_ground_truth_identity() {
+    let output = std::env::temp_dir().join("matchmaker_audio_evaluation_export");
+    let evaluation = EvaluationResult {
+        mean_b: 0.1,
+        median_b: 0.05,
+        std_b: 0.02,
+        accuracy_0_05b: 0.5,
+        accuracy_0_1b: 1.0,
+        accuracy_0_3b: 1.0,
+        accuracy_0_5b: 1.0,
+        accuracy_1b: 1.0,
+        accuracy_2b: 1.0,
+        skewness: 0.0,
+        kurtosis: 0.0,
+        smoothness: None,
+    };
+    let ground_truth = data("audio/ground_truth/score_onsets.tsv");
+    write_audio_evaluation(AudioMethod::Arzt, &output, &ground_truth, &evaluation).unwrap();
+    let method_dir = output.join("arzt");
+    let metrics: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(method_dir.join("evaluation.json")).unwrap())
+            .unwrap();
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(method_dir.join("evaluation_meta.json")).unwrap())
+            .unwrap();
+    assert_eq!(metrics["accuracy_0.05b"], 0.5);
+    assert_eq!(
+        metadata["ground_truth_path"],
+        ground_truth.to_string_lossy().as_ref()
+    );
+    assert_eq!(metadata["ground_truth_format"], "perf_sec/score_beat TSV");
 }
 
 #[test]
