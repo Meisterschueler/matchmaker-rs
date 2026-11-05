@@ -291,6 +291,7 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
         AudioMethod::Arzt,
         AudioMethod::Dixon,
         AudioMethod::ArztTempo,
+        AudioMethod::ArztMultiFold,
     ] {
         let make = |score: &PathBuf| {
             let mut config = AudioMethodConfig::for_method(method);
@@ -299,6 +300,9 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
                 AudioMethod::Arzt => AudioMatchmaker::new_arzt(score, config, None, true).unwrap(),
                 AudioMethod::ArztTempo => {
                     AudioMatchmaker::new_arzt_tempo(score, config, None, true).unwrap()
+                }
+                AudioMethod::ArztMultiFold => {
+                    AudioMatchmaker::new_arzt_multi_fold(score, config, None, true).unwrap()
                 }
                 AudioMethod::Dixon => {
                     AudioMatchmaker::new_dixon(score, config, None, true).unwrap()
@@ -324,13 +328,21 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
             .and_then(|recording| recording.steps.last())
             .and_then(|step| step.debug.tempo.as_ref())
             .map_or(frame_to_beat.len(), |tempo| tempo.state[7] as usize);
-        assert!(
-            long_positions.len() <= reference_frames,
-            "{method:?}: {} positions for {} score frames; final beat {}",
-            long_positions.len(),
-            reference_frames,
-            frame_to_beat.last().unwrap()
-        );
+        if method == AudioMethod::ArztMultiFold {
+            assert_eq!(
+                long_positions.len(),
+                long_run.recording().unwrap().frame_times.len(),
+                "{method:?} must consume the complete performance"
+            );
+        } else {
+            assert!(
+                long_positions.len() <= reference_frames,
+                "{method:?}: {} positions for {} score frames; final beat {}",
+                long_positions.len(),
+                reference_frames,
+                frame_to_beat.last().unwrap()
+            );
+        }
         assert!(long_positions.iter().all(|position| {
             *position >= frame_to_beat[0]
                 && *position <= *frame_to_beat.last().expect("score frame beat map")

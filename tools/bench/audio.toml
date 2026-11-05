@@ -8,3 +8,25 @@ input_type = "audio"
 score = "../../tests/data/simple_mozart_k265_var1.musicxml"
 performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+[[pieces]]
+dataset = "audio-repeat"
+piece = "repeats_taken"
+methods = ["arzt_multi_fold"]
+input_type = "audio"
+unfold_score = false
+score = "../../tests/data/fixture_repeats_voltas.musicxml"
+performance = "../../tests/data/audio/arzt_multi_fold/repeat_taken.wav"
+ground_truth = "../../tests/data/audio/arzt_multi_fold/repeat_taken.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+[[pieces]]
+dataset = "audio-repeat"
+piece = "repeats_skipped"
+methods = ["arzt_multi_fold"]
+input_type = "audio"
+unfold_score = false
+score = "../../tests/data/fixture_repeats_voltas.musicxml"
+performance = "../../tests/data/audio/arzt_multi_fold/repeat_skipped.wav"
+ground_truth = "../../tests/data/audio/arzt_multi_fold/repeat_skipped.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"

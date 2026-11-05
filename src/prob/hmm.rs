@@ -172,6 +172,7 @@ impl OnlineAlignment for PitchIoiHmm {
             beat_period: Some(self.tempo.beat_period()),
             is_continuation: None,
             tempo: None,
+            multi_fold: None,
         }
     }
 }

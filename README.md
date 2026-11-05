@@ -33,8 +33,12 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `arzt` | Audio | `chroma`, `lse` | frame-level online time warping; defaults to `chroma` at 30 fps |
 | `dixon` | Audio | `chroma`, `lse` | frame-level online time warping; defaults to `lse` at 50 fps |
 | `arzt_tempo` | Audio | `chroma`, `lse` | seeded tempo-aware Arzt; defaults to `chroma` at 30 fps |
+| `arzt_multi_fold` | Audio | `chroma`, `lse` | parallel repeat hypotheses; defaults to `chroma` at 30 fps, 50-cost window and 5% switch margin |
 
 Select with `--method` and `--processor`; override parameters with `--set KEY=VALUE`.
+For `arzt_multi_fold`, pass `--no-unfold` when the score has repeats so the follower receives
+the folded score and can compare repeat hypotheses. With the default maximal unfolding, this
+reference-compatible method may have only one unique candidate.
 Tempo-aware Arzt uses seed 1984 by default; `--set random_seed=VALUE` selects another
 reproducible MT19937 stream. Its export includes tempo state and accumulated cost windows.
 Audio files support WAV, FLAC, MP3 and Ogg/Vorbis. For score synthesis, provision the pinned
@@ -64,7 +68,7 @@ mm = Matchmaker("score.musicxml", "performance.mid", input_type="midi", method="
 positions = list(mm.run(verbose=False))
 ```
 
-Audio `arzt`, `dixon` and `arzt_tempo` use the same generator API. Supply the pinned SF2 path in `kwargs`:
+Audio `arzt`, `dixon`, `arzt_tempo` and `arzt_multi_fold` use the same generator API. Supply the pinned SF2 path in `kwargs`. For repeat hypotheses, set `unfold_score=False`; the default maximal unfolding may leave one unique candidate:
 
 ```python
 mm = Matchmaker(
@@ -125,9 +129,8 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 ## Roadmap
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
-2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`; processors `lse`, `chroma` (implemented).
-3. Later: remaining methods (audio `outerhmm`, `skf`, `pfkorz`,
-   `arzt_multi_fold`) and parangonar methods.
+2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`; processors `lse`, `chroma` (implemented).
+3. Later: remaining methods (audio `outerhmm`, `skf`, `pfkorz`) and parangonar methods.
 
 ## Benchmark datasets
 

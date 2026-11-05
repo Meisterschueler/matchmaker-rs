@@ -39,19 +39,19 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T006 [US1] Wire AudioMethod parsing/defaults/config and constructor in src/matchmaker.rs; allow audio-only method strings before MIDI enum dispatch in crates/matchmaker-cli/src/main.rs and mirror constructor/kwargs/iterator behavior in crates/matchmaker-py/src/lib.rs; add typed validation in src/error.rs as needed.
 - [X] T007 [US1] Export tempo/cost history and reference metadata in src/export.rs, compare first differences in tools/golden/compare.py, and verify legacy keys plus new diagnostics in tests/audio_config_export.rs and edge cases in tests/edge_cases.rs (FR-018, FR-019).
 - [X] T008 [US1] Add current-method benchmark entries/report support in tools/bench/audio.toml, tools/bench/run_reference.py and tools/bench/report.py; add smoke coverage in crates/matchmaker-cli/tests/bench_audio.rs and update public examples, README.md and UPSTREAM.md (FR-022).
-- [ ] T009 [US1] Run every per-story gate from specs/004-audio-methods/quickstart.md, record hashes/maxima/report delta/platform results in specs/004-audio-methods/research.md, and create only C01 `feat(audio): add arzt_tempo`; stop before US2 until its hash is recorded (FR-017, SC-002 through SC-004, SC-006).
+- [X] T009 [US1] Run every per-story gate from specs/004-audio-methods/quickstart.md, record hashes/maxima/report delta/platform results in specs/004-audio-methods/research.md, and create only C01 `feat(audio): add arzt_tempo`; stop before US2 until its hash is recorded (FR-017, SC-002 through SC-004, SC-006).
 
 ## Phase 4: US2 - arzt_multi_fold (P1, C02)
 
 **Goal**: Reference-compatible repeat hypotheses and switching.
 **Independent test**: Taken/skipped/no-repeat fixtures, candidate costs near switch margin, exported selected hypothesis.
 
-- [ ] T010 [US2] Capture candidate unfolding/beat domain/selection semantics and generate licensed repeat fixtures/goldens using tools/golden/generate_audio.py, tests/data/audio/ and tests/golden/audio/; record selection_window=50 and switch_margin=0.05 evidence in specs/004-audio-methods/research.md (FR-002).
-- [ ] T011 [US2] Write failing candidate, switching/tie, short-score and path tests in tests/golden_audio_arzt_multi_fold.rs plus CLI/Python default and repeat behavior tests in crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py.
-- [ ] T012 [US2] Port candidate follower/search owner in src/dp/arzt_multi_fold.rs and src/dp/mod.rs; reuse src/score/unfold.rs, src/score/audio.rs and src/dp/arzt_frame.rs; enforce valid repeat paths and selection history bounded by selection_window, without precomputing a different single unfolding.
-- [ ] T013 [US2] Add current-method configuration, compatibility validation and construction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; preserve MIDI/Audio Arzt/Dixon defaults.
-- [ ] T014 [US2] Export hypothesis identities, selection history, beat mappings and costs in src/export.rs; extend tools/golden/compare.py, tests/audio_config_export.rs and tests/edge_cases.rs to diagnose the first differing hypothesis/frame.
-- [ ] T015 [US2] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for repeat runs; document public module/examples, README.md and UPSTREAM.md.
+- [X] T010 [US2] Capture candidate unfolding/beat domain/selection semantics and generate licensed repeat fixtures/goldens using tools/golden/generate_audio.py, tests/data/audio/ and tests/golden/audio/; record selection_window=50 and switch_margin=0.05 evidence in specs/004-audio-methods/research.md (FR-002).
+- [X] T011 [US2] Write failing candidate, switching/tie, short-score and path tests in tests/golden_audio_arzt_multi_fold.rs plus CLI/Python default and repeat behavior tests in crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py.
+- [X] T012 [US2] Port candidate follower/search owner in src/dp/arzt_multi_fold.rs and src/dp/mod.rs; reuse src/score/unfold.rs, src/score/audio.rs and src/dp/arzt_frame.rs; enforce valid repeat paths and selection history bounded by selection_window, without precomputing a different single unfolding.
+- [X] T013 [US2] Add current-method configuration, compatibility validation and construction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; preserve MIDI/Audio Arzt/Dixon defaults.
+- [X] T014 [US2] Export hypothesis identities, selection history, beat mappings and costs in src/export.rs; extend tools/golden/compare.py, tests/audio_config_export.rs and tests/edge_cases.rs to diagnose the first differing hypothesis/frame.
+- [X] T015 [US2] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for repeat runs; document public module/examples, README.md and UPSTREAM.md.
 - [ ] T016 [US2] Run all quickstart gates, record per-stage/metric maxima and benchmark/platform evidence in specs/004-audio-methods/research.md, and create only C02 `feat(audio): add arzt_multi_fold`; stop before US3 until committed.
 
 ## Phase 5: US3 - Audio ground truth (P1, C03)

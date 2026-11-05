@@ -22,18 +22,28 @@ SOUNDFONT = (
 )
 
 
-def make_audio(method="arzt", **kwargs):
+def make_audio(
+    method="arzt",
+    *,
+    score=SCORE,
+    performance=PERFORMANCE,
+    unfold_score=True,
+    **kwargs,
+):
     return Matchmaker(
-        score_file=str(SCORE),
-        performance_file=str(PERFORMANCE),
+        score_file=str(score),
+        performance_file=str(performance),
         input_type="audio",
         method=method,
         kwargs={"soundfont_path": str(SOUNDFONT), **kwargs},
+        unfold_score=unfold_score,
     )
 
 
 def test_audio_arzt_defaults_yield_positions_and_return_path():
-    assert matchmaker_rs.AVAILABLE_METHODS["audio"] == ["arzt", "dixon", "arzt_tempo"]
+    assert matchmaker_rs.AVAILABLE_METHODS["audio"] == [
+        "arzt", "dixon", "arzt_tempo", "arzt_multi_fold"
+    ]
     defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["arzt"]
     assert defaults["processor"] == "chroma"
     assert defaults["frame_rate"] == 30
@@ -80,6 +90,33 @@ def test_audio_arzt_tempo_defaults_seed_and_path():
     )
     with pytest.raises(ValueError, match="random_seed"):
         make_audio("arzt_tempo", random_seed=-1)
+
+
+def test_audio_arzt_multi_fold_defaults_and_repeat_mode():
+    assert "arzt_multi_fold" in matchmaker_rs.AVAILABLE_METHODS["audio"]
+    defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["arzt_multi_fold"]
+    assert defaults["selection_window"] == 50
+    assert defaults["switch_margin"] == 0.05
+
+    mm = make_audio(
+        "arzt_multi_fold",
+        score=DATA / "fixture_repeats_voltas.musicxml",
+        performance=DATA / "audio/arzt_multi_fold/repeat_taken.wav",
+        unfold_score=False,
+    )
+    positions = list(mm.run(verbose=False))
+    assert positions and all(type(position) is float for position in positions)
+    assert all(0.0 <= position <= 14.0 for position in positions)
+    assert mm.score_follower.alignment_path.shape == (2, len(positions))
+
+    with pytest.raises(ValueError, match="selection_window"):
+        make_audio("arzt_multi_fold", selection_window=0)
+    with pytest.raises(ValueError, match="selection_window"):
+        make_audio("arzt_multi_fold", selection_window=None)
+    with pytest.raises(ValueError, match="switch_margin"):
+        make_audio("arzt_multi_fold", switch_margin=1.1)
+    with pytest.raises(ValueError, match="switch_margin"):
+        make_audio("arzt_multi_fold", switch_margin=None)
 
 
 def test_audio_arzt_reports_typed_configuration_and_file_errors():

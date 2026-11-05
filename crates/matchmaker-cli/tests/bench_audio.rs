@@ -41,21 +41,63 @@ fn bench_accepts_tempo_arzt_and_records_seeded_audio_metrics() {
         serde_json::from_slice(&std::fs::read(&records_path).unwrap()).unwrap();
     let rows = records.as_array().unwrap();
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0]["method"], "arzt_tempo");
-    assert_eq!(rows[0]["input_type"], "audio");
-    assert_eq!(rows[0]["random_seed"], 1984);
+    let record = rows
+        .iter()
+        .find(|row| row["piece"] == "mozart_k265_sf2")
+        .unwrap();
+    assert_eq!(record["method"], "arzt_tempo");
+    assert_eq!(record["input_type"], "audio");
+    assert_eq!(record["random_seed"], 1984);
     assert!(
-        rows[0]["latency_ms"]["inference"]["median"]
+        record["latency_ms"]["inference"]["median"]
             .as_f64()
             .unwrap()
             > 0.0
     );
-    assert!(rows[0]["evaluation"]["median_b"].as_f64().is_some());
+    assert!(record["evaluation"]["median_b"].as_f64().is_some());
     assert!(
         output
             .join("paths/audio-bundled/mozart_k265_sf2/arzt_tempo.tsv")
             .is_file()
     );
+}
+
+#[test]
+fn bench_accepts_multi_fold_and_records_repeat_candidates() {
+    let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_multi_fold");
+    std::fs::create_dir_all(&output).unwrap();
+    let records_path = output.join("records.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("bench")
+        .arg(Path::new(&root()).join("tools/bench/audio.toml"))
+        .arg("--out")
+        .arg(&records_path)
+        .args(["--runs", "1", "--methods", "arzt_multi_fold"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&records_path).unwrap()).unwrap();
+    let rows = records.as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    let bundled = rows
+        .iter()
+        .find(|row| row["piece"] == "mozart_k265_sf2")
+        .unwrap();
+    assert_eq!(bundled["candidate_count"], 1);
+    for (piece, frames) in [("repeats_taken", 362), ("repeats_skipped", 202)] {
+        let record = rows.iter().find(|row| row["piece"] == piece).unwrap();
+        assert_eq!(record["candidate_count"], 3);
+        assert_eq!(record["unfold_score"], false);
+        assert_eq!(record["selection_window"], 50);
+        assert_eq!(record["switch_margin"], 0.05);
+        assert_eq!(record["n_observations"], frames);
+        assert!(record["evaluation"]["median_b"].as_f64().is_some());
+    }
 }
 
 #[test]

@@ -51,7 +51,8 @@ enum Command {
         #[arg(long)]
         processor: Option<String>,
         /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20;
-        /// arzt: step_size, distance_func; dixon: window_size, max_run_count, distance_func)
+        /// arzt: step_size, distance_func; dixon: window_size, max_run_count, distance_func;
+        /// arzt_multi_fold: selection_window, switch_margin)
         #[arg(long = "set", value_name = "KEY=VALUE")]
         set: Vec<String>,
         /// Do not unfold repeats
@@ -223,6 +224,8 @@ fn audio_config(
             "start_window_size" => config.start_window_size = audio_optional_f64(key, &value)?,
             "step_size" => config.step_size = audio_optional_usize(key, &value)?,
             "max_run_count" => config.max_run_count = audio_optional_usize(key, &value)?,
+            "selection_window" => config.selection_window = audio_optional_usize(key, &value)?,
+            "switch_margin" => config.switch_margin = audio_optional_f64(key, &value)?,
             "distance_func" => match value {
                 ConfigValue::Str(name) => config.distance_func = name.parse::<AudioDistance>()?,
                 _ => anyhow::bail!("--set distance_func expects manhattan or euclidean"),
@@ -359,6 +362,9 @@ fn main() -> Result<()> {
                     }
                     AudioMethod::ArztTempo => {
                         AudioMatchmaker::new_arzt_tempo(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::ArztMultiFold => {
+                        AudioMatchmaker::new_arzt_multi_fold(&score, config, tempo, !no_unfold)?
                     }
                 };
                 if export.is_some() {

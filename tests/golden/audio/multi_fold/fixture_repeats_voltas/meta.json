@@ -1,0 +1,85 @@
+{
+  "candidate_sets": {
+    "folded_input": [
+      {
+        "index": 0,
+        "max_onset_beat": 18.0,
+        "note_count": 9,
+        "note_ids": [
+          "m1n1-1",
+          "m1n2-1",
+          "m2n1-1",
+          "m1n1-2",
+          "m1n2-2",
+          "m3n1-1",
+          "m4n1-1",
+          "m4n2-1",
+          "m4n3-1"
+        ]
+      },
+      {
+        "index": 1,
+        "max_onset_beat": 14.0,
+        "note_count": 7,
+        "note_ids": [
+          "m1n1",
+          "m1n2",
+          "m2n1",
+          "m3n1",
+          "m4n1",
+          "m4n2",
+          "m4n3"
+        ]
+      },
+      {
+        "index": 2,
+        "max_onset_beat": 10.0,
+        "note_count": 6,
+        "note_ids": [
+          "m1n1-1",
+          "m1n2-1",
+          "m3n1-1",
+          "m4n1-1",
+          "m4n2-1",
+          "m4n3-1"
+        ]
+      }
+    ],
+    "maximally_unfolded_input": [
+      {
+        "index": 0,
+        "max_onset_beat": 18.0,
+        "note_count": 9,
+        "note_ids": [
+          "m1n1-1-1",
+          "m1n2-1-1",
+          "m2n1-1-1",
+          "m1n1-2-1",
+          "m1n2-2-1",
+          "m3n1-1-1",
+          "m4n1-1-1",
+          "m4n2-1-1",
+          "m4n3-1-1"
+        ]
+      }
+    ]
+  },
+  "deduplication": [
+    "note_count",
+    "round(max_onset_beat, 2)"
+  ],
+  "generator": "tools/golden/generate_audio.py",
+  "input": "synthetic hand-authored repeat/volta MusicXML fixture",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "44A17879953097931B0A3E2CE15CD1F69FCF21EB2D21A23DF0892766CD2805EB",
+    "version": "0.4.0"
+  },
+  "score": "fixture_repeats_voltas.musicxml",
+  "score_sha256": "44E765CBD6CA3C48871123F290CC6B360234855C8599207DFC0D358B8809D4E9",
+  "selection_window": 50,
+  "switch_margin": 0.05
+}

@@ -133,6 +133,13 @@ impl ArztFrame {
         self.current_frame
     }
 
+    pub(crate) fn current_local_cost(&self, features: &[f32]) -> f32 {
+        self.distance_between(
+            &self.reference[self.current_frame.min(self.reference.len() - 1)],
+            features,
+        )
+    }
+
     fn window(&self) -> (usize, usize) {
         let width = if self.current_frame < self.start_window_frames {
             self.start_window_frames

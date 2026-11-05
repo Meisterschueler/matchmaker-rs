@@ -2,7 +2,7 @@
 
 **Date**: 2026-11-03
 **Reference**: Released pymatchmaker 0.4.0 in tools/golden/.venv/Lib/site-packages/matchmaker; environment pinned by tools/golden/uv.lock.
-**Evidence**: Read-only source research; no new algorithm, asset permission, numerical probe, or benchmark is claimed validated.
+**Evidence**: The initial sections record read-only research. The dated implementation entries below contain the later fixture, numerical, benchmark, and gate evidence.
 
 ## R1 - Incremental delivery
 
@@ -73,7 +73,7 @@
 
 ## Implementation Evidence Log
 
-No C01-C12 remote delivery gate is complete. C01 local implementation, accuracy, regression and benchmark gates pass; publication and multi-platform CI are recorded below. C02-C12 have not started.
+C01 local and remote delivery gates are complete. C01 publication and multi-platform CI are recorded below; C02-C12 have not started.
 
 ### T001 - Implementation scope authorized (2026-11-03)
 
@@ -122,9 +122,35 @@ No C01-C12 remote delivery gate is complete. C01 local implementation, accuracy,
 - T006-T008 are complete. Stage comparison recognizes Tempo-Arzt, explicitly reports synthesis feature differences and enforces the declared renderer metrics; its test and report-boundary tests pass. Benchmark reports preserve strict metric identity as a separate flag and expose renderer_accuracy_parity. Public method/seed/export docs, module map, asset provenance and existing benchmark CI method lists were updated.
 - Full `cargo test --workspace --exclude matchmaker-py --all-features --no-fail-fast` passed, including 29 doc tests. `maturin develop` and all 40 Python 3.13.5 tests passed. Core/CLI all-target/all-feature Clippy and binding Clippy with warnings denied, fmt check, MSRV 1.88, WASM core build and cargo-deny all passed. Report/stage-comparison tests: 5/5 passed. The YAML editor's schema fetch is network-blocked; this is not a YAML content validation failure or a successful remote CI claim.
 - Fresh serial Release benchmark: five runs per method per side, identical pinned fixture/config, no tracing subscriber and no concurrent compiler load. Final report under target/bench/audio-methods/report/: Tempo-Arzt feature median 1.719 ms/frame Rust vs 3.155 Python, inference 0.0163 vs 1.153, median total speed-up 2.4x, Rust RTF 0.05286. Renderer accuracy and path checks pass (maximum beat-path difference 0.06667); strict metric identity remains false because residual synthesizer metrics differ. Existing local baseline marks no >10% inference slowdown for Arzt/Dixon; Tempo-Arzt has no prior same-method baseline.
-- Local completion is not remote delivery: multi-platform CI, Python 3.10 CI and Ubuntu master-baseline verification have not run. Actual origin is Meisterschueler/matchmaker-rs. T009 remains open pending commit/publication sequence clarification and remote CI; no C02 implementation has started.
+- Actual origin is Meisterschueler/matchmaker-rs. C01 commit ed3bfe18d1f9e597219d7ac37b140ffd4eb99734 was pushed on `004-audio-methods` and is the only branch-ahead commit. The user created draft PR #5 with an intentionally empty body; it remains unmerged.
 
 ### C01 - Commit/publication authorization
 
 - The user explicitly selected "C01 committen und Featurebranch pushen" after all local gates passed. Create one coherent C01 commit and push the existing 004-audio-methods branch; do not merge, skip CI or begin C02 before CI is verified.
 - A local commit and branch publication precede remote CI by necessity. T009 remains open until remote checks pass and the C01 hash is recorded; publication is not a claim of completed delivery.
+
+### T009 - Remote C01 gates passed (2026-11-04)
+
+- PR #5 (`004 audio methods`) remains a draft with no body. No merge was performed.
+- CI run 41732450196 completed successfully in 3m37s: pinned SoundFont, WASM, MSRV 1.88, cargo-deny, Rust tests on Ubuntu/Windows/macOS, and Python bindings on 3.10/3.13 all passed.
+- Benchmark run 41732450143 completed successfully in 2h06m: all four dataset jobs and the report job passed; deployment was skipped for the pull request. The workflow's configured five-run comparisons therefore completed.
+- With the C01 hash recorded above and every remote check green, T009 is complete and C02 may begin. The PR remains unmerged; merge is not authorized by this completion.
+
+### C02 - Repeat candidate semantics captured (2026-11-04)
+
+- Released reference: `matchmaker.dp.oltw_arzt_multi_fold.OnlineTimeWarpingArztMultiFold`; candidates are ordered maximal unfold, input score as-is, then the first four `partitura.score.iter_unfolded_parts` results, deduplicated by `(note_count, round(max_onset_beat, 2))`.
+- On the hand-authored `fixture_repeats_voltas.musicxml`, Partitura emits two iterator variants: 9 notes ending at beat 18, then 6 notes ending at beat 10. Including the original folded score (7 notes, beat 14) yields three candidate hypotheses in order. The generator records note arrays and the corresponding input condition.
+- Released facade quirk verified by source and execution: `unfold_score=True` gives the multi-fold class an already maximally unfolded score, collapsing this fixture to one unique hypothesis; `unfold_score=False` gives the three intended repeat hypotheses. Keep the public unfold flag behavior-compatible and make repeat-focused tests/benchmarks explicitly use the folded input.
+- All candidates advance on every observation. Candidate cost is the distance at its current reference frame; selection uses the mean of at most the trailing 50 costs, preserves the first candidate on ties, and switches only when `best < current * (1 - 0.05)`. Output maps each candidate's unfolded frame beat through repeated note IDs back to the input score's notated beats.
+- `generate_audio.py --multi-fold-only` wrote taken/skipped FluidSynth performances and reference features, candidate frame mappings, costs, selected indices and paths. Both cases use the verified CC0 SF2 (`CF2A98...AC2F`) and score fixture hash in their metadata; takes/skips consumed 362/202 observations. WAV hashes are recorded in `tests/data/audio/README.md`.
+- Metric ground truth consists of unique score note-onset events in performance seconds with their corresponding folded-score beats. It does not duplicate each intermediate audio frame; the frame-dense diagnostic overweights repeated near-threshold positions.
+- Rust's bounded repeat-path enumeration matches the Partitura candidates and order in a focused unit test. Synthetic replay, margin/tie, reset, short-score, CLI/Python interface, and diagnostic export tests pass. T010-T014 are complete; T015-T016 remain open.
+
+### C02 - Initial parity and benchmark probe (2026-11-04)
+
+- Rust and the pinned Python reference both ran the expanded audio manifest on one run per method/side. The default maximally unfolded score produced one candidate; the folded taken/skipped fixtures produced three each and consumed 362/202 observations.
+- With the final note-onset TSVs, both repeat cases have matching median beat error and all six accuracy metrics. The benchmark report marks renderer accuracy parity `ok`; alignment position parity also passes (max path difference 0.05 beat on each repeat case). Strict metric identity remains false due renderer-dependent secondary statistics.
+- Five serial Release runs per side are recorded under `target/bench/audio-methods-c02/`. The report has five records per piece/side, renderer accuracy parity `ok` for both repeat pieces, and no alignment-parity violation. The new method is not present in the previous master baseline; this Windows run is not an Ubuntu performance-regression claim.
+- Final five serial Release runs per side are recorded under `target/bench/audio-methods-c02/`; the report has five records per piece/side. Rust feature/inference medians are 1.737/0.0041 ms per observation on the bundled score, 1.731/0.0126 ms for repeats-skipped, and 1.731/0.0131 ms for repeats-taken. Rust RTF is 0.05457, 0.05303, and 0.05313 respectively. Both repeat rows pass the 0.01 renderer-accuracy and 0.6-beat path gates; strict metric identity remains false for renderer-dependent secondary statistics. No prior same-method master baseline exists, so no Ubuntu regression claim is made.
+- A one-run full audio workflow matrix produced six rows: Arzt/Dixon/Tempo-Arzt remain on the bundled score, Multi-Fold covers all three pieces, and all alignment checks pass. Full local Rust/CLI tests (including 30 doctests), all 41 Python tests, core/binding clippy, fmt, MSRV 1.88, WASM, cargo-deny, report tests, and C02 stage comparisons pass.
+- T010-T015 are complete. T016 remains open until the coherent C02 commit is created, pushed to the existing draft PR, and its remote CI checks pass. No merge is authorized.

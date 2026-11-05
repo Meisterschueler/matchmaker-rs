@@ -384,6 +384,7 @@ impl OnlineAlignment for OuterProductHmm {
             beat_period: None,
             is_continuation: Some(self.is_continuation),
             tempo: None,
+            multi_fold: None,
         }
     }
 }

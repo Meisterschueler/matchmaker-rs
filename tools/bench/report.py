@@ -149,6 +149,7 @@ def main() -> None:
                 "total_s": median(records, "total_processing_s"),
                 "real_time_factor": median(records, "real_time_factor"),
                 "evaluation": records[0]["evaluation"] if records else None,
+                "has_ground_truth": any(record.get("ground_truth", False) for record in records),
             }
         r, p = side["rust"], side["python"]
         metric_parity = None
@@ -170,7 +171,8 @@ def main() -> None:
                 "speed_up": p["total_s"] / r["total_s"] if r["total_s"] and p["total_s"] else None,
                 "metric_parity": metric_parity,
                 "renderer_accuracy_parity": renderer_accuracy_parity(r["evaluation"], p["evaluation"])
-                    if method == "arzt_tempo" and r["evaluation"] and p["evaluation"] else None,
+                    if (method == "arzt_tempo" or (method == "arzt_multi_fold" and r["has_ground_truth"] and p["has_ground_truth"]))
+                    and r["evaluation"] and p["evaluation"] else None,
                 "position_parity": parity,
                 "regression": regression_status(r["inference_ms"], previous),
             }

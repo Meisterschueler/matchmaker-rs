@@ -199,7 +199,7 @@ pub fn build_reference(
     let frame_rate = f64::from(config.sample_rate) / hop_length as f64;
     let mut processor: Box<dyn AudioProcessor> = match config.processor() {
         AudioProcessorKind::Chroma => {
-            if method == AudioMethod::ArztTempo {
+            if matches!(method, AudioMethod::ArztTempo | AudioMethod::ArztMultiFold) {
                 Box::new(ChromaProcessor::for_reference(
                     config.sample_rate,
                     hop_length,
@@ -227,31 +227,32 @@ pub fn build_reference(
         }
     };
     // shortcut: delivered methods retain legacy score features, migrate after a separate parity review.
-    let observations: Vec<Observation> = if method == AudioMethod::ArztTempo {
-        samples
-            .windows(n_fft)
-            .step_by(hop_length)
-            .enumerate()
-            .filter_map(|(index, samples)| {
-                processor.process(&AudioFrame {
-                    index,
-                    samples: samples.to_vec(),
-                    perf_time: index as f64 / frame_rate,
+    let observations: Vec<Observation> =
+        if matches!(method, AudioMethod::ArztTempo | AudioMethod::ArztMultiFold) {
+            samples
+                .windows(n_fft)
+                .step_by(hop_length)
+                .enumerate()
+                .filter_map(|(index, samples)| {
+                    processor.process(&AudioFrame {
+                        index,
+                        samples: samples.to_vec(),
+                        perf_time: index as f64 / frame_rate,
+                    })
                 })
-            })
-            .collect()
-    } else {
-        let mut stream = AudioStream::from_mono_samples(
-            samples.clone(),
-            config.sample_rate,
-            hop_length,
-            n_fft - hop_length,
-        )?;
-        stream.prime(processor.as_mut());
-        stream
-            .filter_map(|frame| processor.process(&frame))
-            .collect()
-    };
+                .collect()
+        } else {
+            let mut stream = AudioStream::from_mono_samples(
+                samples.clone(),
+                config.sample_rate,
+                hop_length,
+                n_fft - hop_length,
+            )?;
+            stream.prime(processor.as_mut());
+            stream
+                .filter_map(|frame| processor.process(&frame))
+                .collect()
+        };
     let features: Vec<Vec<f32>> = observations
         .iter()
         .map(|observation| observation.features.clone())

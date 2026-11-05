@@ -190,12 +190,190 @@ def compare_audio_case(golden_dir, export_dir, metadata):
     return 0
 
 
+def compare_multi_fold_audio_case(golden_dir, export_dir, metadata):
+    """Compare repeat candidates, selection trace, and note-onset metrics."""
+    from matchmaker.utils.eval import evaluate_alignment
+
+    method = metadata["method"]
+    processor = metadata["processor"]
+    stages = (
+        ("performance_features.npy", Path("processor") / processor / "features.npy", (2e-4, 1e-6)),
+        ("performance_times.npy", Path("processor") / processor / "times.npy", (0.0, 0.0)),
+    )
+    for golden_name, export_rel, tolerance in stages:
+        expected = np.load(golden_dir / golden_name)
+        exported = export_dir / export_rel
+        if not exported.is_file():
+            print(f"first differing stage: {export_rel}, missing {export_rel}")
+            return 1
+        difference = first_difference(
+            golden_name, expected, np.load(exported), tolerance=tolerance
+        )
+        if difference:
+            print(f"first differing stage: {export_rel}: {difference}")
+            return 1
+
+    hypothesis_path = export_dir / method / "hypothesis_metadata.json"
+    if not hypothesis_path.is_file():
+        print(f"first differing stage: {method}/hypothesis_metadata.json is missing")
+        return 1
+    hypotheses = json.loads(hypothesis_path.read_text())
+    if len(hypotheses) != len(metadata["hypotheses"]):
+        print(
+            "first differing hypothesis: candidate count differs: "
+            f"expected {len(metadata['hypotheses'])}, actual {len(hypotheses)}"
+        )
+        return 1
+    method_metadata = json.loads((export_dir / method / "meta.json").read_text())
+    config = method_metadata.get("config", {})
+    for key in ("selection_window", "switch_margin"):
+        if config.get(key) != metadata[key]:
+            print(
+                f"first differing method config: {key}: "
+                f"expected {metadata[key]!r}, actual {config.get(key)!r}"
+            )
+            return 1
+
+    for index, expected_meta in enumerate(metadata["hypotheses"]):
+        actual_meta = hypotheses[index]
+        for key in ("index", "note_count", "reference_frames"):
+            if expected_meta[key] != actual_meta[key]:
+                print(
+                    f"first differing hypothesis: candidate {index} {key}: "
+                    f"expected {expected_meta[key]!r}, actual {actual_meta[key]!r}"
+                )
+                return 1
+        if abs(expected_meta["max_onset_beat"] - actual_meta["max_onset_beat"]) > 1e-6:
+            print(
+                f"first differing hypothesis: candidate {index} max_onset_beat: "
+                f"expected {expected_meta['max_onset_beat']}, actual {actual_meta['max_onset_beat']}"
+            )
+            return 1
+        expected_dir = golden_dir / f"candidate_{index}"
+        actual_dir = export_dir / method / "candidates" / str(index)
+        for name, tolerance in (
+            ("score_features.npy", (2e-4, 1e-6)),
+            ("score_positions.npy", (0.0, 0.0)),
+            ("frame_to_unfolded_beat.npy", (0.0, 1e-6)),
+            ("frame_to_notated_beat.npy", (0.0, 1e-6)),
+        ):
+            expected = np.load(expected_dir / name)
+            exported = actual_dir / name
+            if not exported.is_file():
+                print(f"first differing hypothesis: candidate {index} missing {name}")
+                return 1
+            actual = np.load(exported)
+            difference = first_difference(name, expected, actual, tolerance=tolerance)
+            if difference and name.startswith("score_features"):
+                print(f"SYNTHESIS_DIFFERENCE: candidate {index}, {name}: {difference}")
+            elif difference:
+                print(f"first differing hypothesis: candidate {index}, {name}: {difference}")
+                return 1
+
+    trace_pairs = (
+        ("selected_hypothesis.npy", "selected_hypothesis.npy"),
+        ("candidate_frames.npy", "candidate_current_frames.npy"),
+        ("candidate_local_costs.npy", "candidate_local_costs.npy"),
+        ("candidate_mean_costs.npy", "candidate_mean_costs.npy"),
+    )
+    for golden_name, export_name in trace_pairs:
+        expected = np.load(golden_dir / golden_name)
+        actual = np.load(export_dir / method / export_name)
+        if expected.shape != actual.shape:
+            print(
+                f"first differing hypothesis/frame in {golden_name}: "
+                f"shape differs: expected {expected.shape}, actual {actual.shape}"
+            )
+            return 1
+        difference = first_difference(
+            golden_name,
+            expected,
+            actual,
+            tolerance=(1e-6, 1e-7) if expected.dtype.kind == "f" else (0.0, 0.0),
+        )
+        if difference:
+            index = np.argwhere(
+                ~np.isclose(actual, expected, rtol=1e-6, atol=1e-7)
+                if expected.dtype.kind == "f"
+                else actual != expected
+            )[0]
+            step, candidate = (int(index[0]), int(index[1])) if len(index) > 1 else (int(index[0]), 0)
+            print(
+                f"HYPOTHESIS_DIFFERENCE: first differing candidate/frame "
+                f"{candidate}/{step} in {golden_name}: {difference}"
+            )
+
+    expected_path = np.load(golden_dir / "alignment_path.npy")
+    actual_path = np.load(export_dir / method / "alignment_path.npy")
+    if expected_path.shape[0] != 2 or actual_path.shape[0] != 2:
+        print("first differing stage: alignment_path.npy must have shape (2, T)")
+        return 1
+    shared = min(expected_path.shape[1], actual_path.shape[1])
+    if abs(expected_path.shape[1] - actual_path.shape[1]) > 1:
+        print(
+            "first differing stage: alignment_path.npy frame count differs: "
+            f"expected {expected_path.shape[1]}, actual {actual_path.shape[1]}"
+        )
+        return 1
+    time_difference = first_difference(
+        "perf_time.npy", expected_path[0, :shared], actual_path[0, :shared],
+        tolerance=(0.0, 1e-9),
+    )
+    if time_difference:
+        print(f"first differing stage: alignment timestamps: {time_difference}")
+        return 1
+    beat_differences = np.abs(expected_path[1, :shared] - actual_path[1, :shared])
+    within_audio_tolerance = beat_differences <= 0.6
+    position_share = float(within_audio_tolerance.sum()) / max(
+        expected_path.shape[1], actual_path.shape[1], 1
+    )
+    if position_share < 0.99:
+        first = int(np.flatnonzero(~within_audio_tolerance)[0])
+        print(
+            f"first differing alignment frame {first}: expected beat "
+            f"{expected_path[1, first]}, actual {actual_path[1, first]}, "
+            f"within-tolerance share={position_share}"
+        )
+        return 1
+    if np.any(beat_differences > 1e-6):
+        first = int(np.flatnonzero(beat_differences > 1e-6)[0])
+        print(
+            f"POSITION_DIFFERENCE: first differing frame {first}: expected beat "
+            f"{expected_path[1, first]}, actual {actual_path[1, first]}, "
+            f"max difference={beat_differences.max()}"
+        )
+
+    truth = np.loadtxt(golden_dir / "ground_truth.tsv", delimiter="\t", skiprows=1, ndmin=2)
+    reference_metrics = evaluate_alignment(
+        expected_path[1], expected_path[0], truth[:, 1], truth[:, 0]
+    )
+    actual_metrics = evaluate_alignment(
+        actual_path[1], actual_path[0], truth[:, 1], truth[:, 0]
+    )
+    for key in ("median_b", *(name for name in reference_metrics if name.startswith("accuracy_"))):
+        delta = abs(actual_metrics[key] - reference_metrics[key])
+        print(f"METRIC\t{key}\tRust={actual_metrics[key]}\treference={reference_metrics[key]}\tdelta={delta}")
+        if delta > 0.01 + 1e-12:
+            print(f"EXCEEDS: {key} exceeds the declared 0.01 difference")
+            return 1
+    expected_errors = np.abs(truth[:, 1] - np.interp(truth[:, 0], expected_path[0], expected_path[1]))
+    actual_errors = np.abs(truth[:, 1] - np.interp(truth[:, 0], actual_path[0], actual_path[1]))
+    p95_delta = abs(np.percentile(actual_errors, 95) - np.percentile(expected_errors, 95))
+    if p95_delta > 0.05 + 1e-12:
+        print(f"EXCEEDS: p95 beat-error difference {p95_delta} exceeds 0.05")
+        return 1
+    print(f"WITHIN_TOL: repeat hypotheses and note-onset metrics; p95 difference={p95_delta}")
+    return 0
+
+
 def main(golden_dir, export_dir):
     meta = golden_dir / "meta.json"
     if meta.is_file():
         metadata = json.loads(meta.read_text())
         if metadata.get("method") == "arzt_tempo":
             return compare_tempo_audio_case(golden_dir, export_dir, metadata)
+        if metadata.get("method") == "arzt_multi_fold":
+            return compare_multi_fold_audio_case(golden_dir, export_dir, metadata)
         if metadata.get("method") in ("arzt", "dixon") and metadata.get("processor") in ("chroma", "lse"):
             return compare_audio_case(golden_dir, export_dir, metadata)
 

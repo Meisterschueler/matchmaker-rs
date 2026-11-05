@@ -37,6 +37,8 @@ struct Piece {
     input_type: Option<String>,
     soundfont: Option<PathBuf>,
     processor: Option<String>,
+    unfold_score: Option<bool>,
+    methods: Option<Vec<String>>,
 }
 
 type Times = Rc<RefCell<Vec<Duration>>>;
@@ -277,7 +279,12 @@ fn run_audio_piece(
         .as_ref()
         .map(|path| base.join(path))
         .context("audio benchmark piece requires a soundfont path")?;
-    for method in methods {
+    for method in methods.iter().filter(|method| {
+        piece
+            .methods
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(method))
+    }) {
         let audio_method: AudioMethod = method
             .parse()
             .with_context(|| format!("{method} is not an audio method"))?;
@@ -291,11 +298,30 @@ fn run_audio_piece(
             config.set_processor(processor.parse::<AudioProcessorKind>()?);
             config.soundfont_path = Some(soundfont.clone());
             let mut mm = match audio_method {
-                AudioMethod::Arzt => AudioMatchmaker::new_arzt(score_path, config, None, true)?,
-                AudioMethod::Dixon => AudioMatchmaker::new_dixon(score_path, config, None, true)?,
-                AudioMethod::ArztTempo => {
-                    AudioMatchmaker::new_arzt_tempo(score_path, config, None, true)?
-                }
+                AudioMethod::Arzt => AudioMatchmaker::new_arzt(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
+                AudioMethod::Dixon => AudioMatchmaker::new_dixon(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
+                AudioMethod::ArztTempo => AudioMatchmaker::new_arzt_tempo(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
+                AudioMethod::ArztMultiFold => AudioMatchmaker::new_arzt_multi_fold(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
             }
             .record();
             mm.run_file(performance)?;
@@ -316,20 +342,25 @@ fn run_audio_piece(
             });
             let path = mm.alignment_path();
             let reference = mm.reference();
-            let expected_beats = path
-                .perf_time
-                .iter()
-                .map(|&time| {
-                    interpolate_beat(&reference.frame_to_beat, time * reference.frame_rate)
-                })
-                .collect();
-            let evaluation = evaluate_alignment(
-                path,
-                &GroundTruth {
-                    perf_sec: path.perf_time.clone(),
-                    score_beat: expected_beats,
-                },
-            );
+            let evaluation = if let Some(ground_truth) = &piece.ground_truth {
+                let ground_truth = GroundTruth::load(base.join(ground_truth), mm.score(), None)?;
+                evaluate_alignment(path, &ground_truth)
+            } else {
+                let expected_beats = path
+                    .perf_time
+                    .iter()
+                    .map(|&time| {
+                        interpolate_beat(&reference.frame_to_beat, time * reference.frame_rate)
+                    })
+                    .collect();
+                evaluate_alignment(
+                    path,
+                    &GroundTruth {
+                        perf_sec: path.perf_time.clone(),
+                        score_beat: expected_beats,
+                    },
+                )
+            };
             if run == 0 {
                 let path = out_dir
                     .join("paths")
@@ -346,6 +377,10 @@ fn run_audio_piece(
                 "renderer_version": "1.3.8",
                 "method": method,
                 "random_seed": mm.config().random_seed,
+                "unfold_score": piece.unfold_score.unwrap_or(true),
+                "candidate_count": mm.multi_fold_candidates().len(),
+                "selection_window": mm.config().selection_window,
+                "switch_margin": mm.config().switch_margin,
                 "processor": processor,
                 "dataset": piece.dataset,
                 "piece": piece.piece,
@@ -356,6 +391,7 @@ fn run_audio_piece(
                 "total_processing_s": total,
                 "real_time_factor": if duration > 0.0 { total / duration } else { 0.0 },
                 "evaluation": evaluation,
+                "ground_truth": piece.ground_truth.is_some(),
                 "environment": environment,
             }));
         }

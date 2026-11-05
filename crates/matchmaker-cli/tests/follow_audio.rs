@@ -18,16 +18,90 @@ fn soundfont() -> PathBuf {
 }
 
 fn follow_audio(method: &str, extra: &[&str]) -> Output {
+    follow_audio_files(
+        &data("simple_mozart_k265_var1.musicxml"),
+        &data("audio/simple_mozart_k265_var1_sf2.wav"),
+        method,
+        extra,
+    )
+}
+
+fn follow_audio_files(
+    score: &std::path::Path,
+    performance: &std::path::Path,
+    method: &str,
+    extra: &[&str],
+) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_matchmaker"));
     command
         .arg("follow")
-        .arg(data("simple_mozart_k265_var1.musicxml"))
-        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .arg(score)
+        .arg(performance)
         .args(["--input-type", "audio", "--method", method])
         .arg("--soundfont-path")
         .arg(soundfont())
         .args(extra);
     command.output().unwrap()
+}
+
+#[test]
+fn audio_arzt_multi_fold_defaults_and_repeat_mode() {
+    let defaults = follow_audio("arzt_multi_fold", &[]);
+    assert!(
+        defaults.status.success(),
+        "{}",
+        String::from_utf8_lossy(&defaults.stderr)
+    );
+    assert!(!positions(&defaults).is_empty());
+
+    let export = std::env::temp_dir().join("matchmaker_cli_audio_multi_fold_export");
+    let _ = std::fs::remove_dir_all(&export);
+    let export_arg = export.to_str().unwrap();
+    let repeat = follow_audio_files(
+        &data("fixture_repeats_voltas.musicxml"),
+        &data("audio/arzt_multi_fold/repeat_taken.wav"),
+        "arzt_multi_fold",
+        &["--no-unfold", "--export", export_arg],
+    );
+    assert!(
+        repeat.status.success(),
+        "{}",
+        String::from_utf8_lossy(&repeat.stderr)
+    );
+    let path = positions(&repeat);
+    assert!(!path.is_empty());
+    assert!(path.iter().all(|(_, beat)| (0.0..=14.0).contains(beat)));
+    for file in [
+        "arzt_multi_fold/hypothesis_metadata.json",
+        "arzt_multi_fold/selected_hypothesis.npy",
+        "arzt_multi_fold/candidate_current_frames.npy",
+        "arzt_multi_fold/candidate_local_costs.npy",
+        "arzt_multi_fold/candidate_mean_costs.npy",
+        "arzt_multi_fold/candidates/0/frame_to_unfolded_beat.npy",
+        "arzt_multi_fold/candidates/0/frame_to_notated_beat.npy",
+    ] {
+        assert!(
+            export.join(file).is_file(),
+            "missing multi-fold export {file}"
+        );
+    }
+    let metadata = std::fs::read_to_string(export.join("arzt_multi_fold/meta.json")).unwrap();
+    assert!(metadata.contains("\"selection_window\":50"));
+    assert!(metadata.contains("\"switch_margin\":0.05"));
+
+    for (parameter, value) in [
+        ("selection_window", "0"),
+        ("selection_window", "none"),
+        ("switch_margin", "1.1"),
+        ("switch_margin", "none"),
+    ] {
+        let invalid = follow_audio(
+            "arzt_multi_fold",
+            &["--set", &format!("{parameter}={value}")],
+        );
+        assert!(!invalid.status.success());
+        assert!(String::from_utf8_lossy(&invalid.stderr).contains(parameter));
+    }
 }
 
 fn positions(output: &Output) -> Vec<(f64, f64)> {

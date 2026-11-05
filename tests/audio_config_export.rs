@@ -55,6 +55,8 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
         (AudioMethod::Arzt, AudioProcessorKind::Lse),
         (AudioMethod::Dixon, AudioProcessorKind::Chroma),
         (AudioMethod::Dixon, AudioProcessorKind::Lse),
+        (AudioMethod::ArztMultiFold, AudioProcessorKind::Chroma),
+        (AudioMethod::ArztMultiFold, AudioProcessorKind::Lse),
     ] {
         let mut config = AudioMethodConfig::for_method(method);
         config.set_processor(processor);
@@ -72,6 +74,13 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
     dixon.step_size = Some(3);
     assert!(matches!(
         dixon.validate(AudioMethod::Dixon),
+        Err(Error::AudioConfig { .. })
+    ));
+
+    let mut multi_fold = AudioMethodConfig::for_method(AudioMethod::ArztMultiFold);
+    multi_fold.selection_window = None;
+    assert!(matches!(
+        multi_fold.validate(AudioMethod::ArztMultiFold),
         Err(Error::AudioConfig { .. })
     ));
 }

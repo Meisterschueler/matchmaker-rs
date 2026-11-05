@@ -439,6 +439,79 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
             tempo.iter().flat_map(|state| state.costs.iter().copied()),
         )?;
     }
+    let candidates = mm.multi_fold_candidates();
+    if !candidates.is_empty() {
+        let candidate_dir = method_dir.join("candidates");
+        let mut metadata = Vec::with_capacity(candidates.len());
+        for candidate in candidates {
+            let directory = candidate_dir.join(candidate.index.to_string());
+            f4(
+                &directory.join("score_features.npy"),
+                &[
+                    candidate.features.len(),
+                    candidate.features.first().map_or(0, Vec::len),
+                ],
+                candidate.features.iter().flatten().copied(),
+            )?;
+            f4(
+                &directory.join("score_positions.npy"),
+                &[candidate.score_positions.len()],
+                candidate.score_positions.iter().copied(),
+            )?;
+            f8(
+                &directory.join("frame_to_unfolded_beat.npy"),
+                &[candidate.unfolded_frame_to_beat.len()],
+                candidate.unfolded_frame_to_beat.iter().copied(),
+            )?;
+            f8(
+                &directory.join("frame_to_notated_beat.npy"),
+                &[candidate.notated_frame_to_beat.len()],
+                candidate.notated_frame_to_beat.iter().copied(),
+            )?;
+            metadata.push(json!({
+                "index": candidate.index,
+                "note_count": candidate.note_count,
+                "max_onset_beat": candidate.max_onset_beat,
+                "reference_frames": candidate.features.len(),
+            }));
+        }
+        write_json(
+            &method_dir.join("hypothesis_metadata.json"),
+            &json!(metadata),
+        )?;
+
+        let states: Vec<_> = steps
+            .iter()
+            .filter_map(|step| step.debug.multi_fold.as_ref())
+            .collect();
+        i8s(
+            &method_dir.join("selected_hypothesis.npy"),
+            &[states.len()],
+            states.iter().map(|state| state.selected_hypothesis),
+        )?;
+        let shape = [states.len(), candidates.len()];
+        i8s(
+            &method_dir.join("candidate_current_frames.npy"),
+            &shape,
+            states
+                .iter()
+                .flat_map(|state| state.current_frames.iter().copied()),
+        )?;
+        f8(
+            &method_dir.join("candidate_local_costs.npy"),
+            &shape,
+            states
+                .iter()
+                .flat_map(|state| state.local_costs.iter().copied()),
+        )?;
+        f8(
+            &method_dir.join("candidate_mean_costs.npy"),
+            &shape,
+            states
+                .iter()
+                .flat_map(|state| state.mean_costs.iter().copied()),
+        )?;
+    }
     write_json(
         &method_dir.join("meta.json"),
         &json!({
@@ -454,6 +527,8 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
                 "distance_func": format!("{:?}", config.distance_func).to_lowercase(),
                 "tempo": mm.tempo(),
                 "random_seed": config.random_seed,
+                "selection_window": config.selection_window,
+                "switch_margin": config.switch_margin,
             },
         }),
     )

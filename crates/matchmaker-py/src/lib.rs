@@ -105,7 +105,7 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
 fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<Bound<'py, PyDict>> {
     let kwargs = PyDict::new(py);
     match method {
-        AudioMethod::Arzt | AudioMethod::ArztTempo => {
+        AudioMethod::Arzt | AudioMethod::ArztTempo | AudioMethod::ArztMultiFold => {
             kwargs.set_item("processor", "chroma")?;
             kwargs.set_item("sample_rate", 44_100)?;
             kwargs.set_item("frame_rate", 30)?;
@@ -125,6 +125,10 @@ fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<B
     }
     if method == AudioMethod::ArztTempo {
         kwargs.set_item("random_seed", 1984)?;
+    }
+    if method == AudioMethod::ArztMultiFold {
+        kwargs.set_item("selection_window", 50)?;
+        kwargs.set_item("switch_margin", 0.05)?;
     }
     Ok(kwargs)
 }
@@ -183,7 +187,12 @@ fn set_audio_config(
                 _ => Some(number(&value)?),
             };
         }
-        "step_size" if matches!(method, AudioMethod::Arzt | AudioMethod::ArztTempo) => {
+        "step_size"
+            if matches!(
+                method,
+                AudioMethod::Arzt | AudioMethod::ArztTempo | AudioMethod::ArztMultiFold
+            ) =>
+        {
             config.step_size = match value {
                 ConfigValue::None => None,
                 _ => Some(integer(&value)?),
@@ -200,6 +209,18 @@ fn set_audio_config(
                 u32::try_from(integer(&value)?)
                     .map_err(|_| PyValueError::new_err("Invalid audio parameter random_seed"))?,
             );
+        }
+        "selection_window" if method == AudioMethod::ArztMultiFold => {
+            config.selection_window = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
+        "switch_margin" if method == AudioMethod::ArztMultiFold => {
+            config.switch_margin = match value {
+                ConfigValue::None => None,
+                _ => Some(number(&value)?),
+            };
         }
         "distance_func" => {
             let ConfigValue::Str(value) = value else {
@@ -367,10 +388,13 @@ fn new_audio_matchmaker(
         AudioMethod::ArztTempo => {
             AudioMatchmaker::new_arzt_tempo(&score_file, audio_config, tempo, unfold_score)
         }
+        AudioMethod::ArztMultiFold => {
+            AudioMatchmaker::new_arzt_multi_fold(&score_file, audio_config, tempo, unfold_score)
+        }
     }
     .map_err(to_py_err)?;
     let method_kind = match audio_method {
-        AudioMethod::Arzt | AudioMethod::ArztTempo => Method::Arzt,
+        AudioMethod::Arzt | AudioMethod::ArztTempo | AudioMethod::ArztMultiFold => Method::Arzt,
         AudioMethod::Dixon => Method::Dixon,
     };
 
@@ -620,6 +644,12 @@ impl PyMatchmaker {
                         self.unfold,
                     ),
                     AudioMethod::ArztTempo => AudioMatchmaker::new_arzt_tempo(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                    AudioMethod::ArztMultiFold => AudioMatchmaker::new_arzt_multi_fold(
                         &self.score_file,
                         config,
                         self.tempo_arg,

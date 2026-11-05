@@ -39,6 +39,19 @@ pub struct TempoStepDebug {
     pub costs: Vec<f32>,
 }
 
+/// Candidate selection state for parallel multi-fold Arzt inference.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultiFoldStepDebug {
+    /// Currently selected candidate index.
+    pub selected_hypothesis: usize,
+    /// Current reference frame for each candidate.
+    pub current_frames: Vec<usize>,
+    /// Current-frame feature distance for each candidate.
+    pub local_costs: Vec<f64>,
+    /// Trailing-window mean distance for each candidate.
+    pub mean_costs: Vec<f64>,
+}
+
 /// Inspectable follower state after a call, for the export of a run (FR-018).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StepDebug {
@@ -52,6 +65,8 @@ pub struct StepDebug {
     pub is_continuation: Option<bool>,
     /// Tempo-aware frame diagnostics; absent for existing non-tempo followers.
     pub tempo: Option<TempoStepDebug>,
+    /// Repeat-hypothesis diagnostics; absent for non-multi-fold followers.
+    pub multi_fold: Option<MultiFoldStepDebug>,
 }
 
 /// A score follower (`OnlineAlignment`).

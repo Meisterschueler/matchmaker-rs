@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 from ctypes import c_int
 from contextlib import contextmanager
@@ -316,6 +317,226 @@ def generate_tempo_replay_goldens(output: Path) -> None:
               f"inserted={int(states[-1, 4])}, deleted={int(states[-1, 5])}")
 
 
+def multi_fold_parts(score_part):
+    clones = []
+    try:
+        clones.append(
+            partitura.score.unfold_part_maximal(score_part, ignore_leaps=False)
+        )
+    except Exception:
+        pass
+    clones.append(score_part)
+    try:
+        clones.extend(itertools.islice(
+            partitura.score.iter_unfolded_parts(score_part, update_ids=True), 4
+        ))
+    except Exception:
+        pass
+
+    unique = []
+    seen = set()
+    for clone in clones:
+        notes = clone.note_array()
+        if not len(notes):
+            continue
+        key = (len(notes), round(float(notes["onset_beat"].max()), 2))
+        if key not in seen:
+            seen.add(key)
+            unique.append(clone)
+    return unique or [score_part]
+
+
+def generate_multi_fold_candidates(score_path: Path, output: Path) -> None:
+    """Record Partitura's repeat-path order without rendering or third-party audio."""
+    from partitura.score import merge_parts
+
+    loaded = partitura.load_musicxml(
+        str(score_path), ignore_invisible_objects=True, force_note_ids="keep"
+    )
+    folded = merge_parts(loaded.parts)
+    maximal_score = partitura.score.unfold_part_maximal(
+        loaded, ignore_leaps=False
+    )
+    maximal = merge_parts(maximal_score.parts)
+    candidate_sets = {
+        "folded_input": multi_fold_parts(folded),
+        "maximally_unfolded_input": multi_fold_parts(maximal),
+    }
+    base = output / "multi_fold" / score_path.stem
+    metadata = {
+        "reference": reference_info(),
+        "generator": "tools/golden/generate_audio.py",
+        "score": score_path.name,
+        "score_sha256": sha256(score_path),
+        "input": "synthetic hand-authored repeat/volta MusicXML fixture",
+        "selection_window": 50,
+        "switch_margin": 0.05,
+        "deduplication": ["note_count", "round(max_onset_beat, 2)"],
+        "candidate_sets": {},
+    }
+    for set_name, candidates in candidate_sets.items():
+        entries = []
+        for index, clone in enumerate(candidates):
+            notes = clone.note_array()
+            note_values = np.column_stack((
+                notes["pitch"], notes["onset_beat"], notes["onset_quarter"]
+            )).astype(np.float64)
+            write_array(base / set_name / f"candidate_{index}_notes.npy", note_values, "<f8")
+            entries.append({
+                "index": index,
+                "note_count": len(notes),
+                "max_onset_beat": float(notes["onset_beat"].max()),
+                "note_ids": notes["id"].astype(str).tolist(),
+            })
+        metadata["candidate_sets"][set_name] = entries
+    write_json(base / "meta.json", metadata)
+    print("arzt_multi_fold/candidates: " + ", ".join(
+        f"{name}={len(candidates)}" for name, candidates in candidate_sets.items()
+    ))
+
+
+def generate_multi_fold_audio(
+    score_path: Path, output: Path, soundfont: Path, soundfont_hash: str
+) -> None:
+    """Generate taken/skipped-repeat audio and locked-reference follower traces."""
+    from partitura.score import merge_parts
+
+    loaded = partitura.load_musicxml(
+        str(score_path), ignore_invisible_objects=True, force_note_ids="keep"
+    )
+    folded = merge_parts(loaded.parts)
+    candidates = multi_fold_parts(folded)
+    tempo = reference_misc.get_tempo_from_score(folded, str(score_path))
+    tempo = float(tempo) if tempo is not None else float(DEFAULT_TEMPO)
+    audio_dir = ROOT / "tests/data/audio/arzt_multi_fold"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    for name, part in (("repeat_taken", candidates[0]), ("repeat_skipped", candidates[-1])):
+        performance = audio_dir / f"{name}.wav"
+        samples = render_with_soundfont(part, tempo, soundfont)
+        wavfile.write(str(performance), SAMPLE_RATE, samples)
+
+        recorder = {
+            "features": [],
+            "times": [],
+            "positions": [],
+            "selected": [],
+            "means": [],
+            "frames": [],
+            "local_costs": [],
+        }
+        kwargs = {
+            "processor": "chroma",
+            "sample_rate": SAMPLE_RATE,
+            "frame_rate": 30,
+            "window_size": 10,
+            "start_window_size": 0.1,
+            "step_size": 3,
+            "selection_window": 50,
+            "switch_margin": 0.05,
+        }
+        with use_soundfont(soundfont):
+            mm = Matchmaker(
+                score_file=score_path,
+                performance_file=performance,
+                input_type="audio",
+                method="arzt_multi_fold",
+                processor="chroma",
+                kwargs=kwargs,
+                unfold_score=False,
+            )
+            record_follower(mm.score_follower, recorder)
+            yielded = list(mm.run(verbose=False))
+        if not np.array_equal(np.asarray(yielded), np.asarray(recorder["positions"])):
+            raise RuntimeError("Recorded multi-fold positions differ from yielded positions")
+
+        folded_note_beats = {
+            str(note["id"]): float(note["onset_beat"])
+            for note in folded.note_array()
+        }
+        note_events = set()
+        for note in part.note_array():
+            note_id = str(note["id"])
+            prefix, separator, suffix = note_id.rpartition("-")
+            original_id = (
+                prefix if separator and suffix.isdigit() else note_id
+            )
+            if original_id in folded_note_beats:
+                note_events.add((
+                    float(note["onset_quarter"]) * 60.0 / tempo,
+                    folded_note_beats[original_id],
+                ))
+        truth = sorted(note_events)
+        truth_path = audio_dir / f"{name}.tsv"
+        truth_path.write_text(
+            "perf_sec\tscore_beat\n"
+            + "".join(
+                f"{time:.17g}\t{beat:.17g}\n" for time, beat in truth
+            ),
+            encoding="utf-8",
+        )
+
+        base = output / "multi_fold" / name
+        (base / "ground_truth.tsv").write_text(
+            truth_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        write_array(base / "performance_features.npy", recorder["features"], "<f4")
+        write_array(base / "performance_times.npy", recorder["times"], "<f8")
+        write_array(base / "positions.npy", recorder["positions"], "<f8")
+        write_array(base / "selected_hypothesis.npy", recorder["selected"], "<i8")
+        write_array(base / "candidate_mean_costs.npy", recorder["means"], "<f8")
+        write_array(base / "candidate_frames.npy", recorder["frames"], "<i8")
+        write_array(base / "candidate_local_costs.npy", recorder["local_costs"], "<f8")
+        write_array(
+            base / "alignment_path.npy",
+            np.asarray(mm.score_follower.alignment_path, dtype=np.float64).reshape(2, -1),
+            "<f8",
+        )
+        hypotheses = []
+        for index, hypothesis in enumerate(mm.score_follower.hypotheses):
+            candidate_dir = base / f"candidate_{index}"
+            tracker = hypothesis["tracker"]
+            clone_notes = hypothesis["clone"].note_array()
+            write_array(candidate_dir / "score_features.npy", tracker.reference_features, "<f4")
+            write_array(candidate_dir / "score_positions.npy", tracker.score_positions, "<f4")
+            write_array(candidate_dir / "frame_to_unfolded_beat.npy", tracker._ref_frame_to_beat, "<f8")
+            write_array(candidate_dir / "frame_to_notated_beat.npy", hypothesis["ref_frame_to_notated_beat"], "<f4")
+            note_values = np.column_stack((
+                clone_notes["pitch"], clone_notes["onset_beat"], clone_notes["onset_quarter"]
+            )).astype(np.float64)
+            write_array(candidate_dir / "notes.npy", note_values, "<f8")
+            hypotheses.append({
+                "index": index,
+                "note_count": len(clone_notes),
+                "max_onset_beat": float(clone_notes["onset_beat"].max()),
+                "reference_frames": len(tracker.reference_features),
+            })
+        write_json(
+            base / "meta.json",
+            {
+                "reference": reference_info(),
+                "fluidsynth": fluidsynth_version(),
+                "generator": "tools/golden/generate_audio.py",
+                "score": score_path.name,
+                "score_sha256": sha256(score_path),
+                "performance": performance.name,
+                "performance_sha256": sha256(performance),
+                "ground_truth": truth_path.name,
+                "soundfont_sha256": soundfont_hash,
+                "tempo": tempo,
+                "sample_rate": SAMPLE_RATE,
+                "frame_rate": 30,
+                "processor": "chroma",
+                "method": "arzt_multi_fold",
+                "unfold_score": False,
+                "selection_window": 50,
+                "switch_margin": 0.05,
+                "hypotheses": hypotheses,
+            },
+        )
+        print(f"arzt_multi_fold/{name}: {len(recorder['positions'])} frames")
+
+
 def generate_codec_fixtures(output: Path) -> None:
     """Write tiny, synthetic mono assets for the supported decoder containers."""
     sample_rate = 44_100
@@ -370,6 +591,22 @@ def record_follower(follower, recorder: dict) -> None:
         )
         recorder["times"].append(float(perf_time))
         recorder["positions"].append(float(position))
+        if "selected" in recorder:
+            recorder["selected"].append(self.active_hypothesis_idx)
+            recorder["means"].append([
+                hyp["mean_recent_cost"] for hyp in self.hypotheses
+            ])
+            frames, costs = [], []
+            for hypothesis in self.hypotheses:
+                tracker = hypothesis["tracker"]
+                frame = tracker._current_frame
+                frames.append(frame)
+                costs.append(float(tracker.distance_func(
+                    tracker.reference_features[frame],
+                    np.asarray(observation, dtype=np.float32).squeeze(),
+                )))
+            recorder["frames"].append(frames)
+            recorder["local_costs"].append(costs)
         if "tempo_states" in recorder:
             model = self.tempo_model
             recorder["tempo_states"].append([
@@ -487,9 +724,45 @@ def main() -> None:
         action="store_true",
         help="generate only arzt_tempo audio pipeline goldens under tempo_pipeline/",
     )
+    parser.add_argument(
+        "--multi-fold-candidates-only",
+        action="store_true",
+        help="generate renderer-free arzt_multi_fold repeat-path goldens",
+    )
+    parser.add_argument(
+        "--multi-fold-only",
+        action="store_true",
+        help="generate taken/skipped-repeat arzt_multi_fold audio and follower goldens",
+    )
     args = parser.parse_args()
     if args.tempo_replay_only:
         generate_tempo_replay_goldens(args.out.resolve())
+        return
+    if args.multi_fold_candidates_only:
+        score_path = args.score.resolve()
+        if args.score == DEFAULT_SCORE:
+            score_path = ROOT / "tests/data/fixture_repeats_voltas.musicxml"
+        if not score_path.is_file():
+            parser.error(f"score does not exist: {score_path}")
+        generate_multi_fold_candidates(score_path, args.out.resolve())
+        return
+    if args.multi_fold_only:
+        score_path = args.score.resolve()
+        if args.score == DEFAULT_SCORE:
+            score_path = ROOT / "tests/data/fixture_repeats_voltas.musicxml"
+        soundfont = args.soundfont.resolve()
+        if not score_path.is_file():
+            parser.error(f"score does not exist: {score_path}")
+        if not soundfont.is_file():
+            parser.error(f"SoundFont does not exist: {soundfont}")
+        soundfont_hash = sha256(soundfont)
+        if soundfont_hash != SOUNDFONT_SHA256:
+            parser.error(
+                f"unexpected SoundFont SHA-256 {soundfont_hash}; "
+                f"expected pinned asset {SOUNDFONT_SHA256}"
+            )
+        generate_multi_fold_candidates(score_path, args.out.resolve())
+        generate_multi_fold_audio(score_path, args.out.resolve(), soundfont, soundfont_hash)
         return
     if args.codec_fixtures_only:
         generate_codec_fixtures(ROOT / "tests/data/audio/codec_samples")

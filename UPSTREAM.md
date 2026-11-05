@@ -41,6 +41,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/dp/arzt.rs` | `matchmaker/dp/oltw_arzt.py` | `OnlineTimeWarpingArztEvent` |
 | `src/dp/arzt_frame.rs` | `matchmaker/dp/oltw_arzt.py`, `matchmaker/dp/dtw_loop.pyx` | `OnlineTimeWarpingArztFrame` |
 | `src/dp/arzt_tempo.rs` | `matchmaker/dp/oltw_arzt.py`, `matchmaker/utils/tempo_models.py` | tempo-aware `OnlineTimeWarpingArztFrame` |
+| `src/dp/arzt_multi_fold.rs` | `matchmaker/dp/oltw_arzt_multi_fold.py` | parallel repeat-hypothesis Arzt follower |
 | `src/dp/dixon.rs` | `matchmaker/dp/oltw_dixon.py` | `OnlineTimeWarpingDixonEvent` |
 | `src/dp/dixon_frame.rs` | `matchmaker/dp/oltw_dixon.py` | `OnlineTimeWarpingDixonFrame` |
 | `src/export.rs` | `matchmaker-rs audio pipeline` | recorded MIDI/audio stage exports |
@@ -55,11 +56,11 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/score/unfold.rs` | `partitura/score.py` | `unfold_part_maximal`, `add_segments`, `Path`, `get_paths`, `new_part_from_path` |
 | `src/score/merge.rs` | `partitura/score.py` | `merge_parts` |
 | `src/score/tempo.rs` | `matchmaker/utils/misc.py`, `partitura/utils/music.py` | `get_tempo_from_score`, `to_quarter_tempo` |
-| `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py` | public `Matchmaker` API (MIDI plus audio `arzt`/`dixon`/`arzt_tempo`) |
+| `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py` | public `Matchmaker` API (MIDI plus audio `arzt`/`dixon`/`arzt_tempo`/`arzt_multi_fold`) |
 | `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py` | MIDI/audio CLI surface |
 | `tools/bench/run_reference.py` | `matchmaker/matchmaker.py`, `matchmaker/utils/eval.py` | pinned MIDI/audio benchmark runner |
 
-Not ported: audio `outerhmm`, `OnlineTimeWarpingArztMultiFold`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`, standalone onset updates of `ArztTempoModel`, live audio/MIDI devices and thread/queue plumbing, and audio ground-truth CLI evaluation. The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.
+Not ported: audio `outerhmm`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`, standalone onset updates of `ArztTempoModel`, live audio/MIDI devices and thread/queue plumbing, and audio ground-truth CLI evaluation. The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.
 
 ## Procedure: a new upstream release
 

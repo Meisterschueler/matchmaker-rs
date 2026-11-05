@@ -116,6 +116,24 @@ FluidSynth channel has CC91=0, whereas RustySynth initializes it to 40; acceptin
 that default introduces additional reverb and changes the score reference.
 This is renderer calibration, not a relaxed test tolerance or a new native runtime dependency.
 
+### Repeat / volta audio fixtures
+
+`tests/data/fixture_repeats_voltas.musicxml` is a small hand-authored synthetic
+score. `tools/golden/generate_audio.py --multi-fold-only` renders its taken- and
+skipped-repeat variants with the pinned CC0 SoundFont above and records Partitura
+0.4.0 candidate/replay goldens under `tests/golden/audio/multi_fold/`.
+The score SHA-256 is `44E765CBD6CA3C48871123F290CC6B360234855C8599207DFC0D358B8809D4E9`.
+
+| File | Bytes | SHA-256 |
+|---|---:|---|
+| `arzt_multi_fold/repeat_taken.wav` | 2,134,498 | `F35C15390B45259DBAA9A72421FD0141871705749911496549DF497A18061F07` |
+| `arzt_multi_fold/repeat_skipped.wav` | 1,193,694 | `6F7D56C9D82778DCB10C8EE412C99F3EF6EE79EBA89AF9CCFE91F560CD97668E` |
+
+These are score-derived synthetic renders, not third-party recordings. Their
+metadata pins the source score hash, SoundFont hash, reference lock, and FluidSynth
+version. The matching `.tsv` files contain unique note-onset times and folded-score
+beats for metric evaluation, not one row for every intermediate audio frame.
+
 ### Rejected candidate
 
 GeneralUser GS 2.0.3 was considered at upstream commit
