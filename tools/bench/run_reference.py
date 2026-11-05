@@ -157,7 +157,7 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                 "method": method,
                 "random_seed": getattr(tempo_model, "random_seed", None),
                 "unfold_score": piece.get("unfold_score", True),
-                "candidate_count": len(getattr(mm.score_follower, "hypotheses", ())),
+                "candidate_count": len(mm.score_follower.hypotheses) if method == "arzt_multi_fold" else 0,
                 "selection_window": getattr(mm.score_follower, "selection_window", None),
                 "switch_margin": getattr(mm.score_follower, "switch_margin", None),
                 "processor": processor,

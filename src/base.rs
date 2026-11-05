@@ -52,6 +52,23 @@ pub struct MultiFoldStepDebug {
     pub mean_costs: Vec<f64>,
 }
 
+/// Active hypotheses of the switching Kalman filter after a call, in beam order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkfStepDebug {
+    /// Chord index of each hypothesis.
+    pub chords: Vec<usize>,
+    /// Frames each hypothesis' chord has lasted.
+    pub ages: Vec<usize>,
+    /// Normalized probability of each hypothesis.
+    pub probabilities: Vec<f64>,
+    /// Tempo mean of each hypothesis in seconds per whole note.
+    pub tempo_means: Vec<f64>,
+    /// Tempo variance of each hypothesis.
+    pub tempo_variances: Vec<f64>,
+    /// Hypotheses after merging and before the beam pruned them.
+    pub candidates: usize,
+}
+
 /// Inspectable follower state after a call, for the export of a run (FR-018).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StepDebug {
@@ -67,6 +84,8 @@ pub struct StepDebug {
     pub tempo: Option<TempoStepDebug>,
     /// Repeat-hypothesis diagnostics; absent for non-multi-fold followers.
     pub multi_fold: Option<MultiFoldStepDebug>,
+    /// Chord/age hypotheses of the switching Kalman filter; absent for other followers.
+    pub skf: Option<SkfStepDebug>,
 }
 
 /// A score follower (`OnlineAlignment`).

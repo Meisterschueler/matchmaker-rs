@@ -233,6 +233,69 @@ fn positions(output: &Output) -> Vec<(f64, f64)> {
 }
 
 #[test]
+fn audio_skf_defaults_template_modes_and_parameter_errors() {
+    let defaults = follow_audio("skf", &[]);
+    assert!(
+        defaults.status.success(),
+        "{}",
+        String::from_utf8_lossy(&defaults.stderr)
+    );
+    assert!(!positions(&defaults).is_empty());
+
+    // Gaussian templates need no SoundFont and are recorded as such.
+    let export = std::env::temp_dir().join("matchmaker_cli_audio_skf_export");
+    let _ = std::fs::remove_dir_all(&export);
+    let gaussian = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("follow")
+        .arg(data("simple_mozart_k265_var1.musicxml"))
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--input-type", "audio", "--method", "skf", "--quiet"])
+        .args(["--set", "template_mode=gaussian", "--export"])
+        .arg(&export)
+        .output()
+        .unwrap();
+    assert!(
+        gaussian.status.success(),
+        "{}",
+        String::from_utf8_lossy(&gaussian.stderr)
+    );
+    for file in ["score/skf/templates.npy", "skf/state_probability.npy"] {
+        assert!(export.join(file).is_file(), "missing skf export {file}");
+    }
+    let meta = std::fs::read_to_string(export.join("score/meta.json")).unwrap();
+    assert!(meta.contains("\"template_mode\":\"gaussian\""));
+
+    for (extra, expected) in [
+        (vec!["--set", "template_mode=auto"], "template_mode"),
+        (vec!["--set", "window_size=5"], "not used by audio skf"),
+        (
+            vec!["--set", "distance_func=euclidean"],
+            "not used by audio skf",
+        ),
+        (vec!["--set", "step_size=3"], "step_size"),
+        (vec!["--set", "n_fft=64"], "n_fft"),
+        (vec!["--processor", "chroma"], "processor"),
+    ] {
+        let invalid = follow_audio("skf", &extra);
+        assert!(!invalid.status.success(), "{extra:?}");
+        assert!(
+            String::from_utf8_lossy(&invalid.stderr).contains(expected),
+            "{extra:?}: {}",
+            String::from_utf8_lossy(&invalid.stderr)
+        );
+    }
+    let no_soundfont = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("follow")
+        .arg(data("simple_mozart_k265_var1.musicxml"))
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--input-type", "audio", "--method", "skf"])
+        .output()
+        .unwrap();
+    assert!(!no_soundfont.status.success());
+    assert!(String::from_utf8_lossy(&no_soundfont.stderr).contains("soundfont_path"));
+}
+
+#[test]
 fn audio_arzt_tempo_defaults_seed_and_parameter_errors() {
     let default = follow_audio("arzt_tempo", &[]);
     assert!(

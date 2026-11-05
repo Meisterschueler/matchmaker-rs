@@ -18,6 +18,7 @@ use matchmaker_rs::matchmaker::{
 };
 use matchmaker_rs::performance::Performance;
 use matchmaker_rs::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
+use matchmaker_rs::prob::skf::TemplateMode;
 use matchmaker_rs::score::Score;
 use midly::num::{u4, u7, u15, u28};
 use midly::{Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
@@ -308,6 +309,7 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
                 AudioMethod::Dixon => {
                     AudioMatchmaker::new_dixon(score, config, None, true).unwrap()
                 }
+                AudioMethod::Skf => unreachable!("skf has its own edge-case test"),
             }
         };
 
@@ -356,6 +358,59 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
         );
         assert!(one_onset_run.alignment_path().perf_time.is_empty());
     }
+}
+
+#[test]
+fn skf_handles_short_silent_overrun_and_one_onset_scores() {
+    let short = audio_wav("skf_short", 1, &[0; 100]);
+    let silent = audio_wav("skf_silent", 1, &vec![0; 44_100]);
+    let empty = audio_wav("skf_empty", 1, &[]);
+    let overrun = audio_melody_wav("skf_overrun", 30);
+    let one_onset = midi_file("skf_one_onset_score", &[(0, 60, 80), (480, 60, 0)]);
+    let make = |score: &PathBuf| {
+        let mut config = AudioMethodConfig::for_method(AudioMethod::Skf);
+        config.template_mode = Some(TemplateMode::Gaussian);
+        AudioMatchmaker::new_skf(score, config, None, true).unwrap()
+    };
+
+    assert!(make(&data(SCORE)).run_file(&short).unwrap().is_empty());
+    let last = f64::from(*make(&data(SCORE)).score_positions().last().unwrap());
+    for performance in [&silent, &overrun] {
+        let positions = make(&data(SCORE)).run_file(performance).unwrap();
+        assert!(!positions.is_empty());
+        assert!(
+            positions.iter().all(|p| (0.0..=last).contains(p)),
+            "position outside the score"
+        );
+    }
+    let first = make(&data(SCORE)).run_file(&overrun).unwrap();
+    assert_eq!(
+        first,
+        make(&data(SCORE)).run_file(&overrun).unwrap(),
+        "fresh runs share no state"
+    );
+
+    let mut one = make(&one_onset);
+    assert!(one.run_file(&empty).unwrap().is_empty());
+    assert!(one.alignment_path().perf_time.is_empty());
+    assert!(make(&one_onset).run_file(&overrun).unwrap().is_empty());
+}
+
+#[test]
+fn skf_reports_template_asset_errors_instead_of_falling_back() {
+    let missing = data("audio/does_not_exist.sf2");
+    let corrupt = temp_file("skf_corrupt.sf2", b"not a soundfont");
+    let build = |soundfont: Option<PathBuf>| {
+        let mut config = AudioMethodConfig::for_method(AudioMethod::Skf);
+        config.soundfont_path = soundfont;
+        AudioMatchmaker::new_skf(data(SCORE), config, None, true)
+    };
+    assert!(matches!(build(Some(missing)), Err(Error::Io { .. })));
+    assert!(matches!(
+        build(Some(corrupt)),
+        Err(Error::AudioRender { .. })
+    ));
+    assert!(matches!(build(None), Err(Error::AudioConfig { .. })));
 }
 
 #[test]

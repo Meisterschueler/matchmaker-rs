@@ -37,6 +37,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/prob/hmm.rs` | `matchmaker/prob/hmm.py` | `PitchIOIHMM` |
 | `src/prob/hmm_models.rs` | `matchmaker/prob/hmm.py` | `stable_transition_matrix`, `compute_discrete_pitch_profiles`, `compute_bernoulli_pitch_probabilities` |
 | `src/prob/outerhmm.rs` | `matchmaker/prob/outer_product_hmm.py` | `OuterProductHMM` |
+| `src/prob/skf.rs` | `matchmaker/prob/skf.py` | `SwitchingKalmanFilterFollower`, `build_chord_sequence`, `build_spectral_templates` (synthesized with RustySynth, Gaussian fallback as an explicit mode) |
 | `src/prob/hidden_markov.rs` | `hiddenmarkov/__init__.py` | `forward_algorithm_step`, `ConstantTransitionModel` |
 | `src/dp/mod.rs` | `matchmaker/dp/direction.py`, SciPy `cdist` | `Direction`; metrics `cosine`, `euclidean` |
 | `src/dp/arzt.rs` | `matchmaker/dp/oltw_arzt.py` | `OnlineTimeWarpingArztEvent` |
@@ -61,7 +62,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py`, `matchmaker/features/audio.py` | MIDI/audio CLI, standalone feature extraction |
 | `tools/bench/run_reference.py` | `matchmaker/matchmaker.py`, `matchmaker/utils/eval.py` | pinned MIDI/audio benchmark runner |
 
-Not ported: audio `outerhmm`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`, standalone onset updates of `ArztTempoModel`, and live audio/MIDI devices and thread/queue plumbing. Audio ground-truth CLI evaluation accepts direct `perf_sec`/`score_beat` TSV; note-ID `.match` evaluation still requires an explicit MIDI performance. The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.
+Not ported: audio `outerhmm`, `prob/outer_product_hmm_audio.py`, `particle_filter_korzeniowski.py`, standalone onset updates of `ArztTempoModel`, and live audio/MIDI devices and thread/queue plumbing. `skf.py` is ported except for its raw-audio input branch (`_extract_features` computing an FFT when a frame is not a spectrum) and its console prints. The reference chooses `skf` templates by trying FluidSynth with Partitura's bundled MuseScore SoundFont and falling back to Gaussian peaks on any error; this port makes the mode explicit and uses the pinned SF2 for the benchmark reference. Audio ground-truth CLI evaluation accepts direct `perf_sec`/`score_beat` TSV; note-ID `.match` evaluation still requires an explicit MIDI performance. The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.
 
 ## Procedure: a new upstream release
 

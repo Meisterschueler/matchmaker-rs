@@ -147,6 +147,24 @@ the bundled score's locked-reference frame-to-beat mapping. Its score, performan
 and CC0 SoundFont hashes and reference metric golden are under
 `tests/golden/audio/ground_truth/`.
 
+### SKF fixed-template replays
+
+`tools/golden/generate_audio.py --skf-only` (needs FluidSynth and the pinned SoundFont above)
+writes `tests/golden/audio/skf/` (about 420 KB, deterministic): `synthetic` (eight chords with
+Gaussian templates, a beam of 12 hypotheses, one silent and one half-negative frame), `override`
+(16 kHz, FFT 1024, hop 512), `one_chord`, and `bundled` (the bundled score with the reference's
+synthesized templates and 90 raw-spectrum frames of the bundled performance). Each case stores
+the inputs both sides consume (score table, templates, observations), the reference's chord
+sequence, positions, chord path and the hypotheses `(chord, age, probability, tempo mean and
+variance)` after selected frames, so `tests/golden_audio_skf.rs` isolates the recurrence from
+template synthesis. The `bundled` metadata records the SoundFont, performance and FluidSynth
+identities; its templates are the reference's float32-rounded spectra of chords rendered from the
+CC0 SF2 (derived spectra, no samples). The generator patches `partitura.save_wav_fluidsynth` with
+the pinned SF2 and fails if the reference falls back to Gaussian peaks: unpatched, the reference
+would do so silently here because Partitura's bundled MuseScore file is an empty placeholder
+(research R12). `tools/golden/compare.py tests/golden/audio/skf/bundled <export>` checks the
+template mode, chord model and templates of a `follow --method skf --export` run.
+
 ### Rejected candidate
 
 GeneralUser GS 2.0.3 was considered at upstream commit

@@ -30,6 +30,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+libm = "0.2.16"
 midly = { version = "0.5.3", default-features = false, features = ["std"] }
 rand_mt = { version = "6.1.0", default-features = false }
 realfft = "3.5.1"

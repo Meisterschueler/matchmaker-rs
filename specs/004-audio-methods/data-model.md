@@ -14,7 +14,7 @@ KorzeniowskiObservation is separate: spectrum, onset, loudness, and optional act
 |---|---|---|
 | ScoreAudioReference | Rendered score waveform (peak-normalized), feature frames from one whole-signal pass, frame-to-beat mapping | Same processor configuration as performance; frame `j` starts at `j*hop`; a score shorter than one window is an `AudioConfig` error; see research R11 for the level and framing conventions and how to replace them |
 | MultiFoldHypothesis | Score unfolding/path, feature reference, beat domain, follower state, recent costs | Valid repeat path; selection history bounded by selection_window |
-| SkfScoreModel | Chord/onset sequence, normalized spectrum templates, synthesis/fallback identity | Template width n_fft/2+1; covariance/likelihood safeguards match reference |
+| SkfScoreModel | Chord/onset sequence, normalized spectrum templates, synthesis/fallback identity | Template width n_fft/2+1; covariance/likelihood safeguards match reference; the mode (`synthesized` or `gaussian`) and the SoundFont path travel with the model into every export |
 | AudioOuterHmmScoreModel | Weighted chords, onset beats, 88-bin pitch/chord templates, sound/pause transitions | Learned-overlay mask and template rate/hop match recorded provenance |
 | KorzeniowskiScoreModel | beat_grid, onset_positions, nearest_onsets, rest_mask, templates, active_notes | Consistent grid lengths, template width n_fft/2+1, valid nearest-onset indices |
 

@@ -10,7 +10,7 @@ Defaults below are taken from released methods.yaml and Matchmaker's configurati
 |---|---|---|---|
 | arzt_tempo | chroma | 44100 / 1470 (30 fps) | window_size=10 s, start_window_size=0.1 s, step_size=3, ArztTempoModel |
 | arzt_multi_fold | chroma | 44100 / 1470 (30 fps) | same frame windows/step, selection_window=50, switch_margin=0.05 |
-| skf | raw_spectrum | 8000 / 128 (62.5 fps) | n_fft=512; reference synthesized-template attempt and recorded Gaussian fallback |
+| skf | raw_spectrum | 8000 / 128 (62.5 fps) | n_fft=512; `template_mode` synthesized (default, needs the SoundFont) or gaussian, recorded in every export, never a silent fallback (research R12) |
 | outerhmm | cqt_spectral_flux | 16000 / 640 (25 fps) | s_j=0.0; weighted chord and 88-pitch template model |
 | pfkorz | korzeniowski | 44100 / 1470 (30 fps) | n_fft=4096, win_length=2048, num_particles=500; seed=1984 as reproducibility extension |
 
@@ -31,6 +31,7 @@ The direct KorzeniowskiAudioProcessor class defaults hop=512; the facade passes 
 
 - Vector processors are selectable on the already delivered Arzt/Dixon frame followers; tempo/multi-fold variants inherit only combinations whose reference construction/replay succeeds. Score and performance processing settings must match.
 - SKF accepts raw_spectrum observations; Audio-OuterHMM accepts its CQT(+flux) layout; PF accepts structured Korzeniowski observations. Reject dimensionally or semantically incompatible pairs at construction.
+- SKF follows the score's chord sequence (not a rendered score), so its audio reference is empty and `window_size`, `distance_func`, `norm`, `step_size`, `max_run_count` are rejected. Its keys are the shared ones (`processor`=raw_spectrum, `sample_rate`, `hop_length`/`frame_rate`, `n_fft`, `soundfont_path`) plus `template_mode`; the beam width and noise scales are constructor arguments of the library type only, as in the reference registry.
 - CQT flux tests must capture inherited no-op reset and the score-to-performance matrix shape interaction. Fresh instances isolate separate runs. If the locked reference's default pipeline fails on those shapes, report a reference blocker rather than silently clearing history or fabricating successful goldens.
 - US4 introduces minimal standalone extraction through library processor types, a Python extract_audio_features(performance_path, processor, kwargs=None) helper, and CLI `features PERFORMANCE --processor KEY --export DIRECTORY`. Reuse AudioStream and stage-export machinery; no alternate decoder/pipeline. Each later processor is enabled in its own commit. US11 extends extraction to structured output, without inventing a vector-compatible follower.
 - Each new method extends AudioMethod parsing/configuration and the existing AudioMatchmaker entry points; Python uses existing Matchmaker(..., input_type="audio", method=KEY, kwargs=...). Preserve run iterator semantics and score_follower.alignment_path shape.
@@ -56,7 +57,7 @@ Validate ground truth and required inputs before writing results. Error paths do
 
 ## Exports
 
-Retain existing export file layouts; add story-specific arrays/metadata without renaming old keys. Record processor/method/rates/hop/seed/template mode and exact asset hashes. Vector arrays, reference features, timestamps, positions, paths, cost/probability windows, tempo/hypothesis/particle state are NumPy-readable. Structured output exports spectrum matrix plus onset/loudness arrays and explicit absent note-field metadata. Bound large model-state exports using existing recording choices; do not force particle dumps into every normal run.
+Retain existing export file layouts; add story-specific arrays/metadata without renaming old keys. Record processor/method/rates/hop/seed/template mode and exact asset hashes. SKF writes its chord model to `score/skf/` (`templates`, `chords_flat`, `chord_offsets`, `lengths`, `onset_beats`), the template mode and SoundFont path to `score/meta.json`, and per frame the hypotheses as CSR arrays (`state_frames`, `state_offsets`, `state_chord`, `state_age`, `state_probability`, `state_tempo_mean`, `state_tempo_variance`) plus `candidates` (hypotheses before the beam) to `skf/`; it omits `score/audio/`. The same names are used by the goldens under `tests/golden/audio/skf/`. Vector arrays, reference features, timestamps, positions, paths, cost/probability windows, tempo/hypothesis/particle state are NumPy-readable. Structured output exports spectrum matrix plus onset/loudness arrays and explicit absent note-field metadata. Bound large model-state exports using existing recording choices; do not force particle dumps into every normal run.
 
 ## Validation and comparison limits
 

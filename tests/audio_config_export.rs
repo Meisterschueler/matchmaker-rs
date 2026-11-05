@@ -8,6 +8,7 @@ use matchmaker_rs::export::{write_audio_evaluation, write_audio_run};
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind,
 };
+use matchmaker_rs::prob::skf::TemplateMode;
 use matchmaker_rs::utils::eval::EvaluationResult;
 use std::path::PathBuf;
 
@@ -216,4 +217,85 @@ fn recorded_audio_run_exports_all_stages_as_numpy_arrays() {
     assert_eq!(score_features.shape[0], frame_to_beat.shape[0]);
     assert_eq!(alignment_path.shape[0], 2);
     assert_eq!(npy(output.join("audio/frame_times.npy")).shape, [226]);
+}
+
+#[test]
+fn skf_config_has_reference_defaults_and_rejects_incompatible_parameters() {
+    let skf = AudioMethodConfig::for_method(AudioMethod::Skf);
+    assert_eq!(skf.processor(), AudioProcessorKind::RawSpectrum);
+    assert_eq!(
+        (skf.sample_rate, skf.hop_length, skf.n_fft),
+        (8_000, Some(128), Some(512))
+    );
+    assert_eq!(skf.template_mode, Some(TemplateMode::Synthesized));
+    skf.validate(AudioMethod::Skf).unwrap();
+
+    let key_of = |config: &AudioMethodConfig, method| match config.validate(method) {
+        Err(Error::AudioConfig { key, .. }) => key,
+        other => panic!("expected an audio config error, got {other:?}"),
+    };
+    let mut chroma = skf.clone();
+    chroma.set_processor(AudioProcessorKind::Chroma);
+    assert_eq!(key_of(&chroma, AudioMethod::Skf), "processor");
+    let mut stepped = skf.clone();
+    stepped.step_size = Some(3);
+    assert_eq!(
+        key_of(&stepped, AudioMethod::Skf),
+        "max_run_count/start_window_size/step_size"
+    );
+    let mut unset = skf.clone();
+    unset.template_mode = None;
+    assert_eq!(key_of(&unset, AudioMethod::Skf), "template_mode");
+    let mut foreign = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    foreign.template_mode = Some(TemplateMode::Gaussian);
+    assert_eq!(key_of(&foreign, AudioMethod::Arzt), "template_mode");
+    let mut short_fft = skf;
+    short_fft.n_fft = Some(64);
+    assert_eq!(key_of(&short_fft, AudioMethod::Skf), "n_fft");
+}
+
+#[test]
+fn skf_export_records_model_mode_and_hypothesis_state_without_score_audio() {
+    let mut config = AudioMethodConfig::for_method(AudioMethod::Skf);
+    config.template_mode = Some(TemplateMode::Gaussian);
+    let mut follower =
+        AudioMatchmaker::new_skf(data("simple_mozart_k265_var1.musicxml"), config, None, true)
+            .unwrap()
+            .record();
+    follower
+        .run_file(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .unwrap();
+    let model = follower.skf_model().unwrap();
+    assert_eq!(model.chords.len(), 54);
+    assert!(follower.reference().features.is_empty());
+
+    let output = std::env::temp_dir().join("matchmaker_audio_skf_export");
+    let _ = std::fs::remove_dir_all(&output);
+    write_audio_run(&follower, &output).unwrap();
+    let count = follower.alignment_path().perf_time.len();
+    assert!(count > 0);
+    assert!(!output.join("score/audio/features.npy").exists());
+    assert_eq!(npy(output.join("score/skf/templates.npy")).shape, [54, 257]);
+    assert_eq!(npy(output.join("score/skf/lengths.npy")).shape, [54]);
+    assert_eq!(npy(output.join("score/skf/chord_offsets.npy")).shape, [55]);
+    let method = output.join("skf");
+    assert_eq!(npy(method.join("state_frames.npy")).shape, [count]);
+    assert_eq!(npy(method.join("state_offsets.npy")).shape, [count + 1]);
+    assert_eq!(npy(method.join("candidates.npy")).shape, [count]);
+    let hypotheses = npy(method.join("state_chord.npy")).shape[0];
+    for file in [
+        "state_age.npy",
+        "state_probability.npy",
+        "state_tempo_mean.npy",
+        "state_tempo_variance.npy",
+    ] {
+        assert_eq!(npy(method.join(file)).shape, [hypotheses], "{file}");
+    }
+    let read = |file: &str| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(output.join(file)).unwrap()).unwrap()
+    };
+    assert_eq!(read("score/meta.json")["template_mode"], "gaussian");
+    assert!(read("score/meta.json")["soundfont"].is_null());
+    assert_eq!(read("audio/meta.json")["n_fft"], 512);
+    assert_eq!(read("skf/meta.json")["config"]["template_mode"], "gaussian");
 }

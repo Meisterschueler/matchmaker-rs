@@ -203,6 +203,12 @@ fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<B
             kwargs.set_item("max_run_count", 3)?;
             kwargs.set_item("distance_func", "euclidean")?;
         }
+        AudioMethod::Skf => {
+            kwargs.set_item("processor", "raw_spectrum")?;
+            kwargs.set_item("sample_rate", 8_000)?;
+            kwargs.set_item("hop_length", 128)?;
+            kwargs.set_item("n_fft", 512)?;
+        }
     }
     if method == AudioMethod::ArztTempo {
         kwargs.set_item("random_seed", 1984)?;
@@ -266,6 +272,19 @@ fn set_audio_config(
                 }
                 _ => Some(number(&value)?),
             };
+        }
+        "window_size" | "distance_func" if method == AudioMethod::Skf => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid audio parameter {key}"
+            )));
+        }
+        "template_mode" if method == AudioMethod::Skf => {
+            let ConfigValue::Str(value) = value else {
+                return Err(PyValueError::new_err(
+                    "Invalid audio parameter template_mode",
+                ));
+            };
+            config.template_mode = Some(value.parse().map_err(to_py_err)?);
         }
         "window_size" => config.window_size = number(&value)?,
         "start_window_size" => {
@@ -478,10 +497,16 @@ fn new_audio_matchmaker(
         AudioMethod::ArztMultiFold => {
             AudioMatchmaker::new_arzt_multi_fold(&score_file, audio_config, tempo, unfold_score)
         }
+        AudioMethod::Skf => {
+            AudioMatchmaker::new_skf(&score_file, audio_config, tempo, unfold_score)
+        }
     }
     .map_err(to_py_err)?;
     let method_kind = match audio_method {
-        AudioMethod::Arzt | AudioMethod::ArztTempo | AudioMethod::ArztMultiFold => Method::Arzt,
+        AudioMethod::Arzt
+        | AudioMethod::ArztTempo
+        | AudioMethod::ArztMultiFold
+        | AudioMethod::Skf => Method::Arzt,
         AudioMethod::Dixon => Method::Dixon,
     };
 
@@ -737,6 +762,12 @@ impl PyMatchmaker {
                         self.unfold,
                     ),
                     AudioMethod::ArztMultiFold => AudioMatchmaker::new_arzt_multi_fold(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                    AudioMethod::Skf => AudioMatchmaker::new_skf(
                         &self.score_file,
                         config,
                         self.tempo_arg,

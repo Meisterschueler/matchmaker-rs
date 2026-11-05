@@ -385,6 +385,7 @@ impl OnlineAlignment for OuterProductHmm {
             is_continuation: Some(self.is_continuation),
             tempo: None,
             multi_fold: None,
+            skf: None,
         }
     }
 }

@@ -13,6 +13,7 @@ use matchmaker_rs::matchmaker::{
     ConfigValue, Matchmaker, Method, MethodConfig,
 };
 use matchmaker_rs::performance::Performance;
+use matchmaker_rs::prob::skf::TemplateMode;
 use matchmaker_rs::score::Score;
 use matchmaker_rs::utils::eval::{GroundTruth, evaluate_alignment};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
@@ -41,7 +42,7 @@ enum Command {
         /// Score-following method
         #[arg(long, default_value = "pthmm", value_parser = parse_method_name)]
         method: String,
-        /// Local SF2 SoundFont required for audio score rendering
+        /// Local SF2 SoundFont required for audio score rendering (skf: synthesized templates)
         #[arg(long)]
         soundfont_path: Option<PathBuf>,
         /// Tempo in BPM (default: score marking, else 120)
@@ -52,7 +53,8 @@ enum Command {
         processor: Option<String>,
         /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20;
         /// arzt: step_size, distance_func; dixon: window_size, max_run_count, distance_func;
-        /// arzt_multi_fold: selection_window, switch_margin)
+        /// arzt_multi_fold: selection_window, switch_margin; skf: n_fft,
+        /// template_mode=synthesized|gaussian)
         #[arg(long = "set", value_name = "KEY=VALUE")]
         set: Vec<String>,
         /// Do not unfold repeats
@@ -241,12 +243,21 @@ fn audio_config(
                     _ => anyhow::bail!("--set norm expects a positive number or none"),
                 }
             }
+            "window_size" | "distance_func" if method == AudioMethod::Skf => {
+                anyhow::bail!("{key} is not used by audio skf")
+            }
             "window_size" => config.window_size = audio_f64(key, &value)?,
             "start_window_size" => config.start_window_size = audio_optional_f64(key, &value)?,
             "step_size" => config.step_size = audio_optional_usize(key, &value)?,
             "max_run_count" => config.max_run_count = audio_optional_usize(key, &value)?,
             "selection_window" => config.selection_window = audio_optional_usize(key, &value)?,
             "switch_margin" => config.switch_margin = audio_optional_f64(key, &value)?,
+            "template_mode" => match value {
+                ConfigValue::Str(name) => {
+                    config.template_mode = Some(name.parse::<TemplateMode>()?)
+                }
+                _ => anyhow::bail!("--set template_mode expects synthesized or gaussian"),
+            },
             "distance_func" => match value {
                 ConfigValue::Str(name) => config.distance_func = name.parse::<AudioDistance>()?,
                 _ => anyhow::bail!("--set distance_func expects manhattan or euclidean"),
@@ -382,6 +393,9 @@ fn main() -> Result<()> {
                     }
                     AudioMethod::ArztMultiFold => {
                         AudioMatchmaker::new_arzt_multi_fold(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::Skf => {
+                        AudioMatchmaker::new_skf(&score, config, tempo, !no_unfold)?
                     }
                 };
                 let ground_truth_path = ground_truth;

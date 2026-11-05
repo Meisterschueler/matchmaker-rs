@@ -69,6 +69,8 @@ fn audio_defaults_are_separate_from_midi_defaults() {
 fn audio_names_and_errors_are_input_specific() {
     assert_eq!("arzt".parse::<AudioMethod>().unwrap(), AudioMethod::Arzt);
     assert_eq!("dixon".parse::<AudioMethod>().unwrap(), AudioMethod::Dixon);
+    assert_eq!("skf".parse::<AudioMethod>().unwrap(), AudioMethod::Skf);
+    assert_eq!(AudioMethod::Skf.name(), "skf");
     assert_eq!(
         "chroma".parse::<AudioProcessorKind>().unwrap(),
         AudioProcessorKind::Chroma

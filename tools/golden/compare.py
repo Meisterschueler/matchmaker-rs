@@ -231,6 +231,62 @@ def compare_raw_spectrum_case(golden_dir, export_dir, metadata):
     return 0
 
 
+# RustySynth against FluidSynth templates (research R12); Gaussian templates are closed-form.
+SKF_TEMPLATE_MIN_COSINE = 0.99
+SKF_TEMPLATE_MAX_VARIATION = 0.06
+
+
+def compare_skf_case(golden_dir, export_dir, metadata):
+    """Compare the score model of an skf export with a golden: mode, chords, lengths, templates.
+
+    The per-frame replay of the follower is covered by tests/golden_audio_skf.rs, which feeds the
+    golden observations; an export of a real run has its own observations.
+    """
+    model_dir = export_dir / "score/skf"
+    score_meta = json.loads((export_dir / "score/meta.json").read_text())
+    if score_meta.get("template_mode") != metadata.get("template_mode"):
+        print(
+            "first differing stage: score/meta.json: template_mode: "
+            f"expected {metadata.get('template_mode')!r}, actual {score_meta.get('template_mode')!r}"
+        )
+        return 1
+    for name in ("chords_flat.npy", "chord_offsets.npy", "lengths.npy", "onset_beats.npy"):
+        difference = first_difference(
+            name, np.load(golden_dir / name), np.load(model_dir / name), tolerance=(0.0, 0.0)
+        )
+        if difference:
+            print(f"first differing stage: score/skf/{name}: {difference}")
+            return 1
+    expected = np.load(golden_dir / "templates.npy").astype(np.float64)
+    actual = np.load(model_dir / "templates.npy")
+    if metadata["template_mode"] == "gaussian":
+        tolerances = metadata["tolerances"]
+        difference = first_difference(
+            "templates.npy", expected, actual, tolerance=(tolerances["model_rtol"], tolerances["model_atol"])
+        )
+        if difference:
+            print(f"first differing stage: score/skf/templates.npy: {difference}")
+            return 1
+    else:
+        if expected.shape != actual.shape:
+            print(f"first differing stage: score/skf/templates.npy: shape differs: expected {expected.shape}, actual {actual.shape}")
+            return 1
+        cosine = (expected * actual).sum(axis=1) / (
+            np.linalg.norm(expected, axis=1) * np.linalg.norm(actual, axis=1)
+        )
+        variation = 0.5 * np.abs(expected - actual).sum(axis=1)
+        bad = np.flatnonzero((cosine < SKF_TEMPLATE_MIN_COSINE) | (variation > SKF_TEMPLATE_MAX_VARIATION))
+        if len(bad):
+            chord = int(bad[0])
+            print(
+                f"first differing stage: score/skf/templates.npy: chord {chord}: cosine {cosine[chord]:.5f} "
+                f"(min {SKF_TEMPLATE_MIN_COSINE}), total variation {variation[chord]:.4f} (max {SKF_TEMPLATE_MAX_VARIATION})"
+            )
+            return 1
+    print(f"WITHIN_TOL: skf chord model and {metadata['template_mode']} templates")
+    return 0
+
+
 def compare_audio_ground_truth_case(golden_dir, export_dir):
     """Compare direct TSV identity and evaluator metrics for an audio export."""
     metadata = json.loads((golden_dir / "meta.json").read_text())
@@ -464,6 +520,8 @@ def main(golden_dir, export_dir):
             return compare_audio_case(golden_dir, export_dir, metadata)
         if metadata.get("processor") == "raw_spectrum" and "sample_rate" in metadata:
             return compare_raw_spectrum_case(golden_dir, export_dir, metadata)
+        if metadata.get("method") == "skf":
+            return compare_skf_case(golden_dir, export_dir, metadata)
 
     compared = 0
     for stage in STAGES:

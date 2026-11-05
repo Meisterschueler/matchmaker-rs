@@ -1,5 +1,6 @@
 """Audio `arzt` facade parity and validation tests."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -42,7 +43,7 @@ def make_audio(
 
 def test_audio_arzt_defaults_yield_positions_and_return_path():
     assert matchmaker_rs.AVAILABLE_METHODS["audio"] == [
-        "arzt", "dixon", "arzt_tempo", "arzt_multi_fold"
+        "arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf"
     ]
     defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["arzt"]
     assert defaults["processor"] == "chroma"
@@ -253,3 +254,66 @@ def test_raw_spectrum_audio_following_with_compatible_hop():
     positions = list(mm.run(verbose=False))
     assert positions and all(np.isfinite(position) for position in positions)
     assert mm.score_follower.alignment_path.shape == (2, len(positions))
+
+
+def test_audio_skf_defaults_template_modes_and_errors():
+    assert matchmaker_rs.DEFAULT_KWARGS["audio"]["skf"] == {
+        "processor": "raw_spectrum",
+        "sample_rate": 8000,
+        "hop_length": 128,
+        "n_fft": 512,
+    }
+    mm = make_audio("skf")
+    positions = list(mm.run(verbose=False))
+    assert positions and all(type(position) is float for position in positions)
+    assert mm.score_follower.alignment_path.shape == (2, len(positions))
+
+    gaussian = Matchmaker(
+        score_file=str(SCORE),
+        performance_file=str(PERFORMANCE),
+        input_type="audio",
+        method="skf",
+        kwargs={"template_mode": "gaussian"},
+    )
+    gaussian_positions = list(gaussian.run(verbose=False))
+    assert gaussian_positions and gaussian_positions != positions, "the mode changes the follower"
+
+    for kwargs, message in [
+        ({"template_mode": "auto"}, "template_mode"),
+        ({"template_mode": 3}, "template_mode"),
+        ({"window_size": 5.0}, "window_size"),
+        ({"distance_func": "euclidean"}, "distance_func"),
+        ({"processor": "chroma"}, "processor"),
+        ({"n_fft": 64}, "n_fft"),
+        ({"step_size": 3}, "step_size"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            make_audio("skf", **kwargs)
+    with pytest.raises(ValueError, match="soundfont_path"):
+        Matchmaker(
+            score_file=str(SCORE),
+            performance_file=str(PERFORMANCE),
+            input_type="audio",
+            method="skf",
+            kwargs={},
+        )
+
+
+def test_audio_skf_export_records_template_mode_and_hypothesis_state(tmp_path):
+    mm = make_audio("skf")
+    mm.export(tmp_path)
+    for name in [
+        "score/skf/templates.npy",
+        "score/skf/chord_offsets.npy",
+        "skf/state_offsets.npy",
+        "skf/state_probability.npy",
+        "skf/positions.npy",
+        "skf/alignment_path.npy",
+    ]:
+        assert (tmp_path / name).is_file(), f"missing export stage {name}"
+    assert not (tmp_path / "score/audio/features.npy").exists()
+    assert np.load(tmp_path / "score/skf/templates.npy").shape == (54, 257)
+    meta = json.loads((tmp_path / "score/meta.json").read_text())
+    assert meta["template_mode"] == "synthesized"
+    assert meta["soundfont"].endswith("UprightPianoKW-small-20190703.sf2")
+    assert not mm._has_run

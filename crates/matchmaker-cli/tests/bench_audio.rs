@@ -103,6 +103,60 @@ fn bench_accepts_tempo_arzt_and_records_seeded_audio_metrics() {
 }
 
 #[test]
+fn bench_runs_skf_with_a_ground_truth_and_rejects_pieces_without_one() {
+    let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_skf");
+    std::fs::create_dir_all(&output).unwrap();
+    let records_path = output.join("records.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("bench")
+        .arg(Path::new(&root()).join("tools/bench/audio.toml"))
+        .arg("--out")
+        .arg(&records_path)
+        .args(["--runs", "1", "--methods", "skf"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&records_path).unwrap()).unwrap();
+    let rows = records.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "only the skf piece runs skf");
+    let record = &rows[0];
+    assert_eq!(record["method"], "skf");
+    assert_eq!(record["processor"], "raw_spectrum");
+    assert_eq!(record["ground_truth"], true);
+    assert_eq!(record["candidate_count"], 0);
+    assert!(record["evaluation"]["median_b"].as_f64().is_some());
+    assert!(output.join("paths/audio-skf/mozart_skf/skf.tsv").is_file());
+
+    let manifest = output.join("no_ground_truth.toml");
+    let root = root();
+    std::fs::write(
+        &manifest,
+        format!(
+            "[[pieces]]\ndataset = \"d\"\npiece = \"p\"\ninput_type = \"audio\"\n\
+score = \"{root}/tests/data/simple_mozart_k265_var1.musicxml\"\n\
+performance = \"{root}/tests/data/audio/simple_mozart_k265_var1_sf2.wav\"\n\
+soundfont = \"{root}/target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2\"\n"
+        ),
+    )
+    .unwrap();
+    let rejected = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("bench")
+        .arg(&manifest)
+        .arg("--out")
+        .arg(output.join("rejected.json"))
+        .args(["--runs", "1", "--methods", "skf"])
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("ground_truth"));
+}
+
+#[test]
 fn bench_records_direct_audio_ground_truth_identity_and_metrics() {
     let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_ground_truth");
     std::fs::create_dir_all(&output).unwrap();

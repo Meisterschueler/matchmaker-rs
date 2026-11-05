@@ -297,6 +297,10 @@ fn run_audio_piece(
         let audio_method: AudioMethod = method
             .parse()
             .with_context(|| format!("{method} is not an audio method"))?;
+        anyhow::ensure!(
+            audio_method != AudioMethod::Skf || piece.ground_truth.is_some(),
+            "audio skf has no rendered score; its benchmark piece needs a ground_truth TSV"
+        );
         let processor = piece.processor.as_deref().unwrap_or_else(|| {
             AudioMethodConfig::for_method(audio_method)
                 .processor()
@@ -340,6 +344,12 @@ fn run_audio_piece(
                     piece.unfold_score.unwrap_or(true),
                 )?,
                 AudioMethod::ArztMultiFold => AudioMatchmaker::new_arzt_multi_fold(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
+                AudioMethod::Skf => AudioMatchmaker::new_skf(
                     score_path,
                     config,
                     None,

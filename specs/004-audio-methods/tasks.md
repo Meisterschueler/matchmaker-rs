@@ -78,19 +78,19 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T027 [US4] Wire processor/config in src/matchmaker.rs; add minimal `features PERFORMANCE --processor KEY --export DIRECTORY` in crates/matchmaker-cli/src/main.rs and extract_audio_features in crates/matchmaker-py/src/lib.rs, reusing src/io/audio.rs and the existing exporter, not a second pipeline.
 - [X] T028 [US4] Extend src/export.rs and tools/golden/compare.py for standalone metadata/vector features; test legacy layout, invalid dimensions/rates/n_fft, reset and output preservation in tests/audio_config_export.rs and tests/edge_cases.rs.
 - [X] T029 [US4] Benchmark raw_spectrum on compatible Arzt/Dixon in tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs; document module/extraction examples, README.md and UPSTREAM.md.
-- [ ] T030 [US4] Run all quickstart gates and reference comparisons, record evidence in specs/004-audio-methods/research.md, and create only C04 `feat(audio): add raw_spectrum processor`; stop before SKF until committed.
+- [X] T030 [US4] Run all quickstart gates and reference comparisons, record evidence in specs/004-audio-methods/research.md, and create only C04 `feat(audio): add raw_spectrum processor`; stop before SKF until committed.
 
 ## Phase 7: US5 - skf (P2, C05)
 
 **Goal**: Switching Kalman filtering with explicit reference template modes.
 **Independent test**: Fixed-template state replay plus separate synthesized/fallback pipeline metrics.
 
-- [ ] T031 [US5] Audit/pin template synthesis asset/mode and Gaussian fallback conditions in specs/004-audio-methods/research.md and tests/data/audio/README.md; generate fixed templates/state/goldens using tools/golden/generate_audio.py under tests/golden/audio/; enforce "Asset hashes, provenance, and template mode must accompany every template comparison" (FR-005, FR-020).
-- [ ] T032 [US5] Write failing fixed-template chord/age/tempo/beam/covariance/degenerate likelihood replay in tests/golden_audio_skf.rs and default/config/error/path tests in crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py.
-- [ ] T033 [US5] Port score templates, switching/merge/tempo inference and reference safeguards in src/prob/skf.rs and register in src/prob/mod.rs; reuse src/score/audio.rs/RustySynth for runtime synthesis; keep Gaussian mode and asset errors distinguishable.
-- [ ] T034 [US5] Add SKF defaults (8000 Hz, hop=128, n_fft=512), raw_spectrum-only compatibility and construction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs, with typed invalid-input failures in src/error.rs.
-- [ ] T035 [US5] Export beam weights/tempo moments/templates/mode in src/export.rs and compare in tools/golden/compare.py; cover short/one-onset/unstable-state and legacy exports in tests/audio_config_export.rs and tests/edge_cases.rs.
-- [ ] T036 [US5] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for SKF feature/inference/full-pipeline metrics; document public examples, README.md and UPSTREAM.md.
+- [X] T031 [US5] Audit/pin template synthesis asset/mode and Gaussian fallback conditions in specs/004-audio-methods/research.md and tests/data/audio/README.md; generate fixed templates/state/goldens using tools/golden/generate_audio.py under tests/golden/audio/; enforce "Asset hashes, provenance, and template mode must accompany every template comparison" (FR-005, FR-020).
+- [X] T032 [US5] Write failing fixed-template chord/age/tempo/beam/covariance/degenerate likelihood replay in tests/golden_audio_skf.rs and default/config/error/path tests in crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py.
+- [X] T033 [US5] Port score templates, switching/merge/tempo inference and reference safeguards in src/prob/skf.rs and register in src/prob/mod.rs; reuse src/score/audio.rs/RustySynth for runtime synthesis; keep Gaussian mode and asset errors distinguishable.
+- [X] T034 [US5] Add SKF defaults (8000 Hz, hop=128, n_fft=512), raw_spectrum-only compatibility and construction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs, with typed invalid-input failures in src/error.rs.
+- [X] T035 [US5] Export beam weights/tempo moments/templates/mode in src/export.rs and compare in tools/golden/compare.py; cover short/one-onset/unstable-state and legacy exports in tests/audio_config_export.rs and tests/edge_cases.rs.
+- [X] T036 [US5] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for SKF feature/inference/full-pipeline metrics; document public examples, README.md and UPSTREAM.md.
 - [ ] T037 [US5] Run all quickstart gates, fixed-template limits and renderer metric limits; record asset/mode/hash/report/platform evidence in specs/004-audio-methods/research.md and create only C05 `feat(audio): add skf follower`; pause on unverified template mode.
 
 ## Phase 8: US6 - cqt (P2, C06)

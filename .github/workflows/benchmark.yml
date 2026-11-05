@@ -79,9 +79,9 @@ jobs:
           soundfont=target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2
           echo "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F  $soundfont" | sha256sum --check
           touch tools/golden/.venv/lib/python3.12/site-packages/partitura/assets/MuseScore_General.sf3
-          cargo run --release -p matchmaker-cli -- bench tools/bench/audio.toml --out out/audio/rust/records.json --runs "$RUNS_RUST" --methods arzt,dixon,arzt_tempo,arzt_multi_fold
+          cargo run --release -p matchmaker-cli -- bench tools/bench/audio.toml --out out/audio/rust/records.json --runs "$RUNS_RUST" --methods arzt,dixon,arzt_tempo,arzt_multi_fold,skf
           cd tools/golden
-          python -m uv run ../bench/run_reference.py ../bench/audio.toml --out "$GITHUB_WORKSPACE/out/audio/python/records.json" --runs "$RUNS_PYTHON" --methods arzt,dixon,arzt_tempo,arzt_multi_fold
+          python -m uv run ../bench/run_reference.py ../bench/audio.toml --out "$GITHUB_WORKSPACE/out/audio/python/records.json" --runs "$RUNS_PYTHON" --methods arzt,dixon,arzt_tempo,arzt_multi_fold,skf
       - uses: actions/upload-artifact@v4
         with:
           name: bench-${{ matrix.dataset }}

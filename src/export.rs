@@ -15,11 +15,13 @@ use std::path::Path;
 
 use serde_json::json;
 
+use crate::base::SkfStepDebug;
 use crate::error::{Error, Result};
 use crate::features::{AudioProcessor, Observation, raw_spectrum::RawSpectrumProcessor};
 use crate::io::audio::AudioStream;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
 use crate::matchmaker::{AudioMatchmaker, AudioMethod, Matchmaker, Method, ProcessorKind};
+use crate::prob::skf::SkfScoreModel;
 use crate::utils::eval::EvaluationResult;
 
 /// Reference skips `probabilities.npy` above this many values (`MAX_PROBABILITY_VALUES`).
@@ -324,50 +326,61 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
     let reference = mm.reference();
     let steps = &recording.steps;
 
-    f4(
-        &dir.join("score/audio/features.npy"),
-        &[
-            reference.features.len(),
-            reference.features.first().map_or(0, Vec::len),
-        ],
-        reference
-            .features
-            .iter()
-            .flat_map(|frame| frame.iter().copied()),
-    )?;
-    f8(
-        &dir.join("score/audio/frame_to_beat.npy"),
-        &[reference.frame_to_beat.len()],
-        reference.frame_to_beat.iter().copied(),
-    )?;
+    if method != AudioMethod::Skf {
+        f4(
+            &dir.join("score/audio/features.npy"),
+            &[
+                reference.features.len(),
+                reference.features.first().map_or(0, Vec::len),
+            ],
+            reference
+                .features
+                .iter()
+                .flat_map(|frame| frame.iter().copied()),
+        )?;
+        f8(
+            &dir.join("score/audio/frame_to_beat.npy"),
+            &[reference.frame_to_beat.len()],
+            reference.frame_to_beat.iter().copied(),
+        )?;
+    }
     f4(
         &dir.join("score/audio/score_positions.npy"),
         &[reference.score_positions.len()],
         reference.score_positions.iter().copied(),
     )?;
-    write_json(
-        &dir.join("score/meta.json"),
-        &json!({
-            "score_tempo": mm.score().tempo,
-            "tempo": mm.tempo(),
-            "unfolded": mm.score().unfolded,
-            "audio_method": method.name(),
-            "processor": processor,
-        }),
-    )?;
+    let mut score_meta = json!({
+        "score_tempo": mm.score().tempo,
+        "tempo": mm.tempo(),
+        "unfolded": mm.score().unfolded,
+        "audio_method": method.name(),
+        "processor": processor,
+    });
+    if let Some(model) = mm.skf_model() {
+        score_meta["template_mode"] = json!(model.mode.name());
+        score_meta["soundfont"] = json!(
+            model
+                .soundfont
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned())
+        );
+        write_skf_model(&dir.join("score/skf"), model)?;
+    }
+    write_json(&dir.join("score/meta.json"), &score_meta)?;
 
-    write_json(
-        &dir.join("audio/meta.json"),
-        &json!({
-            "performance": recording.performance_path,
-            "source_sample_rate": recording.source_sample_rate,
-            "source_channels": recording.source_channels,
-            "sample_rate": config.sample_rate,
-            "frame_rate": reference.frame_rate,
-            "hop_length": mm.config().hop_length.unwrap_or(mm.config().sample_rate as usize / mm.config().frame_rate as usize),
-            "frames": recording.frame_times.len(),
-        }),
-    )?;
+    let mut audio_meta = json!({
+        "performance": recording.performance_path,
+        "source_sample_rate": recording.source_sample_rate,
+        "source_channels": recording.source_channels,
+        "sample_rate": config.sample_rate,
+        "frame_rate": reference.frame_rate,
+        "hop_length": mm.config().hop_length.unwrap_or(mm.config().sample_rate as usize / mm.config().frame_rate as usize),
+        "frames": recording.frame_times.len(),
+    });
+    if let Some(n_fft) = config.n_fft {
+        audio_meta["n_fft"] = json!(n_fft);
+    }
+    write_json(&dir.join("audio/meta.json"), &audio_meta)?;
     f8(
         &dir.join("audio/frame_times.npy"),
         &[recording.frame_times.len()],
@@ -514,25 +527,110 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
                 .flat_map(|state| state.mean_costs.iter().copied()),
         )?;
     }
-    write_json(
-        &method_dir.join("meta.json"),
-        &json!({
-            "reference": {"implementation": "matchmaker-rs", "version": env!("CARGO_PKG_VERSION")},
-            "generator": "matchmaker-rs audio export",
-            "config": {
-                "method": method.name(),
-                "processor": processor,
-                "sample_rate": config.sample_rate,
-                "frame_rate": reference.frame_rate,
-                "hop_length": config.hop_length.unwrap_or(config.sample_rate as usize / config.frame_rate as usize),
-                "window_size": config.window_size,
-                "distance_func": format!("{:?}", config.distance_func).to_lowercase(),
-                "tempo": mm.tempo(),
-                "random_seed": config.random_seed,
-                "selection_window": config.selection_window,
-                "switch_margin": config.switch_margin,
-            },
-        }),
+    let skf_states: Vec<_> = steps
+        .iter()
+        .filter_map(|step| step.debug.skf.as_ref())
+        .collect();
+    if !skf_states.is_empty() {
+        let mut offsets = vec![0];
+        for state in &skf_states {
+            offsets.push(offsets.last().copied().unwrap() + state.chords.len());
+        }
+        let total = offsets.last().copied().unwrap();
+        let frames = skf_states.len();
+        i8s(&method_dir.join("state_frames.npy"), &[frames], 0..frames)?;
+        i8s(
+            &method_dir.join("state_offsets.npy"),
+            &[offsets.len()],
+            offsets.into_iter(),
+        )?;
+        i8s(
+            &method_dir.join("state_chord.npy"),
+            &[total],
+            skf_states
+                .iter()
+                .flat_map(|state| state.chords.iter().copied()),
+        )?;
+        i8s(
+            &method_dir.join("state_age.npy"),
+            &[total],
+            skf_states
+                .iter()
+                .flat_map(|state| state.ages.iter().copied()),
+        )?;
+        let write = |file: &str, column: fn(&SkfStepDebug) -> &[f64]| {
+            f8(
+                &method_dir.join(file),
+                &[total],
+                skf_states
+                    .iter()
+                    .flat_map(|state| column(state).iter().copied()),
+            )
+        };
+        write("state_probability.npy", |state| &state.probabilities)?;
+        write("state_tempo_mean.npy", |state| &state.tempo_means)?;
+        write("state_tempo_variance.npy", |state| &state.tempo_variances)?;
+        i8s(
+            &method_dir.join("candidates.npy"),
+            &[frames],
+            skf_states.iter().map(|state| state.candidates),
+        )?;
+    }
+    let mut method_meta = json!({
+        "reference": {"implementation": "matchmaker-rs", "version": env!("CARGO_PKG_VERSION")},
+        "generator": "matchmaker-rs audio export",
+        "config": {
+            "method": method.name(),
+            "processor": processor,
+            "sample_rate": config.sample_rate,
+            "frame_rate": reference.frame_rate,
+            "hop_length": config.hop_length.unwrap_or(config.sample_rate as usize / config.frame_rate as usize),
+            "window_size": config.window_size,
+            "distance_func": format!("{:?}", config.distance_func).to_lowercase(),
+            "tempo": mm.tempo(),
+            "random_seed": config.random_seed,
+            "selection_window": config.selection_window,
+            "switch_margin": config.switch_margin,
+        },
+    });
+    if let Some(mode) = config.template_mode {
+        method_meta["config"]["template_mode"] = json!(mode.name());
+    }
+    write_json(&method_dir.join("meta.json"), &method_meta)
+}
+
+/// Chords, lengths, onsets and spectral templates of `skf` (`score/skf/`).
+fn write_skf_model(dir: &Path, model: &SkfScoreModel) -> Result<()> {
+    let bins = model.templates.first().map_or(0, Vec::len);
+    f8(
+        &dir.join("templates.npy"),
+        &[model.templates.len(), bins],
+        model.templates.iter().flatten().copied(),
+    )?;
+    let pitches: Vec<usize> = model.chords.iter().flatten().map(|&p| p as usize).collect();
+    i8s(
+        &dir.join("chords_flat.npy"),
+        &[pitches.len()],
+        pitches.into_iter(),
+    )?;
+    let mut offsets = vec![0];
+    for chord in &model.chords {
+        offsets.push(offsets.last().copied().unwrap() + chord.len());
+    }
+    i8s(
+        &dir.join("chord_offsets.npy"),
+        &[offsets.len()],
+        offsets.into_iter(),
+    )?;
+    f8(
+        &dir.join("lengths.npy"),
+        &[model.lengths.len()],
+        model.lengths.iter().copied(),
+    )?;
+    f8(
+        &dir.join("onset_beats.npy"),
+        &[model.onset_beats.len()],
+        model.onset_beats.iter().copied(),
     )
 }
 

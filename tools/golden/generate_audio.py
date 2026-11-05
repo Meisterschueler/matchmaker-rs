@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import itertools
 import json
 from ctypes import c_int
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from importlib.metadata import version
 from pathlib import Path
 from unittest.mock import patch
 
+import librosa
 import matchmaker
 import numpy as np
 import partitura
@@ -30,6 +32,7 @@ from matchmaker.features.audio import (
 )
 from matchmaker.dp.oltw_arzt import OnlineTimeWarpingArztFrame
 from matchmaker.matchmaker import DEFAULT_TEMPO
+from matchmaker.prob import skf as reference_skf
 from matchmaker.utils.tempo_models import ArztTempoModel
 from matchmaker.utils import misc as reference_misc
 from scipy.io import wavfile
@@ -210,6 +213,22 @@ def generate_processor_goldens(output: Path) -> None:
             print(f"{method}/{processor_name}: {len(feature_rows)} frames")
 
 
+def stream_raw_spectrum(samples: np.ndarray, sample_rate: int, hop: int, n_fft: int):
+    """Features and timestamps the reference stream adapter yields for ``samples``."""
+    processor = RawSpectrumProcessor(sample_rate, hop, n_fft)
+    padded = np.pad(samples, (0, (-len(samples)) % hop), mode="constant")
+    cache = np.zeros(n_fft - hop, dtype=np.float32)
+    feature_rows, feature_times = [], []
+    for chunk_index, chunk in enumerate(padded.reshape(-1, hop)):
+        block = np.concatenate((cache, chunk))
+        features, frame_time = processor((block, max(0, chunk_index - 1) * hop / sample_rate))
+        if chunk_index > 0:
+            feature_rows.extend(features)
+            feature_times.extend([float(frame_time)] * len(features))
+        cache = block[-len(cache):].copy()
+    return feature_rows, feature_times
+
+
 def generate_raw_spectrum_goldens(output: Path) -> None:
     """Generate default, override, short, and silent raw-spectrum references."""
     base = output / "processors/raw_spectrum"
@@ -219,17 +238,7 @@ def generate_raw_spectrum_goldens(output: Path) -> None:
     )
 
     def write_case(name: str, samples: np.ndarray, sample_rate: int, hop: int, n_fft: int) -> None:
-        processor = RawSpectrumProcessor(sample_rate, hop, n_fft)
-        padded = np.pad(samples, (0, (-len(samples)) % hop), mode="constant")
-        cache = np.zeros(n_fft - hop, dtype=np.float32)
-        feature_rows, feature_times = [], []
-        for chunk_index, chunk in enumerate(padded.reshape(-1, hop)):
-            block = np.concatenate((cache, chunk))
-            features, frame_time = processor((block, max(0, chunk_index - 1) * hop / sample_rate))
-            if chunk_index > 0:
-                feature_rows.extend(features)
-                feature_times.extend([float(frame_time)] * len(features))
-            cache = block[-len(cache):].copy()
+        feature_rows, feature_times = stream_raw_spectrum(samples, sample_rate, hop, n_fft)
 
         directory = base / name
         write_array(directory / "input_samples.npy", samples, "<f4")
@@ -295,6 +304,200 @@ def generate_raw_spectrum_goldens(output: Path) -> None:
         },
     )
     print("raw_spectrum/short: 0 frames (reference direct call rejects short input)")
+
+
+# Frames whose full hypothesis state is stored for the real-score replay.
+SKF_STATE_FRAMES = (0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89)
+
+
+def write_skf_case(
+    directory: Path,
+    note_array: np.ndarray,
+    tempo: float,
+    templates: np.ndarray,
+    spectra: np.ndarray,
+    follower: dict,
+    state_frames,
+    meta: dict,
+    store_notes: bool = True,
+    template_dtype: str = "<f8",
+) -> None:
+    """Replay the reference SKF with fixed templates and save inputs, positions and state.
+
+    The reference builds its templates in the constructor, so the fixed ones are injected by
+    replacing ``build_spectral_templates``; ``templates`` is exactly what both sides consume.
+    """
+    times = np.arange(len(spectra)) * follower["hop_length"] / follower["sample_rate"]
+    with patch.object(reference_skf, "build_spectral_templates", lambda chords, **_: templates):
+        with redirect_stdout(io.StringIO()):
+            reference = reference_skf.SwitchingKalmanFilterFollower(
+                note_array, queue=None, tempo=tempo, **follower
+            )
+    chords, lengths, onset_beats = reference_skf.build_chord_sequence(note_array)
+    positions, current, states = [], [], []
+    for index, (spectrum, time) in enumerate(zip(spectra, times)):
+        positions.append(reference(spectrum, float(time)))
+        current.append(reference.current_index)
+        if index in state_frames:
+            states.append((index, list(reference.hypotheses.items())))
+
+    if store_notes:
+        write_array(directory / "note_onset_beat.npy", note_array["onset_beat"], "<f4")
+        write_array(directory / "note_onset_quarter.npy", note_array["onset_quarter"], "<f4")
+        write_array(directory / "note_pitch.npy", note_array["pitch"], "<i4")
+    write_array(directory / "chords_flat.npy", [pitch for chord in chords for pitch in chord], "<i4")
+    write_array(directory / "chord_offsets.npy", np.cumsum([0] + [len(chord) for chord in chords]), "<i8")
+    write_array(directory / "lengths.npy", lengths, "<f8")
+    write_array(directory / "onset_beats.npy", onset_beats, "<f8")
+    write_array(directory / "templates.npy", templates, template_dtype)
+    write_array(directory / "observations.npy", spectra, "<f4")
+    write_array(directory / "perf_times.npy", times, "<f8")
+    write_array(directory / "positions.npy", positions, "<f8")
+    write_array(directory / "current_index.npy", current, "<i8")
+    offsets, chord_ids, ages, probabilities, means, variances = [0], [], [], [], [], []
+    for _, items in states:
+        for (chord, age), (probability, mean, variance) in items:
+            chord_ids.append(chord)
+            ages.append(age)
+            probabilities.append(probability)
+            means.append(mean)
+            variances.append(variance)
+        offsets.append(len(chord_ids))
+    write_array(directory / "state_frames.npy", [index for index, _ in states], "<i8")
+    write_array(directory / "state_offsets.npy", offsets, "<i8")
+    write_array(directory / "state_chord.npy", chord_ids, "<i4")
+    write_array(directory / "state_age.npy", ages, "<i4")
+    write_array(directory / "state_probability.npy", probabilities, "<f8")
+    write_array(directory / "state_tempo_mean.npy", means, "<f8")
+    write_array(directory / "state_tempo_variance.npy", variances, "<f8")
+    write_json(
+        directory / "meta.json",
+        {
+            "reference": reference_info(),
+            "generator": "tools/golden/generate_audio.py",
+            "method": "skf",
+            "tempo": tempo,
+            "follower": follower,
+            "frames": len(spectra),
+            "chords": len(chords),
+            "tolerances": {"model_rtol": 1e-7, "model_atol": 1e-9, "position_atol": 1e-9},
+            **meta,
+        },
+    )
+    print(
+        f"skf/{directory.name}: {len(chords)} chords, {len(spectra)} frames, "
+        f"max {max(len(items) for _, items in states)} hypotheses in stored states"
+    )
+
+
+def generate_skf_goldens(output: Path, soundfont: Path, soundfont_hash: str) -> None:
+    """Fixed-template SKF replays: synthetic Gaussian cases and a real score with synthesized templates."""
+    from matchmaker.utils.misc import get_tempo_from_score
+
+    base = output / "skf"
+    rng = np.random.default_rng(1984)
+    note_dtype = [("onset_beat", "<f4"), ("onset_quarter", "<f4"), ("pitch", "<i4")]
+
+    def synthetic(name, quarters, pitches, beat_scale, durations, tempo, follower, specials=()):
+        """Gaussian-template case: score table (shuffled rows), spectra that follow the chords."""
+        rows = [(q * beat_scale, q, p) for q, chord in zip(quarters, pitches) for p in chord]
+        table = np.array(rows, dtype=note_dtype)[rng.permutation(len(rows))]
+        chords, _, _ = reference_skf.build_chord_sequence(table)
+        n_bins = follower["n_fft"] // 2 + 1
+        templates = reference_skf._build_gaussian_templates(
+            chords, follower["n_fft"], follower["sample_rate"], 5
+        )
+        spectra = []
+        for chord, frames in enumerate(durations):
+            for _ in range(frames):
+                spectra.append(
+                    templates[chord] * (0.8 + 0.4 * rng.random()) + 5e-4 * rng.random(n_bins)
+                )
+        spectra = np.asarray(spectra, dtype=np.float32)
+        for index, kind in specials:
+            spectra[index] = 0.0 if kind == "silent" else spectra[index] - spectra[index].mean()
+        write_skf_case(
+            base / name,
+            table,
+            tempo,
+            templates,
+            spectra,
+            follower,
+            range(len(spectra)),
+            {
+                "template_mode": "gaussian",
+                "input": "synthetic spectra drawn around the Gaussian templates (numpy PCG64 seed 1984)",
+                "special_frames": [[index, kind] for index, kind in specials],
+            },
+        )
+
+    synthetic(
+        "synthetic",
+        [0.0, 1.0, 2.0, 2.5, 3.0, 4.0, 5.5, 6.5],
+        [[60], [64, 67], [62], [65, 69, 72], [60, 64], [67], [71, 74], [72]],
+        2.0,
+        [11, 10, 6, 5, 12, 16, 10, 11],
+        240.0,
+        {"sample_rate": 8000, "n_fft": 512, "hop_length": 128, "max_hypotheses": 12},
+        specials=((35, "silent"), (50, "negative")),
+    )
+    synthetic(
+        "override",
+        [0.0, 1.0, 2.0],
+        [[69], [72, 76], [64]],
+        1.0,
+        [6, 8, 9],
+        240.0,
+        {"sample_rate": 16000, "n_fft": 1024, "hop_length": 512},
+    )
+    synthetic(
+        "one_chord",
+        [0.0],
+        [[60, 64, 67]],
+        1.0,
+        [12],
+        100.0,
+        {"sample_rate": 8000, "n_fft": 512, "hop_length": 128},
+    )
+
+    score_path = DEFAULT_SCORE
+    _, score_part, _ = load_score_like_matchmaker(score_path)
+    note_array = score_part.note_array()
+    score_tempo = get_tempo_from_score(score_part, str(score_path))
+    tempo = float(score_tempo) if score_tempo is not None else float(DEFAULT_TEMPO)
+    chords, _, _ = reference_skf.build_chord_sequence(note_array)
+    # Pin the mode: the reference silently falls back to Gaussian peaks on any synthesis error.
+    printed = io.StringIO()
+    with use_soundfont(soundfont), redirect_stdout(printed):
+        synthesized = reference_skf.build_spectral_templates(chords, n_fft=512, sample_rate=8000)
+    if "synthesized" not in printed.getvalue():
+        raise RuntimeError(f"reference did not synthesize its templates: {printed.getvalue()!r}")
+    templates = synthesized.astype(np.float32).astype(np.float64)
+    audio, rate = librosa.load(str(DEFAULT_PERFORMANCE), sr=None)
+    audio = librosa.resample(y=audio, orig_sr=rate, target_sr=8000).astype(np.float32)
+    rows, _ = stream_raw_spectrum(audio, 8000, 128, 512)
+    spectra = np.asarray(rows[: SKF_STATE_FRAMES[-1] + 1], dtype=np.float32)
+    write_skf_case(
+        base / "bundled",
+        note_array,
+        tempo,
+        templates,
+        spectra,
+        {"sample_rate": 8000, "n_fft": 512, "hop_length": 128},
+        SKF_STATE_FRAMES,
+        {
+            "template_mode": "synthesized",
+            "template_note": "reference templates rounded to float32; both sides replay these values",
+            "score": score_path.name,
+            "performance": DEFAULT_PERFORMANCE.name,
+            "performance_sha256": sha256(DEFAULT_PERFORMANCE),
+            "soundfont_sha256": soundfont_hash,
+            "fluidsynth": fluidsynth_version(),
+        },
+        store_notes=False,
+        template_dtype="<f4",
+    )
+
 
 
 def generate_tempo_replay_goldens(output: Path) -> None:
@@ -878,6 +1081,11 @@ def main() -> None:
         help="generate raw-spectrum processor goldens without FluidSynth",
     )
     parser.add_argument(
+        "--skf-only",
+        action="store_true",
+        help="generate fixed-template SKF replays (needs FluidSynth and the pinned SoundFont)",
+    )
+    parser.add_argument(
         "--codec-fixtures-only",
         action="store_true",
         help="write synthetic WAV/FLAC/MP3/Ogg decoder test assets",
@@ -969,6 +1177,18 @@ def main() -> None:
         return
     if args.raw_spectrum_only:
         generate_raw_spectrum_goldens(args.out.resolve())
+        return
+    if args.skf_only:
+        soundfont = args.soundfont.resolve()
+        if not soundfont.is_file():
+            parser.error(f"SoundFont does not exist: {soundfont}")
+        soundfont_hash = sha256(soundfont)
+        if soundfont_hash != SOUNDFONT_SHA256:
+            parser.error(
+                f"unexpected SoundFont SHA-256 {soundfont_hash}; "
+                f"expected pinned asset {SOUNDFONT_SHA256}"
+            )
+        generate_skf_goldens(args.out.resolve(), soundfont, soundfont_hash)
         return
 
     score_path = args.score.resolve()
