@@ -37,8 +37,17 @@ struct Piece {
     input_type: Option<String>,
     soundfont: Option<PathBuf>,
     processor: Option<String>,
+    kwargs: Option<AudioKwargs>,
     unfold_score: Option<bool>,
     methods: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct AudioKwargs {
+    sample_rate: Option<u32>,
+    frame_rate: Option<u32>,
+    hop_length: Option<usize>,
+    n_fft: Option<usize>,
 }
 
 type Times = Rc<RefCell<Vec<Duration>>>;
@@ -296,6 +305,20 @@ fn run_audio_piece(
         for run in 0..runs {
             let mut config = AudioMethodConfig::for_method(audio_method);
             config.set_processor(processor.parse::<AudioProcessorKind>()?);
+            if let Some(kwargs) = &piece.kwargs {
+                if let Some(sample_rate) = kwargs.sample_rate {
+                    config.sample_rate = sample_rate;
+                }
+                if let Some(frame_rate) = kwargs.frame_rate {
+                    config.frame_rate = frame_rate;
+                }
+                if let Some(hop_length) = kwargs.hop_length {
+                    config.hop_length = Some(hop_length);
+                }
+                if let Some(n_fft) = kwargs.n_fft {
+                    config.n_fft = Some(n_fft);
+                }
+            }
             config.soundfont_path = Some(soundfont.clone());
             let mut mm = match audio_method {
                 AudioMethod::Arzt => AudioMatchmaker::new_arzt(

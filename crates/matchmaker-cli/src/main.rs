@@ -47,7 +47,7 @@ enum Command {
         /// Tempo in BPM (default: score marking, else 120)
         #[arg(long)]
         tempo: Option<f64>,
-        /// Feature processor: MIDI pitch/chord_onset or audio chroma/lse
+        /// Feature processor: MIDI pitch/chord_onset or audio chroma/lse/raw_spectrum
         #[arg(long)]
         processor: Option<String>,
         /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20;
@@ -100,6 +100,26 @@ enum Command {
         /// Comma-separated methods (default: all available)
         #[arg(long, value_delimiter = ',', value_parser = parse_method_name)]
         methods: Vec<String>,
+    },
+    /// Extract standalone features from a prerecorded audio performance.
+    Features {
+        /// Performance audio file.
+        performance: PathBuf,
+        /// Audio feature processor.
+        #[arg(long)]
+        processor: String,
+        /// Directory for NumPy-readable feature and metadata exports.
+        #[arg(long)]
+        export: PathBuf,
+        /// Target sample rate in hertz.
+        #[arg(long, default_value_t = 8_000)]
+        sample_rate: u32,
+        /// Hop length in samples.
+        #[arg(long, default_value_t = 128)]
+        hop_length: usize,
+        /// FFT size in samples.
+        #[arg(long, default_value_t = 512)]
+        n_fft: usize,
     },
 }
 
@@ -188,7 +208,7 @@ fn audio_config(
                 ConfigValue::Str(name) => {
                     selected_processor = Some(name.parse::<AudioProcessorKind>()?)
                 }
-                _ => anyhow::bail!("--set processor expects chroma or lse"),
+                _ => anyhow::bail!("--set processor expects chroma, lse, or raw_spectrum"),
             }
         }
     }
@@ -206,6 +226,7 @@ fn audio_config(
             "random_seed" => config.random_seed = Some(audio_u32(key, &value)?),
             "frame_rate" => config.frame_rate = audio_u32(key, &value)?,
             "hop_length" => config.hop_length = audio_optional_usize(key, &value)?,
+            "n_fft" => config.n_fft = audio_optional_usize(key, &value)?,
             "norm" => {
                 config.norm = match &value {
                     ConfigValue::None => None,
@@ -448,6 +469,27 @@ fn main() -> Result<()> {
                 methods
             };
             bench::run(&manifest, &out, runs, &methods)
+        }
+        Command::Features {
+            performance,
+            processor,
+            export,
+            sample_rate,
+            hop_length,
+            n_fft,
+        } => {
+            anyhow::ensure!(
+                processor == "raw_spectrum",
+                "unknown audio processor {processor:?}"
+            );
+            matchmaker_rs::export::write_audio_features(
+                performance,
+                export,
+                sample_rate,
+                hop_length,
+                n_fft,
+            )?;
+            Ok(())
         }
     }
 }

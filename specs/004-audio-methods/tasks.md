@@ -65,19 +65,19 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T020 [US3] Replace the audio --ground-truth rejection in crates/matchmaker-cli/src/main.rs, validate before output writes, and preserve follow/eval metric JSON and existing library evaluator behavior; update only necessary typed errors in src/error.rs.
 - [X] T021 [US3] Add ground-truth identity and evaluator metrics to audio export/report records via src/export.rs and tools/golden/compare.py; verify non-destructive errors and legacy export schemas in tests/audio_config_export.rs and crates/matchmaker-cli/tests/follow_audio.rs.
 - [X] T022 [US3] Integrate audio evaluation records in tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs; update evaluator examples, README.md and UPSTREAM.md without adding a second evaluation API.
-- [ ] T023 [US3] Run all quickstart gates and exact-mapping metric comparisons, record evidence in specs/004-audio-methods/research.md, and create only C03 `feat(cli): evaluate audio ground truth`; stop before US4 until committed.
+- [X] T023 [US3] Run all quickstart gates and exact-mapping metric comparisons, record evidence in specs/004-audio-methods/research.md, and create only C03 `feat(cli): evaluate audio ground truth`; stop before US4 until committed.
 
 ## Phase 6: US4 - raw_spectrum (P2, C04)
 
 **Goal**: Raw magnitude observations, compatible frame-follower overrides and standalone extraction.
 **Independent test**: Reference magnitudes/timestamps/reset, 257 default bins, library/CLI/Python extraction.
 
-- [ ] T024 [US4] Generate raw_spectrum default/override/short/silent reference features with tools/golden/generate_audio.py under tests/golden/audio/ and record reference center=False/n_fft behavior in specs/004-audio-methods/research.md (FR-004).
-- [ ] T025 [US4] Add failing raw_spectrum and compatibility cases in tests/golden_audio_processors.rs, tests/audio_config_export.rs, crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py, including standalone extraction through all interfaces.
-- [ ] T026 [US4] Implement src/features/raw_spectrum.rs and register it in src/features/mod.rs using realfft and the existing AudioProcessor; enforce "Feature dimensions must match the selected processor and reference model" and preserve short-frame/timestamp behavior.
-- [ ] T027 [US4] Wire processor/config in src/matchmaker.rs; add minimal `features PERFORMANCE --processor KEY --export DIRECTORY` in crates/matchmaker-cli/src/main.rs and extract_audio_features in crates/matchmaker-py/src/lib.rs, reusing src/io/audio.rs and the existing exporter, not a second pipeline.
-- [ ] T028 [US4] Extend src/export.rs and tools/golden/compare.py for standalone metadata/vector features; test legacy layout, invalid dimensions/rates/n_fft, reset and output preservation in tests/audio_config_export.rs and tests/edge_cases.rs.
-- [ ] T029 [US4] Benchmark raw_spectrum on compatible Arzt/Dixon in tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs; document module/extraction examples, README.md and UPSTREAM.md.
+- [X] T024 [US4] Generate raw_spectrum default/override/short/silent reference features with tools/golden/generate_audio.py under tests/golden/audio/ and record reference center=False/n_fft behavior in specs/004-audio-methods/research.md (FR-004).
+- [X] T025 [US4] Add failing raw_spectrum and compatibility cases in tests/golden_audio_processors.rs, tests/audio_config_export.rs, crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py, including standalone extraction through all interfaces.
+- [X] T026 [US4] Implement src/features/raw_spectrum.rs and register it in src/features/mod.rs using realfft and the existing AudioProcessor; enforce "Feature dimensions must match the selected processor and reference model" and preserve short-frame/timestamp behavior.
+- [X] T027 [US4] Wire processor/config in src/matchmaker.rs; add minimal `features PERFORMANCE --processor KEY --export DIRECTORY` in crates/matchmaker-cli/src/main.rs and extract_audio_features in crates/matchmaker-py/src/lib.rs, reusing src/io/audio.rs and the existing exporter, not a second pipeline.
+- [X] T028 [US4] Extend src/export.rs and tools/golden/compare.py for standalone metadata/vector features; test legacy layout, invalid dimensions/rates/n_fft, reset and output preservation in tests/audio_config_export.rs and tests/edge_cases.rs.
+- [X] T029 [US4] Benchmark raw_spectrum on compatible Arzt/Dixon in tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs; document module/extraction examples, README.md and UPSTREAM.md.
 - [ ] T030 [US4] Run all quickstart gates and reference comparisons, record evidence in specs/004-audio-methods/research.md, and create only C04 `feat(audio): add raw_spectrum processor`; stop before SKF until committed.
 
 ## Phase 7: US5 - skf (P2, C05)

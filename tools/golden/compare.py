@@ -190,6 +190,47 @@ def compare_audio_case(golden_dir, export_dir, metadata):
     return 0
 
 
+def compare_raw_spectrum_case(golden_dir, export_dir, metadata):
+    feature_tolerance = metadata.get("tolerances", {}).get("features_rtol", 1e-5), metadata.get(
+        "tolerances", {}
+    ).get("features_atol", 1e-5)
+    for name, export_path, tolerance in (
+        (
+            "features.npy",
+            export_dir / "processor/raw_spectrum/features.npy",
+            feature_tolerance,
+        ),
+        (
+            "times.npy",
+            export_dir / "processor/raw_spectrum/times.npy",
+            (0.0, 0.0),
+        ),
+    ):
+        if not export_path.is_file():
+            print(f"first differing stage: processor/raw_spectrum, missing {export_path}")
+            return 1
+        difference = first_difference(
+            name,
+            np.load(golden_dir / name),
+            np.load(export_path),
+            tolerance=tolerance,
+        )
+        if difference:
+            print(f"first differing stage: processor/raw_spectrum/{name}: {difference}")
+            return 1
+
+    actual_metadata = json.loads((export_dir / "audio/meta.json").read_text())
+    for key in ("processor", "sample_rate", "hop_length", "n_fft", "frames"):
+        if actual_metadata.get(key) != metadata.get(key):
+            print(
+                f"first differing stage: audio/meta.json: {key}: "
+                f"expected {metadata.get(key)!r}, actual {actual_metadata.get(key)!r}"
+            )
+            return 1
+    print("WITHIN_TOL: standalone raw-spectrum features, timestamps, and metadata")
+    return 0
+
+
 def compare_audio_ground_truth_case(golden_dir, export_dir):
     """Compare direct TSV identity and evaluator metrics for an audio export."""
     metadata = json.loads((golden_dir / "meta.json").read_text())
@@ -421,6 +462,8 @@ def main(golden_dir, export_dir):
             return compare_multi_fold_audio_case(golden_dir, export_dir, metadata)
         if metadata.get("method") in ("arzt", "dixon") and metadata.get("processor") in ("chroma", "lse"):
             return compare_audio_case(golden_dir, export_dir, metadata)
+        if metadata.get("processor") == "raw_spectrum" and "sample_rate" in metadata:
+            return compare_raw_spectrum_case(golden_dir, export_dir, metadata)
 
     compared = 0
     for stage in STAGES:

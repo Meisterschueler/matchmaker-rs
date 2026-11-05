@@ -39,6 +39,7 @@ PROCESSORS = {
     "ChordOnsetProcessor": "chord_onset",
     "ChromagramProcessor": "chroma",
     "LogSpectralEnergyProcessor": "lse",
+    "RawSpectrumProcessor": "raw_spectrum",
 }
 
 

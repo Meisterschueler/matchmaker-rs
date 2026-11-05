@@ -16,7 +16,8 @@ use std::path::Path;
 use serde_json::json;
 
 use crate::error::{Error, Result};
-use crate::features::Observation;
+use crate::features::{AudioProcessor, Observation, raw_spectrum::RawSpectrumProcessor};
+use crate::io::audio::AudioStream;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
 use crate::matchmaker::{AudioMatchmaker, AudioMethod, Matchmaker, Method, ProcessorKind};
 use crate::utils::eval::EvaluationResult;
@@ -531,6 +532,64 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
                 "selection_window": config.selection_window,
                 "switch_margin": config.switch_margin,
             },
+        }),
+    )
+}
+
+/// Decode and export standalone raw-spectrum features using the existing audio stream.
+pub fn write_audio_features(
+    performance: impl AsRef<Path>,
+    dir: impl AsRef<Path>,
+    sample_rate: u32,
+    hop_length: usize,
+    n_fft: usize,
+) -> Result<()> {
+    let performance = performance.as_ref();
+    let dir = dir.as_ref();
+    if sample_rate == 0 || hop_length == 0 || n_fft == 0 || n_fft < hop_length {
+        return Err(Error::AudioConfig {
+            key: "n_fft".into(),
+            reason:
+                "sample_rate and hop_length must be positive, and n_fft must be at least hop_length"
+                    .into(),
+        });
+    }
+    let mut stream = AudioStream::open(performance, sample_rate, hop_length, n_fft - hop_length)?;
+    let source_sample_rate = stream.source_sample_rate();
+    let source_channels = stream.source_channels();
+    let mut processor = RawSpectrumProcessor::new(sample_rate, hop_length, n_fft);
+    stream.prime(&mut processor);
+    let mut outputs = Vec::new();
+    for frame in stream {
+        outputs.push(
+            processor
+                .process(&frame)
+                .ok_or_else(|| Error::AudioConfig {
+                    key: "raw_spectrum".into(),
+                    reason: "failed to process a complete audio frame".into(),
+                })?,
+        );
+    }
+    let output_refs: Vec<&Observation> = outputs.iter().collect();
+    observations(&dir.join("processor/raw_spectrum"), "", &output_refs)?;
+    let frame_times: Vec<f64> = outputs.iter().map(|output| output.perf_time).collect();
+    f8(
+        &dir.join("audio/frame_times.npy"),
+        &[frame_times.len()],
+        frame_times.iter().copied(),
+    )?;
+    write_json(
+        &dir.join("audio/meta.json"),
+        &json!({
+            "generator": "matchmaker-rs feature export",
+            "performance": performance.to_string_lossy(),
+            "processor": "raw_spectrum",
+            "source_sample_rate": source_sample_rate,
+            "source_channels": source_channels,
+            "sample_rate": sample_rate,
+            "hop_length": hop_length,
+            "n_fft": n_fft,
+            "frames": frame_times.len(),
         }),
     )
 }

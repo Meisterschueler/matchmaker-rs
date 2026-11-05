@@ -27,7 +27,8 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/io/audio.rs` | `matchmaker/io/audio.py` | mono decode, resample, frame-hop stream |
 | `src/features/chroma.rs` | `matchmaker/features/audio.py` | `ChromagramProcessor` |
 | `src/features/lse.rs` | `matchmaker/features/audio.py` | `LogSpectralEnergyProcessor` |
-| `src/score/audio.rs` | `matchmaker/utils/misc.py`, `matchmaker/registry.py` | synthesized score reference, frame-to-beat map |
+| `src/features/raw_spectrum.rs` | `matchmaker/features/audio.py` | `RawSpectrumProcessor` |
+| `src/score/audio.rs` | `matchmaker/utils/misc.py`, `matchmaker/registry.py`, `partitura/utils/fluidsynth.py` | peak-normalized synthesized score, whole-signal score features, frame-to-beat map (swap points `normalize_level`, `extract_score_features`; research R11) |
 | `src/features/pitch.rs` | `matchmaker/features/midi.py` | `PitchProcessor` |
 | `src/features/chord_onset.rs` | `matchmaker/features/midi.py` | `ChordOnsetProcessor` |
 | `src/io/stream.rs` | `matchmaker/io/midi.py`, `matchmaker/utils/symbolic.py` | `MidiStream`, `Buffer`, `midi_messages_to_framed_midi` |
@@ -56,8 +57,8 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/score/unfold.rs` | `partitura/score.py` | `unfold_part_maximal`, `add_segments`, `Path`, `get_paths`, `new_part_from_path` |
 | `src/score/merge.rs` | `partitura/score.py` | `merge_parts` |
 | `src/score/tempo.rs` | `matchmaker/utils/misc.py`, `partitura/utils/music.py` | `get_tempo_from_score`, `to_quarter_tempo` |
-| `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py` | public `Matchmaker` API (MIDI plus audio `arzt`/`dixon`/`arzt_tempo`/`arzt_multi_fold`) |
-| `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py` | MIDI/audio CLI surface |
+| `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py`, `matchmaker/features/audio.py` | public `Matchmaker` API and `extract_audio_features` |
+| `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py`, `matchmaker/features/audio.py` | MIDI/audio CLI, standalone feature extraction |
 | `tools/bench/run_reference.py` | `matchmaker/matchmaker.py`, `matchmaker/utils/eval.py` | pinned MIDI/audio benchmark runner |
 
 Not ported: audio `outerhmm`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`, standalone onset updates of `ArztTempoModel`, and live audio/MIDI devices and thread/queue plumbing. Audio ground-truth CLI evaluation accepts direct `perf_sec`/`score_beat` TSV; note-ID `.match` evaluation still requires an explicit MIDI performance. The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.

@@ -40,3 +40,14 @@ score = "../../tests/data/fixture_repeats_voltas.musicxml"
 performance = "../../tests/data/audio/arzt_multi_fold/repeat_skipped.wav"
 ground_truth = "../../tests/data/audio/arzt_multi_fold/repeat_skipped.tsv"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+[[pieces]]
+dataset = "audio-raw-spectrum"
+piece = "mozart_raw_spectrum"
+methods = ["arzt", "dixon"]
+input_type = "audio"
+processor = "raw_spectrum"
+kwargs = { sample_rate = 44100, hop_length = 128, n_fft = 512 }
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"

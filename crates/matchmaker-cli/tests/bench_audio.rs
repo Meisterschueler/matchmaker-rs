@@ -20,6 +20,46 @@ fn npy_f64(path: &Path) -> Vec<f64> {
 }
 
 #[test]
+fn bench_accepts_raw_spectrum_with_explicit_hop_and_fft() {
+    let root_dir = root();
+    let dir = std::env::temp_dir().join("matchmaker_cli_bench_raw_spectrum");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = dir.join("audio.toml");
+    std::fs::write(
+        &manifest,
+        format!(
+            "[[pieces]]\ndataset = \"audio-raw-spectrum\"\npiece = \"mozart_raw_spectrum\"\n\
+             methods = [\"arzt\"]\ninput_type = \"audio\"\nprocessor = \"raw_spectrum\"\n\
+             kwargs = {{ sample_rate = 44100, hop_length = 128, n_fft = 512 }}\n\
+             score = \"{root_dir}/tests/data/simple_mozart_k265_var1.musicxml\"\n\
+             performance = \"{root_dir}/tests/data/audio/simple_mozart_k265_var1_sf2.wav\"\n\
+             soundfont = \"{root_dir}/target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2\"\n"
+        ),
+    )
+    .unwrap();
+    let out = dir.join("records.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("bench")
+        .arg(&manifest)
+        .arg("--out")
+        .arg(&out)
+        .args(["--runs", "1", "--methods", "arzt"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let records: serde_json::Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    let record = &records.as_array().unwrap()[0];
+    assert_eq!(record["processor"], "raw_spectrum");
+    assert!(record["n_observations"].as_u64().unwrap() > 0);
+    assert!(record["latency_ms"]["feature"]["median"].as_f64().unwrap() > 0.0);
+}
+
+#[test]
 fn bench_accepts_tempo_arzt_and_records_seeded_audio_metrics() {
     let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_tempo");
     std::fs::create_dir_all(&output).unwrap();
@@ -180,7 +220,7 @@ fn bench_writes_audio_records_and_alignment_path() {
     assert_eq!(record["input_type"], "audio");
     assert_eq!(record["method"], "dixon");
     assert_eq!(record["processor"], "lse");
-    assert_eq!(record["n_observations"], 379);
+    assert_eq!(record["n_observations"], 378);
     assert!(record["real_time_factor"].as_f64().unwrap() > 0.0);
     assert!(record["latency_ms"]["feature"]["median"].as_f64().unwrap() > 0.0);
     assert!(
@@ -194,7 +234,7 @@ fn bench_writes_audio_records_and_alignment_path() {
     let path = dir.join("paths/audio/mozart_lse/dixon.tsv");
     assert!(path.is_file());
     let lines = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(lines.lines().count(), 380);
+    assert_eq!(lines.lines().count(), 379);
     let rows: Vec<(f64, f64)> = lines
         .lines()
         .skip(1)
@@ -207,7 +247,8 @@ fn bench_writes_audio_records_and_alignment_path() {
         npy_f64(&Path::new(&root()).join("tests/golden/audio/dixon_lse/alignment_path.npy"));
     let expected_frame_count = expected_path.len() / 2;
     let shared = rows.len().min(expected_frame_count);
-    assert!(rows.len().abs_diff(expected_frame_count) <= 1);
+    // reference-faithful score framing gives the reference's step count exactly
+    assert_eq!(rows.len(), expected_frame_count);
     let expected_times = &expected_path[..expected_frame_count];
     let expected_beats = &expected_path[expected_frame_count..];
     assert!(

@@ -144,6 +144,7 @@ def main() -> None:
             side[name] = {
                 "runs": len(records),
                 "input_type": records[0].get("input_type", "midi") if records else None,
+                "processor": records[0].get("processor") if records else None,
                 "feature_ms": median(records, "latency_ms", "feature", "median"),
                 "inference_ms": median(records, "latency_ms", "inference", "median"),
                 "total_s": median(records, "total_processing_s"),
@@ -165,6 +166,7 @@ def main() -> None:
         rows.append(
             {
                 "method": method,
+                "processor": r["processor"] or p["processor"],
                 "dataset": dataset,
                 "piece": piece,
                 "rust": r,
@@ -193,8 +195,8 @@ def main() -> None:
         "",
         "Medians over runs. Latency in ms per observation; speed-up = Python / Rust total processing time.",
         "",
-        "| method | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| method | processor | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         r, p, ev = row["rust"], row["python"], row["rust"]["evaluation"] or row["python"]["evaluation"] or {}
@@ -205,7 +207,7 @@ def main() -> None:
         regression = row["regression"]
         regression_text = "n/a" if regression is None else "REGRESSION" if regression else "ok"
         lines.append(
-            f"| {row['method']} | {row['dataset']} | {row['piece']} "
+            f"| {row['method']} | {row['processor'] or '-'} | {row['dataset']} | {row['piece']} "
             f"| {fmt(r['feature_ms'])} / {fmt(p['feature_ms'])} | {fmt(r['inference_ms'])} / {fmt(p['inference_ms'])} "
             f"| {fmt(row['speed_up'], '.1f')} | {fmt(r['real_time_factor'])} | {fmt(ev.get('mean_b'))} "
             f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "

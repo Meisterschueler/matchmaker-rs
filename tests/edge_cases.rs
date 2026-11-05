@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use common::data;
 use matchmaker_rs::Error;
 use matchmaker_rs::base::OnlineAlignment;
+use matchmaker_rs::export::write_audio_features;
 use matchmaker_rs::features::Observation;
 use matchmaker_rs::io::stream::MidiMessageKind;
 use matchmaker_rs::matchmaker::{
@@ -355,4 +356,28 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
         );
         assert!(one_onset_run.alignment_path().perf_time.is_empty());
     }
+}
+
+#[test]
+fn invalid_raw_spectrum_export_preserves_existing_output() {
+    let output = std::env::temp_dir().join("matchmaker_invalid_raw_spectrum_export");
+    let _ = std::fs::remove_dir_all(&output);
+    std::fs::create_dir_all(&output).unwrap();
+    let sentinel = output.join("sentinel.txt");
+    std::fs::write(&sentinel, b"preserve").unwrap();
+
+    for (sample_rate, hop_length, n_fft) in [(0, 128, 512), (8_000, 0, 512), (8_000, 256, 128)] {
+        assert!(matches!(
+            write_audio_features(
+                data("audio/simple_mozart_k265_var1_sf2.wav"),
+                &output,
+                sample_rate,
+                hop_length,
+                n_fft,
+            ),
+            Err(Error::AudioConfig { .. })
+        ));
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve");
+    }
+    assert!(!output.join("audio/meta.json").exists());
 }

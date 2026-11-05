@@ -37,6 +37,17 @@ The direct KorzeniowskiAudioProcessor class defaults hop=512; the facade passes 
 - CLI follow accepts the new audio method names independently of the MIDI Method enum; otherwise audio-only names would fail before dispatch. Preserve MIDI validation and help. Add only current-story config keys; reject unknown or incompatible keys.
 - Python errors remain ValueError for configuration and existing typed/path-specific conversions for I/O. Document public processors, constructors, extraction helper and emitted structured fields with runnable examples.
 
+## Score audio conventions
+
+Cross-cutting for every audio method and processor; they follow the pinned reference, not the quirks of the Rust synthesizer.
+
+| Convention | Contract | Replace in |
+|---|---|---|
+| Level | The rendered score is peak-normalized to 1.0 before padding/cropping (Partitura `synthesize_fluidsynth`). Unnormalized processors (`raw_spectrum`, later `mel`, `cqt`, ...) depend on it. A silent piece stays unchanged. | `normalize_level` in `src/score/audio.rs` |
+| Framing | Score features come from one whole-signal `center=False` pass: frame `j` covers `j*hop .. j*hop + n_fft`, no padding, trailing partial window dropped; chroma tuning is estimated once over the score; a score shorter than one window is an `AudioConfig` error. The performance stream is unaffected (cache of `n_fft - hop`, first block primed). | `extract_score_features` in `src/score/audio.rs` |
+
+Known deviation: Partitura divides by the peak of the last (track, channel) signal; Rust renders one mix, so multi-track scores are unverified. Replacing either function is allowed when the audio benchmark's parity against the reference stays within the limits below; research R11 records the alternatives that were weighed.
+
 ## Evaluation
 
 Enable `follow ... --input-type audio --ground-truth ground_truth.tsv` using GroundTruth and the existing exact evaluate_alignment. Direct TSV is `perf_sec<TAB>score_beat`; retain existing header/loading rules and metric JSON schema. The existing eval command remains usable for audio-derived paths with direct TSV. Note-ID match input requires an explicit MIDI performance via the existing evaluation flow; an audio file must never be passed to load_performance_midi.

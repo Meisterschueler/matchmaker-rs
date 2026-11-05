@@ -26,6 +26,7 @@ from matchmaker.features.audio import (
     SAMPLE_RATE,
     ChromagramProcessor,
     LogSpectralEnergyProcessor,
+    RawSpectrumProcessor,
 )
 from matchmaker.dp.oltw_arzt import OnlineTimeWarpingArztFrame
 from matchmaker.matchmaker import DEFAULT_TEMPO
@@ -207,6 +208,93 @@ def generate_processor_goldens(output: Path) -> None:
                 },
             )
             print(f"{method}/{processor_name}: {len(feature_rows)} frames")
+
+
+def generate_raw_spectrum_goldens(output: Path) -> None:
+    """Generate default, override, short, and silent raw-spectrum references."""
+    base = output / "processors/raw_spectrum"
+    configurations = (
+        ("default", 8_000, 128, 512),
+        ("override", 16_000, 256, 1_024),
+    )
+
+    def write_case(name: str, samples: np.ndarray, sample_rate: int, hop: int, n_fft: int) -> None:
+        processor = RawSpectrumProcessor(sample_rate, hop, n_fft)
+        padded = np.pad(samples, (0, (-len(samples)) % hop), mode="constant")
+        cache = np.zeros(n_fft - hop, dtype=np.float32)
+        feature_rows, feature_times = [], []
+        for chunk_index, chunk in enumerate(padded.reshape(-1, hop)):
+            block = np.concatenate((cache, chunk))
+            features, frame_time = processor((block, max(0, chunk_index - 1) * hop / sample_rate))
+            if chunk_index > 0:
+                feature_rows.extend(features)
+                feature_times.extend([float(frame_time)] * len(features))
+            cache = block[-len(cache):].copy()
+
+        directory = base / name
+        write_array(directory / "input_samples.npy", samples, "<f4")
+        write_array(
+            directory / "features.npy",
+            np.asarray(feature_rows, dtype=np.float32).reshape(-1, n_fft // 2 + 1),
+            "<f4",
+        )
+        write_array(directory / "times.npy", feature_times, "<f8")
+        write_json(
+            directory / "meta.json",
+            {
+                "reference": reference_info(),
+                "generator": "tools/golden/generate_audio.py",
+                "processor": "raw_spectrum",
+                "sample_rate": sample_rate,
+                "hop_length": hop,
+                "n_fft": n_fft,
+                "center": False,
+                "window": "hann",
+                "frames": len(feature_rows),
+                "tolerances": {"features_rtol": 1e-5, "features_atol": 1e-5},
+            },
+        )
+        print(f"raw_spectrum/{name}: {len(feature_rows)} frames")
+
+    for name, sample_rate, hop, n_fft in configurations:
+        times = np.arange(sample_rate // 2, dtype=np.float64) / sample_rate
+        samples = (
+            0.35 * np.sin(2 * np.pi * 440.0 * times)
+            + 0.2 * np.sin(2 * np.pi * 659.2551138257398 * times)
+            + 0.1 * np.sin(2 * np.pi * 783.9908719634985 * times)
+        ).astype(np.float32)
+        write_case(name, samples, sample_rate, hop, n_fft)
+
+    silent = np.zeros(2_048, dtype=np.float32)
+
+    # shortcut: 4 MB and read by no test; options in research.md "C04 - Open improvement".
+    performance_samples, performance_rate = sf.read(
+        DEFAULT_PERFORMANCE, dtype=np.float32, always_2d=True
+    )
+    performance_samples = performance_samples.mean(axis=1, dtype=np.float32)
+    write_case("performance", performance_samples, performance_rate, 128, 512)
+    write_case("silent", silent, 8_000, 128, 512)
+    short = np.zeros(511, dtype=np.float32)
+    short_directory = base / "short"
+    write_array(short_directory / "input_samples.npy", short, "<f4")
+    write_array(short_directory / "features.npy", np.empty((0, 257)), "<f4")
+    write_array(short_directory / "times.npy", [], "<f8")
+    write_json(
+        short_directory / "meta.json",
+        {
+            "reference": reference_info(),
+            "generator": "tools/golden/generate_audio.py",
+            "processor": "raw_spectrum",
+            "sample_rate": 8_000,
+            "hop_length": 128,
+            "n_fft": 512,
+            "center": False,
+            "window": "hann",
+            "frames": 0,
+            "direct_call": "librosa raises when n_fft exceeds uncentered input length",
+        },
+    )
+    print("raw_spectrum/short: 0 frames (reference direct call rejects short input)")
 
 
 def generate_tempo_replay_goldens(output: Path) -> None:
@@ -785,6 +873,11 @@ def main() -> None:
         help="generate synthetic chroma/LSE processor goldens without FluidSynth",
     )
     parser.add_argument(
+        "--raw-spectrum-only",
+        action="store_true",
+        help="generate raw-spectrum processor goldens without FluidSynth",
+    )
+    parser.add_argument(
         "--codec-fixtures-only",
         action="store_true",
         help="write synthetic WAV/FLAC/MP3/Ogg decoder test assets",
@@ -873,6 +966,9 @@ def main() -> None:
         return
     if args.processors_only:
         generate_processor_goldens(args.out.resolve())
+        return
+    if args.raw_spectrum_only:
+        generate_raw_spectrum_goldens(args.out.resolve())
         return
 
     score_path = args.score.resolve()

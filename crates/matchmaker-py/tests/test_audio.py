@@ -216,3 +216,40 @@ def test_audio_export_writes_pipeline_stages_without_consuming_run(method, proce
     ]:
         assert (tmp_path / name).is_file(), f"missing export stage {name}"
     assert not mm._has_run
+
+
+def test_raw_spectrum_extraction_returns_features_and_times():
+    features, times = matchmaker_rs.extract_audio_features(
+        str(PERFORMANCE), "raw_spectrum"
+    )
+    assert features.dtype == np.float32
+    assert features.shape[1] == 257
+    assert times.dtype == np.float64
+    assert times.shape == (features.shape[0],)
+
+    overridden, overridden_times = matchmaker_rs.extract_audio_features(
+        str(PERFORMANCE),
+        "raw_spectrum",
+        {"sample_rate": 16_000, "hop_length": 256, "n_fft": 1_024},
+    )
+    assert overridden.shape[1] == 513
+    assert overridden_times.shape == (overridden.shape[0],)
+    with pytest.raises(ValueError, match="n_fft"):
+        matchmaker_rs.extract_audio_features(
+            str(PERFORMANCE),
+            "raw_spectrum",
+            {"hop_length": 256, "n_fft": 128},
+        )
+
+
+def test_raw_spectrum_audio_following_with_compatible_hop():
+    mm = make_audio(
+        "arzt",
+        processor="raw_spectrum",
+        sample_rate=44_100,
+        hop_length=128,
+        n_fft=512,
+    )
+    positions = list(mm.run(verbose=False))
+    assert positions and all(np.isfinite(position) for position in positions)
+    assert mm.score_follower.alignment_path.shape == (2, len(positions))

@@ -30,8 +30,8 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `outerhmm` | MIDI | `pitch`, `chord_onset` | outer-product HMM with pitch-error model |
 | `arzt` | MIDI | `chord_onset`, `pitch` | event-level online time warping over the onset pianoroll |
 | `dixon` | MIDI | `chord_onset`, `pitch` | event-level online time warping with sparse path-normalized costs |
-| `arzt` | Audio | `chroma`, `lse` | frame-level online time warping; defaults to `chroma` at 30 fps |
-| `dixon` | Audio | `chroma`, `lse` | frame-level online time warping; defaults to `lse` at 50 fps |
+| `arzt` | Audio | `chroma`, `lse`, `raw_spectrum` | frame-level online time warping; defaults to `chroma` at 30 fps |
+| `dixon` | Audio | `chroma`, `lse`, `raw_spectrum` | frame-level online time warping; defaults to `lse` at 50 fps |
 | `arzt_tempo` | Audio | `chroma`, `lse` | seeded tempo-aware Arzt; defaults to `chroma` at 30 fps |
 | `arzt_multi_fold` | Audio | `chroma`, `lse` | parallel repeat hypotheses; defaults to `chroma` at 30 fps, 50-cost window and 5% switch margin |
 
@@ -46,6 +46,13 @@ CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/REA
 
 ```text
 cargo run --release -p matchmaker-cli -- follow score.musicxml performance.wav --input-type audio --method arzt --soundfont-path target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2 --output path.tsv --export export/
+```
+
+Standalone raw-spectrum extraction does not require a score or SoundFont. It defaults to 8000 Hz,
+hop 128, and FFT size 512; use `--sample-rate`, `--hop-length`, and `--n-fft` for overrides:
+
+```text
+cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor raw_spectrum --export target/raw-spectrum/
 ```
 
 Audio `--ground-truth` accepts a direct TSV with `perf_sec` and `score_beat` columns and writes
@@ -89,6 +96,14 @@ alignment_path = mm.score_follower.alignment_path
 mm.export("export/")
 ```
 
+Standalone feature arrays and their timestamps are available without constructing a follower:
+
+```python
+from matchmaker_rs import extract_audio_features
+
+features, times = extract_audio_features("performance.wav", "raw_spectrum")
+```
+
 ## Parity and accuracy
 
 Golden tests compare against the reference with documented tolerances; each comparison reports
@@ -96,8 +111,13 @@ its class (`EXACT`, `WITHIN_TOL`, `EXCEEDS`) and the maximum deviation, see
 [golden-data.md](specs/001-midi-score-following/contracts/golden-data.md#deviation-classes).
 
 The score renderer initializes Reverb Send (CC91) to zero, matching the pinned FluidSynth
-reference rather than RustySynth's default 40. Tempo-Arzt uses batch score tuning and
-unprimed score FFT windows; existing Arzt/Dixon score framing is retained for compatibility.
+reference rather than RustySynth's default 40. It also peak-normalizes the rendered score to
+±1.0 and extracts score features in one whole-signal pass (frame `j` starts at `j*hop`, chroma
+tuning is estimated once for the whole score), exactly like the reference; the performance stream
+still frames per hop with a cache. Both conventions matter for level-sensitive processors such as
+`raw_spectrum`. Each is a single function in `src/score/audio.rs` (`normalize_level`,
+`extract_score_features`) and can be replaced locally, see research R11 in
+[specs/004-audio-methods/research.md](specs/004-audio-methods/research.md).
 Renderer metrics are checked separately from exact feature-replay parity, see
 [the audio contract](specs/004-audio-methods/contracts/audio-api.md).
 

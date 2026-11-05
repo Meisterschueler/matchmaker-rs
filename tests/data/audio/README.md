@@ -116,6 +116,14 @@ FluidSynth channel has CC91=0, whereas RustySynth initializes it to 40; acceptin
 that default introduces additional reverb and changes the score reference.
 This is renderer calibration, not a relaxed test tolerance or a new native runtime dependency.
 
+The Rust score renderer also peak-normalizes the rendered score to 1.0, because
+Partitura's FluidSynth export does (`synthesize_fluidsynth` divides the piece by
+its peak). RustySynth returns its raw level (peak about 0.14), which is 17 dB below
+the reference in every band; chroma and LSE hide that through per-frame
+normalization, unnormalized features such as `raw_spectrum` do not. Score features
+are extracted in one whole-signal pass like the reference. Both conventions are
+documented, with their known limits, in research R11 of `specs/004-audio-methods`.
+
 ### Repeat / volta audio fixtures
 
 `tests/data/fixture_repeats_voltas.musicxml` is a small hand-authored synthetic

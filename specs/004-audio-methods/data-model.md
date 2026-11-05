@@ -12,7 +12,7 @@ KorzeniowskiObservation is separate: spectrum, onset, loudness, and optional act
 
 | Entity | Fields / relationships | Validation |
 |---|---|---|
-| ScoreAudioReference | Existing feature frames and frame-to-beat mapping | Same processor configuration as performance; reset between score and performance |
+| ScoreAudioReference | Rendered score waveform (peak-normalized), feature frames from one whole-signal pass, frame-to-beat mapping | Same processor configuration as performance; frame `j` starts at `j*hop`; a score shorter than one window is an `AudioConfig` error; see research R11 for the level and framing conventions and how to replace them |
 | MultiFoldHypothesis | Score unfolding/path, feature reference, beat domain, follower state, recent costs | Valid repeat path; selection history bounded by selection_window |
 | SkfScoreModel | Chord/onset sequence, normalized spectrum templates, synthesis/fallback identity | Template width n_fft/2+1; covariance/likelihood safeguards match reference |
 | AudioOuterHmmScoreModel | Weighted chords, onset beats, 88-bin pitch/chord templates, sound/pause transitions | Learned-overlay mask and template rate/hop match recorded provenance |

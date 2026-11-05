@@ -92,9 +92,13 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
         (AudioMethod::Dixon, AudioProcessorKind::Lse),
         (AudioMethod::ArztMultiFold, AudioProcessorKind::Chroma),
         (AudioMethod::ArztMultiFold, AudioProcessorKind::Lse),
+        (AudioMethod::Arzt, AudioProcessorKind::RawSpectrum),
     ] {
         let mut config = AudioMethodConfig::for_method(method);
         config.set_processor(processor);
+        if processor == AudioProcessorKind::RawSpectrum {
+            config.hop_length = Some(128);
+        }
         config.validate(method).unwrap();
     }
 
@@ -118,6 +122,55 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
         multi_fold.validate(AudioMethod::ArztMultiFold),
         Err(Error::AudioConfig { .. })
     ));
+
+    let mut raw_spectrum = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    raw_spectrum.set_processor(AudioProcessorKind::RawSpectrum);
+    raw_spectrum.hop_length = Some(128);
+    raw_spectrum.n_fft = Some(127);
+    assert!(matches!(
+        raw_spectrum.validate(AudioMethod::Arzt),
+        Err(Error::AudioConfig { key, .. }) if key == "n_fft"
+    ));
+    raw_spectrum.n_fft = Some(512);
+    raw_spectrum.norm = Some(2.0);
+    assert!(matches!(
+        raw_spectrum.validate(AudioMethod::Arzt),
+        Err(Error::AudioConfig { key, .. }) if key == "norm"
+    ));
+
+    let mut raw_tempo = AudioMethodConfig::for_method(AudioMethod::ArztTempo);
+    raw_tempo.set_processor(AudioProcessorKind::RawSpectrum);
+    raw_tempo.hop_length = Some(128);
+    assert!(matches!(
+        raw_tempo.validate(AudioMethod::ArztTempo),
+        Err(Error::AudioConfig { key, .. }) if key == "processor"
+    ));
+}
+
+#[test]
+fn raw_spectrum_audio_follow_exports_257_feature_bins() {
+    let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    config.set_processor(AudioProcessorKind::RawSpectrum);
+    config.sample_rate = 44_100;
+    config.hop_length = Some(128);
+    config.soundfont_path = Some(pinned_soundfont());
+    let mut matchmaker =
+        AudioMatchmaker::new_arzt(data("simple_mozart_k265_var1.musicxml"), config, None, true)
+            .unwrap()
+            .record();
+    matchmaker
+        .run_file(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .unwrap();
+
+    let output = std::env::temp_dir().join("matchmaker_audio_raw_spectrum_export");
+    let _ = std::fs::remove_dir_all(&output);
+    write_audio_run(&matchmaker, &output).unwrap();
+    let features = npy(output.join("processor/raw_spectrum/features.npy"));
+    assert_eq!(
+        features.shape[0],
+        matchmaker.alignment_path().perf_time.len()
+    );
+    assert_eq!(features.shape[1], 257);
 }
 
 #[test]

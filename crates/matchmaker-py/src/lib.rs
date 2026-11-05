@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use matchmaker_rs::Error;
 use matchmaker_rs::base::AlignmentPath;
 use matchmaker_rs::export::{write_audio_run, write_run};
+use matchmaker_rs::features::{AudioProcessor, raw_spectrum::RawSpectrumProcessor};
+use matchmaker_rs::io::audio::AudioStream;
 use matchmaker_rs::io::stream::MidiMessage;
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind, ConfigValue,
@@ -23,9 +25,88 @@ use pyo3::exceptions::{
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
+use pyo3::wrap_pyfunction;
 
 /// Reference tag the build was validated against (`tools/golden/pyproject.toml`).
 const REFERENCE_VERSION: &str = "v0.4.0";
+type ExtractedAudioFeatures<'py> = (Bound<'py, PyArray2<f32>>, Bound<'py, PyArray1<f64>>);
+
+#[pyfunction(signature = (performance_path, processor, kwargs=None))]
+fn extract_audio_features<'py>(
+    py: Python<'py>,
+    performance_path: PathBuf,
+    processor: &str,
+    kwargs: Option<&Bound<'py, PyDict>>,
+) -> PyResult<ExtractedAudioFeatures<'py>> {
+    if processor != "raw_spectrum" {
+        return Err(PyValueError::new_err(format!(
+            "unknown audio processor {processor:?}; available: ['raw_spectrum']"
+        )));
+    }
+    let (mut sample_rate, mut hop_length, mut n_fft) = (8_000u32, 128usize, 512usize);
+    if let Some(kwargs) = kwargs {
+        for (key, value) in kwargs.iter() {
+            let key = key.extract::<String>()?;
+            match key.as_str() {
+                "sample_rate" => {
+                    sample_rate = value.extract().map_err(|_| {
+                        PyValueError::new_err("sample_rate must be a positive integer")
+                    })?;
+                }
+                "hop_length" => {
+                    hop_length = value.extract().map_err(|_| {
+                        PyValueError::new_err("hop_length must be a positive integer")
+                    })?;
+                }
+                "n_fft" => {
+                    n_fft = value
+                        .extract()
+                        .map_err(|_| PyValueError::new_err("n_fft must be a positive integer"))?;
+                }
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown raw_spectrum option {key:?}"
+                    )));
+                }
+            }
+        }
+    }
+    if sample_rate == 0 {
+        return Err(PyValueError::new_err("sample_rate must be at least 1 Hz"));
+    }
+    if hop_length == 0 {
+        return Err(PyValueError::new_err(
+            "hop_length must be at least 1 sample",
+        ));
+    }
+    if n_fft == 0 || n_fft < hop_length {
+        return Err(PyValueError::new_err("n_fft must be at least hop_length"));
+    }
+
+    let mut stream = AudioStream::open(
+        &performance_path,
+        sample_rate,
+        hop_length,
+        n_fft - hop_length,
+    )
+    .map_err(to_py_err)?;
+    let mut feature_processor = RawSpectrumProcessor::new(sample_rate, hop_length, n_fft);
+    stream.prime(&mut feature_processor);
+    let mut features = Vec::new();
+    let mut times = Vec::new();
+    for frame in stream {
+        let output = feature_processor
+            .process(&frame)
+            .ok_or_else(|| PyRuntimeError::new_err("failed to process a complete audio frame"))?;
+        features.extend(output.features);
+        times.push(output.perf_time);
+    }
+    let bins = n_fft / 2 + 1;
+    let features = Array2::from_shape_vec((times.len(), bins), features)
+        .expect("raw spectrum produces one fixed-width vector per frame")
+        .into_pyarray(py);
+    Ok((features, times.into_pyarray(py)))
+}
 
 /// `AVAILABLE_METHODS["midi"]` formatted like a Python list.
 fn available_methods() -> String {
@@ -164,6 +245,12 @@ fn set_audio_config(
         }
         "hop_length" => {
             config.hop_length = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
+        "n_fft" => {
+            config.n_fft = match value {
                 ConfigValue::None => None,
                 _ => Some(integer(&value)?),
             };
@@ -825,6 +912,7 @@ impl ScoreFollower {
 fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     m.add_class::<PyMatchmaker>()?;
+    m.add_function(wrap_pyfunction!(extract_audio_features, m)?)?;
 
     let methods = PyDict::new(py);
     methods.set_item("midi", Method::AVAILABLE.to_vec())?;

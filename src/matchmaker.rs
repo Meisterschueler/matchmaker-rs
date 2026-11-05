@@ -28,6 +28,7 @@ use crate::error::{Error, Result};
 use crate::features::{
     AudioProcessor, Observation, Processor, chord_onset::ChordOnsetProcessor,
     chroma::ChromaProcessor, lse::LseProcessor, pitch::PitchProcessor,
+    raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioStream;
 use crate::io::stream::{Frame, MidiMessage};
@@ -214,17 +215,20 @@ pub enum AudioProcessorKind {
     Chroma,
     /// Log-spectral energy onset feature.
     Lse,
+    /// Non-centered magnitude spectrum.
+    RawSpectrum,
 }
 
 impl AudioProcessorKind {
     /// Reference names of the supported audio processors.
-    pub const AVAILABLE: [&'static str; 2] = ["chroma", "lse"];
+    pub const AVAILABLE: [&'static str; 3] = ["chroma", "lse", "raw_spectrum"];
 
     /// Reference name of this processor.
     pub fn name(self) -> &'static str {
         match self {
             AudioProcessorKind::Chroma => "chroma",
             AudioProcessorKind::Lse => "lse",
+            AudioProcessorKind::RawSpectrum => "raw_spectrum",
         }
     }
 }
@@ -236,6 +240,7 @@ impl FromStr for AudioProcessorKind {
         match name {
             "chroma" => Ok(AudioProcessorKind::Chroma),
             "lse" => Ok(AudioProcessorKind::Lse),
+            "raw_spectrum" => Ok(AudioProcessorKind::RawSpectrum),
             _ => Err(Error::AudioConfig {
                 key: "processor".into(),
                 reason: format!(
@@ -286,6 +291,8 @@ pub struct AudioMethodConfig {
     pub hop_length: Option<usize>,
     /// Per-frame processor norm (`None` disables normalization; infinity is valid).
     pub norm: Option<f64>,
+    /// Raw-spectrum transform size; defaults to 512 for that processor.
+    pub n_fft: Option<usize>,
     /// Required local SF2 path for runtime score synthesis.
     pub soundfont_path: Option<std::path::PathBuf>,
     /// Search window in seconds.
@@ -323,7 +330,8 @@ impl AudioMethodConfig {
             sample_rate: 44_100,
             frame_rate: if arzt { 30 } else { 50 },
             hop_length: None,
-            norm: Some(processor.default_norm()),
+            norm: processor.default_norm(),
+            n_fft: None,
             soundfont_path: None,
             window_size: 10.0,
             start_window_size: arzt.then_some(0.1),
@@ -349,7 +357,8 @@ impl AudioMethodConfig {
     /// Set `norm` afterward to provide an explicit override.
     pub fn set_processor(&mut self, processor: AudioProcessorKind) {
         self.processor = processor;
-        self.norm = Some(processor.default_norm());
+        self.norm = processor.default_norm();
+        self.n_fft = (processor == AudioProcessorKind::RawSpectrum).then_some(512);
     }
 
     /// Validate shared audio values and method-specific parameter ranges.
@@ -366,6 +375,30 @@ impl AudioMethodConfig {
         }
         if self.hop_length.is_none() && self.frame_rate == 0 {
             return Err(invalid("frame_rate", "must be at least 1 frame per second"));
+        }
+        let hop_length = self
+            .hop_length
+            .unwrap_or((self.sample_rate / self.frame_rate.max(1)) as usize);
+        match self.processor {
+            AudioProcessorKind::RawSpectrum => {
+                if !matches!(method, AudioMethod::Arzt | AudioMethod::Dixon) {
+                    return Err(invalid(
+                        "processor",
+                        "raw_spectrum is currently supported by audio arzt and dixon",
+                    ));
+                }
+                let n_fft = self.n_fft.unwrap_or(512);
+                if self.norm.is_some() {
+                    return Err(invalid("norm", "raw_spectrum does not normalize features"));
+                }
+                if n_fft == 0 || n_fft < hop_length {
+                    return Err(invalid("n_fft", "must be at least hop_length"));
+                }
+            }
+            _ if self.n_fft.is_some() => {
+                return Err(invalid("n_fft", "is only valid for raw_spectrum"));
+            }
+            _ => {}
         }
         if !self.window_size.is_finite() || self.window_size <= 0.0 {
             return Err(invalid(
@@ -446,10 +479,11 @@ impl AudioMethodConfig {
 }
 
 impl AudioProcessorKind {
-    fn default_norm(self) -> f64 {
+    fn default_norm(self) -> Option<f64> {
         match self {
-            AudioProcessorKind::Chroma => f64::INFINITY,
-            AudioProcessorKind::Lse => 2.0,
+            AudioProcessorKind::Chroma => Some(f64::INFINITY),
+            AudioProcessorKind::Lse => Some(2.0),
+            AudioProcessorKind::RawSpectrum => None,
         }
     }
 }
@@ -1263,6 +1297,11 @@ fn make_audio_processor(
             let processor = LseProcessor::new(config.sample_rate, hop_length, config.norm);
             let cache_size = processor.n_fft().saturating_sub(hop_length);
             (Box::new(processor), cache_size)
+        }
+        AudioProcessorKind::RawSpectrum => {
+            let n_fft = config.n_fft.unwrap_or(512);
+            let processor = RawSpectrumProcessor::new(config.sample_rate, hop_length, n_fft);
+            (Box::new(processor), n_fft - hop_length)
         }
     }
 }

@@ -45,6 +45,35 @@ fn follow_audio_files(
 }
 
 #[test]
+fn features_command_exports_raw_spectrum_without_a_score_or_soundfont() {
+    let output = std::env::temp_dir().join("matchmaker_cli_raw_spectrum_features");
+    let _ = std::fs::remove_dir_all(&output);
+    let run = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("features")
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--processor", "raw_spectrum", "--export"])
+        .arg(&output)
+        .args([
+            "--sample-rate",
+            "44100",
+            "--hop-length",
+            "128",
+            "--n-fft",
+            "512",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(output.join("processor/raw_spectrum/features.npy").is_file());
+    assert!(output.join("processor/raw_spectrum/times.npy").is_file());
+    assert!(output.join("audio/meta.json").is_file());
+}
+
+#[test]
 fn audio_arzt_multi_fold_defaults_and_repeat_mode() {
     let defaults = follow_audio("arzt_multi_fold", &[]);
     assert!(
@@ -333,7 +362,7 @@ fn audio_dixon_defaults_and_output_path() {
         String::from_utf8_lossy(&default.stderr)
     );
     let printed = positions(&default);
-    assert_eq!(printed.len(), 379);
+    assert_eq!(printed.len(), 378);
 
     let explicit = follow_audio(
         "dixon",
