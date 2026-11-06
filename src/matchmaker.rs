@@ -27,7 +27,7 @@ use crate::dp::dixon_frame::DixonFrame;
 use crate::error::{Error, Result};
 use crate::features::{
     AudioProcessor, Observation, Processor, chord_onset::ChordOnsetProcessor,
-    chroma::ChromaProcessor, lse::LseProcessor, pitch::PitchProcessor,
+    chroma::ChromaProcessor, cqt::CqtProcessor, lse::LseProcessor, pitch::PitchProcessor,
     raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioStream;
@@ -223,11 +223,13 @@ pub enum AudioProcessorKind {
     Lse,
     /// Non-centered magnitude spectrum.
     RawSpectrum,
+    /// Constant-Q magnitude over the 88 piano keys (88 features per frame).
+    Cqt,
 }
 
 impl AudioProcessorKind {
     /// Reference names of the supported audio processors.
-    pub const AVAILABLE: [&'static str; 3] = ["chroma", "lse", "raw_spectrum"];
+    pub const AVAILABLE: [&'static str; 4] = ["chroma", "lse", "raw_spectrum", "cqt"];
 
     /// Reference name of this processor.
     pub fn name(self) -> &'static str {
@@ -235,6 +237,7 @@ impl AudioProcessorKind {
             AudioProcessorKind::Chroma => "chroma",
             AudioProcessorKind::Lse => "lse",
             AudioProcessorKind::RawSpectrum => "raw_spectrum",
+            AudioProcessorKind::Cqt => "cqt",
         }
     }
 }
@@ -247,6 +250,7 @@ impl FromStr for AudioProcessorKind {
             "chroma" => Ok(AudioProcessorKind::Chroma),
             "lse" => Ok(AudioProcessorKind::Lse),
             "raw_spectrum" => Ok(AudioProcessorKind::RawSpectrum),
+            "cqt" => Ok(AudioProcessorKind::Cqt),
             _ => Err(Error::AudioConfig {
                 key: "processor".into(),
                 reason: format!(
@@ -416,6 +420,17 @@ impl AudioMethodConfig {
             _ if self.n_fft.is_some() => {
                 return Err(invalid("n_fft", "is only valid for raw_spectrum"));
             }
+            AudioProcessorKind::Cqt => {
+                if !matches!(method, AudioMethod::Arzt | AudioMethod::Dixon) {
+                    return Err(invalid(
+                        "processor",
+                        "cqt is currently supported by audio arzt and dixon",
+                    ));
+                }
+                if self.norm.is_some() {
+                    return Err(invalid("norm", "cqt takes no norm through the facade"));
+                }
+            }
             _ => {}
         }
         if !self.window_size.is_finite() || self.window_size <= 0.0 {
@@ -518,7 +533,7 @@ impl AudioProcessorKind {
         match self {
             AudioProcessorKind::Chroma => Some(f64::INFINITY),
             AudioProcessorKind::Lse => Some(2.0),
-            AudioProcessorKind::RawSpectrum => None,
+            AudioProcessorKind::RawSpectrum | AudioProcessorKind::Cqt => None,
         }
     }
 }
@@ -1147,7 +1162,7 @@ impl AudioMatchmaker {
             };
             (reference, follower, Vec::new(), None)
         };
-        let (processor, cache_size) = make_audio_processor(&config, hop_length);
+        let (processor, cache_size) = make_audio_processor(&config, hop_length)?;
 
         Ok(Self {
             method,
@@ -1397,8 +1412,8 @@ fn strip_repeat_suffix(note_id: &str) -> &str {
 fn make_audio_processor(
     config: &AudioMethodConfig,
     hop_length: usize,
-) -> (Box<dyn AudioProcessor>, usize) {
-    match config.processor {
+) -> Result<(Box<dyn AudioProcessor>, usize)> {
+    Ok(match config.processor {
         AudioProcessorKind::Chroma => {
             let processor = ChromaProcessor::new(config.sample_rate, hop_length, config.norm);
             let cache_size = processor.n_fft().saturating_sub(hop_length);
@@ -1414,5 +1429,14 @@ fn make_audio_processor(
             let processor = RawSpectrumProcessor::new(config.sample_rate, hop_length, n_fft);
             (Box::new(processor), n_fft - hop_length)
         }
-    }
+        // No `n_fft` attribute, so the reference's stream caches one hop: frames carry two.
+        AudioProcessorKind::Cqt => (
+            Box::new(CqtProcessor::new(
+                config.sample_rate,
+                hop_length,
+                Some(f64::INFINITY),
+            )?),
+            hop_length,
+        ),
+    })
 }

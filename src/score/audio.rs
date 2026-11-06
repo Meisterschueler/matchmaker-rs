@@ -48,7 +48,8 @@ use tracing::debug_span;
 
 use crate::error::{Error, Result};
 use crate::features::{
-    AudioProcessor, chroma::ChromaProcessor, lse::LseProcessor, raw_spectrum::RawSpectrumProcessor,
+    AudioProcessor, chroma::ChromaProcessor, cqt::CqtProcessor, lse::LseProcessor,
+    raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioFrame;
 use crate::matchmaker::{AudioMethod, AudioMethodConfig, AudioProcessorKind};
@@ -292,7 +293,9 @@ fn normalize_level(samples: &mut [f32]) {
 ///   window is dropped, i.e. `1 + (len - n_fft) / hop` frames;
 /// - chroma estimates its tuning once from the whole score ([`ChromaProcessor::for_reference`]),
 ///   whereas performance frames estimate it per frame;
-/// - stateful processors start without a predecessor (the first LSE frame is its full spectrum).
+/// - stateful processors start without a predecessor (the first LSE frame is its full spectrum);
+/// - `cqt` is centered: the reference transforms the whole waveform in one call and drops the
+///   first and last frame, so row `j` is centered on sample `(j + 1) * hop`.
 ///
 /// The performance stream frames differently: a cache of `n_fft - hop` zeros and a primed first
 /// block put frame `i` at `i * hop - (n_fft - 2 * hop)`. Both coincide only for `n_fft == 2 * hop`
@@ -332,6 +335,17 @@ fn extract_score_features(
                 )),
                 n_fft,
             )
+        }
+        AudioProcessorKind::Cqt => {
+            let rows = CqtProcessor::new(config.sample_rate, hop_length, Some(f64::INFINITY))?
+                .transform(samples)?;
+            if rows.is_empty() {
+                return Err(audio_config(
+                    "hop_length",
+                    "the rendered score is shorter than two hops",
+                ));
+            }
+            return Ok(rows);
         }
     };
     if samples.len() < n_fft {

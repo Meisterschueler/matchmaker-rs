@@ -1,3 +1,5 @@
+import contextlib
+import io
 import unittest
 import importlib.util
 import sys
@@ -68,6 +70,50 @@ class TempoStageComparisonTests(unittest.TestCase):
                 self.assertEqual(comparison.compare_tempo_audio_case(golden, exported, metadata), 0)
                 evaluation.evaluate_alignment = Mock(side_effect=[metrics, {**metrics, "accuracy_0.05b": 0.90}])
                 self.assertEqual(comparison.compare_tempo_audio_case(golden, exported, metadata), 1)
+
+
+class CqtStageComparisonTests(unittest.TestCase):
+    def test_frame_maximum_term_widens_only_the_cqt_feature_limit(self):
+        path = Path(__file__).parents[1] / "golden" / "compare.py"
+        spec = importlib.util.spec_from_file_location("cqt_stage_comparison", path)
+        comparison = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(comparison)
+        tolerances = {"features_atol": 1e-5, "features_rtol": 1e-5, "features_frame_max_rtol": 1e-5}
+        metadata = {
+            "processor": "cqt", "sample_rate": 44_100, "hop_length": 1_470,
+            "stream_frames": 2, "tolerances": tolerances,
+        }
+        reference = np.zeros((2, 88), dtype=np.float32)
+        reference[:, 0] = 100.0  # frame maximum 100: a zero bin may deviate by 1e-5 + 1e-3
+        times = np.array([0.0, 0.1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            golden, exported = root / "golden", root / "export"
+            golden.mkdir()
+            np.save(golden / "stream_features.npy", reference)
+            np.save(golden / "stream_times.npy", times)
+            (exported / "processor/cqt").mkdir(parents=True)
+            (exported / "audio").mkdir()
+            np.save(exported / "processor/cqt/times.npy", times)
+            (exported / "audio/meta.json").write_text(
+                '{"processor": "cqt", "sample_rate": 44100, "hop_length": 1470, "frames": 2}'
+            )
+
+            def run(features):
+                np.save(exported / "processor/cqt/features.npy", features)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    return comparison.compare_cqt_case(golden, exported, metadata), output.getvalue()
+
+            within = reference.copy()
+            within[1, 5] = 5e-4
+            self.assertEqual(run(within)[0], 0)
+            beyond = reference.copy()
+            beyond[1, 5] = 2e-3
+            status, message = run(beyond)
+            self.assertEqual(status, 1)
+            self.assertIn("frame 1, bin 5", message)
+            self.assertEqual(run(reference[:1])[0], 1)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,11 @@ use std::path::PathBuf;
 use matchmaker_rs::Error;
 use matchmaker_rs::base::AlignmentPath;
 use matchmaker_rs::export::{write_audio_run, write_run};
-use matchmaker_rs::features::{AudioProcessor, raw_spectrum::RawSpectrumProcessor};
+use matchmaker_rs::features::{
+    AudioProcessor,
+    cqt::{CqtProcessor, N_BINS},
+    raw_spectrum::RawSpectrumProcessor,
+};
 use matchmaker_rs::io::audio::AudioStream;
 use matchmaker_rs::io::stream::MidiMessage;
 use matchmaker_rs::matchmaker::{
@@ -38,12 +42,20 @@ fn extract_audio_features<'py>(
     processor: &str,
     kwargs: Option<&Bound<'py, PyDict>>,
 ) -> PyResult<ExtractedAudioFeatures<'py>> {
-    if processor != "raw_spectrum" {
-        return Err(PyValueError::new_err(format!(
-            "unknown audio processor {processor:?}; available: ['raw_spectrum']"
-        )));
-    }
-    let (mut sample_rate, mut hop_length, mut n_fft) = (8_000u32, 128usize, 512usize);
+    let raw_spectrum = match processor {
+        "raw_spectrum" => true,
+        "cqt" => false,
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "unknown audio processor {processor:?}; available: ['raw_spectrum', 'cqt']"
+            )));
+        }
+    };
+    let (mut sample_rate, mut hop_length, mut n_fft) = if raw_spectrum {
+        (8_000u32, 128usize, 512usize)
+    } else {
+        (44_100, 1_470, 0)
+    };
     if let Some(kwargs) = kwargs {
         for (key, value) in kwargs.iter() {
             let key = key.extract::<String>()?;
@@ -58,14 +70,14 @@ fn extract_audio_features<'py>(
                         PyValueError::new_err("hop_length must be a positive integer")
                     })?;
                 }
-                "n_fft" => {
+                "n_fft" if raw_spectrum => {
                     n_fft = value
                         .extract()
                         .map_err(|_| PyValueError::new_err("n_fft must be a positive integer"))?;
                 }
                 _ => {
                     return Err(PyValueError::new_err(format!(
-                        "unknown raw_spectrum option {key:?}"
+                        "unknown {processor} option {key:?}"
                     )));
                 }
             }
@@ -79,19 +91,30 @@ fn extract_audio_features<'py>(
             "hop_length must be at least 1 sample",
         ));
     }
-    if n_fft == 0 || n_fft < hop_length {
+    if raw_spectrum && (n_fft == 0 || n_fft < hop_length) {
         return Err(PyValueError::new_err("n_fft must be at least hop_length"));
     }
 
-    let mut stream = AudioStream::open(
-        &performance_path,
-        sample_rate,
-        hop_length,
-        n_fft - hop_length,
-    )
-    .map_err(to_py_err)?;
-    let mut feature_processor = RawSpectrumProcessor::new(sample_rate, hop_length, n_fft);
-    stream.prime(&mut feature_processor);
+    let (mut feature_processor, cache_size, bins): (Box<dyn AudioProcessor>, usize, usize) =
+        if raw_spectrum {
+            (
+                Box::new(RawSpectrumProcessor::new(sample_rate, hop_length, n_fft)),
+                n_fft - hop_length,
+                n_fft / 2 + 1,
+            )
+        } else {
+            (
+                Box::new(
+                    CqtProcessor::new(sample_rate, hop_length, Some(f64::INFINITY))
+                        .map_err(to_py_err)?,
+                ),
+                hop_length,
+                N_BINS,
+            )
+        };
+    let mut stream = AudioStream::open(&performance_path, sample_rate, hop_length, cache_size)
+        .map_err(to_py_err)?;
+    stream.prime(feature_processor.as_mut());
     let mut features = Vec::new();
     let mut times = Vec::new();
     for frame in stream {
@@ -101,9 +124,8 @@ fn extract_audio_features<'py>(
         features.extend(output.features);
         times.push(output.perf_time);
     }
-    let bins = n_fft / 2 + 1;
     let features = Array2::from_shape_vec((times.len(), bins), features)
-        .expect("raw spectrum produces one fixed-width vector per frame")
+        .expect("every processor produces one fixed-width vector per frame")
         .into_pyarray(py);
     Ok((features, times.into_pyarray(py)))
 }

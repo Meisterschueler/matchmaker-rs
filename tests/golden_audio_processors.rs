@@ -1,12 +1,18 @@
-//! Golden tests for audio `chroma` and `lse` processors at both OLTW frame rates.
+//! Golden tests for audio `chroma`, `lse`, `raw_spectrum` and `cqt` processors.
 
 mod common;
 
-use common::{Ctx, assert_close, golden, npy};
+use common::{Ctx, assert_close, assert_exact, data, golden, json, npy};
+use matchmaker_rs::export::write_cqt_features;
 use matchmaker_rs::features::{
-    AudioProcessor, chroma::ChromaProcessor, lse::LseProcessor, raw_spectrum::RawSpectrumProcessor,
+    AudioProcessor,
+    chroma::ChromaProcessor,
+    cqt::{CqtProcessor, N_BINS, halve_rate},
+    lse::LseProcessor,
+    raw_spectrum::RawSpectrumProcessor,
 };
 use matchmaker_rs::io::audio::AudioFrame;
+use std::path::PathBuf;
 
 const SAMPLE_RATE: u32 = 44_100;
 
@@ -226,4 +232,322 @@ fn lse_reset_and_silence_follow_reference_state_rules() {
     processor.reset();
     let after_reset = processor.process(&silent).unwrap();
     assert_eq!(first, after_reset);
+}
+
+const CQT_CASES: [&str; 7] = [
+    "default", "override", "tones", "early", "norm2", "silent", "short",
+];
+
+struct CqtCase {
+    directory: PathBuf,
+    meta: serde_json::Value,
+    samples: Vec<f32>,
+    sample_rate: u32,
+    hop_length: usize,
+    whole_samples: usize,
+}
+
+impl CqtCase {
+    fn load(name: &str) -> Self {
+        let directory = golden("audio/processors/cqt").join(name);
+        let meta = json(directory.join("meta.json"));
+        Self {
+            samples: npy(directory.join("input_samples.npy"))
+                .values()
+                .into_iter()
+                .map(|value| value as f32)
+                .collect(),
+            sample_rate: meta["sample_rate"].as_u64().unwrap() as u32,
+            hop_length: meta["hop_length"].as_u64().unwrap() as usize,
+            whole_samples: meta["whole_samples"].as_u64().unwrap() as usize,
+            directory,
+            meta,
+        }
+    }
+
+    fn processor(&self) -> CqtProcessor {
+        let norm = match &self.meta["norm"] {
+            serde_json::Value::String(text) if text == "inf" => Some(f64::INFINITY),
+            value => value.as_f64(),
+        };
+        CqtProcessor::new(self.sample_rate, self.hop_length, norm).unwrap()
+    }
+
+    fn array(&self, file: &str) -> Vec<f64> {
+        npy(self.directory.join(file)).values()
+    }
+}
+
+fn widen(values: impl IntoIterator<Item = f32>) -> Vec<f64> {
+    values.into_iter().map(f64::from).collect()
+}
+
+/// The cqt limit (contract "Validation and comparison limits", research R13): the per-element
+/// float32 limit plus a term relative to the largest reference value of the same group (a frame
+/// of features or a kernel row), because the reference's float32 and `soxr` rounding noise scales
+/// with the group, not with the element.
+fn assert_group_scaled_close(
+    ctx: &Ctx,
+    expected: &[f64],
+    actual: &[f64],
+    group_sizes: &[usize],
+    (rtol, atol, group_rtol): (f64, f64, f64),
+) {
+    assert_eq!(
+        expected.len(),
+        actual.len(),
+        "[{} / {} / {}] length differs",
+        ctx.method,
+        ctx.piece,
+        ctx.file
+    );
+    assert_eq!(group_sizes.iter().sum::<usize>(), expected.len());
+    let (mut max_abs, mut max_rel, mut worst_share) = (0.0f64, 0.0f64, 0.0f64);
+    let mut first = None;
+    let mut start = 0;
+    for (group, &size) in group_sizes.iter().enumerate() {
+        let expected_group = &expected[start..start + size];
+        let group_max = expected_group
+            .iter()
+            .fold(0.0f64, |max, value| max.max(value.abs()));
+        for (index, (e, a)) in expected_group.iter().zip(&actual[start..]).enumerate() {
+            let difference = (a - e).abs();
+            let allowed = atol + rtol * e.abs() + group_rtol * group_max;
+            max_abs = max_abs.max(difference);
+            if e.abs() >= 1e-200 {
+                max_rel = max_rel.max(difference / e.abs());
+            }
+            worst_share = worst_share.max(difference / allowed);
+            if difference > allowed && first.is_none() {
+                first = Some((group, index, *e, *a));
+            }
+        }
+        start += size;
+    }
+    let class = match (first.is_none(), max_abs == 0.0) {
+        (true, true) => "EXACT",
+        (true, false) => "WITHIN_TOL",
+        _ => "EXCEEDS",
+    };
+    println!(
+        "DEVIATION\t{}\t{}\t{}\t{class}\t{max_abs:e}\t{max_rel:e}\t{}",
+        ctx.method,
+        ctx.piece,
+        ctx.file,
+        expected.len()
+    );
+    println!(
+        "CQT_LIMIT_SHARE\t{}\t{}\t{worst_share:.4}",
+        ctx.piece, ctx.file
+    );
+    if let Some((group, index, e, a)) = first {
+        panic!(
+            "[{} / {} / {}] first difference in group {group} at index {index}: expected {e:?}, actual {a:?}",
+            ctx.method, ctx.piece, ctx.file
+        );
+    }
+}
+
+fn assert_cqt_close(ctx: &Ctx, expected: &[f64], actual: &[f64], tolerances: &serde_json::Value) {
+    let limit = |key: &str| tolerances[key].as_f64().unwrap();
+    assert_group_scaled_close(
+        ctx,
+        expected,
+        actual,
+        &vec![N_BINS; expected.len() / N_BINS],
+        (
+            limit("features_rtol"),
+            limit("features_atol"),
+            limit("features_frame_max_rtol"),
+        ),
+    );
+}
+
+#[test]
+fn cqt_kernels_match_the_reference_octave_by_octave() {
+    for name in CQT_CASES {
+        let case = CqtCase::load(name);
+        let processor = case.processor();
+        let kernels = processor.kernels();
+        let ctx = |file: &str| Ctx::new("cqt", name, file);
+        let rows: Vec<f64> = kernels
+            .iter()
+            .map(|kernel| kernel.rows.len() as f64)
+            .collect();
+        assert_exact(
+            &ctx("kernel_octave_rows.npy"),
+            &case.array("kernel_octave_rows.npy"),
+            &rows,
+        );
+        let sizes: Vec<f64> = kernels.iter().map(|kernel| kernel.n_fft as f64).collect();
+        assert_exact(
+            &ctx("kernel_octave_n_fft.npy"),
+            &case.array("kernel_octave_n_fft.npy"),
+            &sizes,
+        );
+        let rates: Vec<f64> = kernels.iter().map(|kernel| kernel.sample_rate).collect();
+        assert_exact(
+            &ctx("kernel_octave_rate.npy"),
+            &case.array("kernel_octave_rate.npy"),
+            &rates,
+        );
+        let all_rows = || kernels.iter().flat_map(|kernel| &kernel.rows);
+        let support: Vec<f64> = all_rows().map(|row| row.bins.len() as f64).collect();
+        assert_exact(
+            &ctx("kernel_row_nnz.npy"),
+            &case.array("kernel_row_nnz.npy"),
+            &support,
+        );
+        let bins: Vec<f64> = all_rows()
+            .flat_map(|row| row.bins.iter().map(|&bin| bin as f64))
+            .collect();
+        assert_exact(
+            &ctx("kernel_indices.npy"),
+            &case.array("kernel_indices.npy"),
+            &bins,
+        );
+        let values = widen(all_rows().flat_map(|row| row.values.iter().flatten().copied()));
+        let tolerances = &case.meta["tolerances"];
+        let limit = |key: &str| tolerances[key].as_f64().unwrap();
+        let row_sizes: Vec<usize> = all_rows().map(|row| 2 * row.bins.len()).collect();
+        assert_group_scaled_close(
+            &ctx("kernel_values.npy"),
+            &case.array("kernel_values.npy"),
+            &values,
+            &row_sizes,
+            (
+                limit("kernel_rtol"),
+                limit("kernel_atol"),
+                limit("kernel_row_max_rtol"),
+            ),
+        );
+    }
+}
+
+#[test]
+fn cqt_rate_halving_matches_soxr_hq_stage_by_stage() {
+    for name in CQT_CASES {
+        let case = CqtCase::load(name);
+        let tolerances = &case.meta["tolerances"];
+        let mut input = case.samples[..case.whole_samples].to_vec();
+        for (index, resample) in case.meta["resamples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+        {
+            let factor = resample["factor"].as_u64().unwrap();
+            assert_eq!(factor, 2, "{name}: only halvings are generated");
+            assert_eq!(
+                input.len() as u64,
+                resample["input_length"].as_u64().unwrap()
+            );
+            let file = format!("decimated_{index}.npy");
+            let expected = case.array(&file);
+            assert_close(
+                &Ctx::new("cqt", name, &file),
+                &expected,
+                &widen(halve_rate(&input)),
+                tolerances["decimated_rtol"].as_f64().unwrap(),
+                tolerances["decimated_atol"].as_f64().unwrap(),
+            );
+            // The reference's own output feeds the next stage, so errors do not accumulate.
+            input = expected.into_iter().map(|value| value as f32).collect();
+        }
+    }
+}
+
+#[test]
+fn cqt_matches_reference_stream_and_whole_signal_features() {
+    for name in CQT_CASES {
+        let case = CqtCase::load(name);
+        let tolerances = &case.meta["tolerances"];
+        let mut processor = case.processor();
+        let (rows, times) = process_raw_spectrum_samples(
+            &mut processor,
+            &case.samples,
+            case.sample_rate,
+            case.hop_length,
+            2 * case.hop_length,
+        );
+        let expected = npy(case.directory.join("stream_features.npy"));
+        assert_eq!(expected.shape, [rows.len(), N_BINS], "{name} stream shape");
+        assert_cqt_close(
+            &Ctx::new("cqt", name, "stream_features.npy"),
+            &expected.values(),
+            &widen(rows.into_iter().flatten()),
+            tolerances,
+        );
+        assert_close(
+            &Ctx::new("cqt", name, "stream_times.npy"),
+            &case.array("stream_times.npy"),
+            &times,
+            0.0,
+            0.0,
+        );
+
+        let whole = processor
+            .transform(&case.samples[..case.whole_samples])
+            .unwrap();
+        let expected = npy(case.directory.join("whole_features.npy"));
+        assert_eq!(
+            expected.shape,
+            [whole.len(), N_BINS],
+            "{name} whole-signal shape"
+        );
+        assert_cqt_close(
+            &Ctx::new("cqt", name, "whole_features.npy"),
+            &expected.values(),
+            &widen(whole.into_iter().flatten()),
+            tolerances,
+        );
+    }
+}
+
+#[test]
+fn cqt_export_of_the_bundled_performance_matches_the_reference() {
+    let directory = golden("audio/processors/cqt/performance");
+    let meta = json(directory.join("meta.json"));
+    let output = std::env::temp_dir().join("matchmaker_golden_cqt_performance");
+    let _ = std::fs::remove_dir_all(&output);
+    write_cqt_features(
+        data("audio/simple_mozart_k265_var1_sf2.wav"),
+        &output,
+        meta["sample_rate"].as_u64().unwrap() as u32,
+        meta["hop_length"].as_u64().unwrap() as usize,
+    )
+    .unwrap();
+    let expected = npy(directory.join("stream_features.npy"));
+    let actual = npy(output.join("processor/cqt/features.npy"));
+    assert_eq!(actual.shape, expected.shape);
+    assert_eq!(
+        expected.shape[0] as u64,
+        meta["stream_frames"].as_u64().unwrap()
+    );
+    assert_cqt_close(
+        &Ctx::new("cqt", "performance", "stream_features.npy"),
+        &expected.values(),
+        &actual.values(),
+        &meta["tolerances"],
+    );
+    assert_close(
+        &Ctx::new("cqt", "performance", "stream_times.npy"),
+        &npy(directory.join("stream_times.npy")).values(),
+        &npy(output.join("processor/cqt/times.npy")).values(),
+        0.0,
+        0.0,
+    );
+}
+
+#[test]
+fn cqt_reset_preserves_its_stateless_output() {
+    let frame = AudioFrame {
+        index: 0,
+        samples: (0..2_940).map(|index| (index as f32 * 0.1).sin()).collect(),
+        perf_time: 0.25,
+    };
+    let mut processor = CqtProcessor::new(44_100, 1_470, Some(f64::INFINITY)).unwrap();
+    let first = processor.process(&frame).unwrap();
+    processor.reset();
+    assert_eq!(processor.process(&frame).unwrap(), first);
 }

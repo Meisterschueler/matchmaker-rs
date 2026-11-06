@@ -60,6 +60,45 @@ fn bench_accepts_raw_spectrum_with_explicit_hop_and_fft() {
 }
 
 #[test]
+fn bench_accepts_cqt_with_its_default_rates() {
+    let root_dir = root();
+    let dir = std::env::temp_dir().join("matchmaker_cli_bench_cqt");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = dir.join("audio.toml");
+    std::fs::write(
+        &manifest,
+        format!(
+            "[[pieces]]\ndataset = \"audio-cqt\"\npiece = \"mozart_cqt\"\n\
+             methods = [\"arzt\"]\ninput_type = \"audio\"\nprocessor = \"cqt\"\n\
+             score = \"{root_dir}/tests/data/simple_mozart_k265_var1.musicxml\"\n\
+             performance = \"{root_dir}/tests/data/audio/simple_mozart_k265_var1_sf2.wav\"\n\
+             soundfont = \"{root_dir}/target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2\"\n"
+        ),
+    )
+    .unwrap();
+    let out = dir.join("records.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("bench")
+        .arg(&manifest)
+        .arg("--out")
+        .arg(&out)
+        .args(["--runs", "1", "--methods", "arzt"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let records: serde_json::Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    let record = &records.as_array().unwrap()[0];
+    assert_eq!(record["processor"], "cqt");
+    assert_eq!(record["n_observations"], 226);
+    assert!(record["latency_ms"]["feature"]["median"].as_f64().unwrap() > 0.0);
+}
+
+#[test]
 fn bench_accepts_tempo_arzt_and_records_seeded_audio_metrics() {
     let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_tempo");
     std::fs::create_dir_all(&output).unwrap();

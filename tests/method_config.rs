@@ -79,6 +79,18 @@ fn audio_names_and_errors_are_input_specific() {
         "lse".parse::<AudioProcessorKind>().unwrap(),
         AudioProcessorKind::Lse
     );
+    assert_eq!(
+        "cqt".parse::<AudioProcessorKind>().unwrap(),
+        AudioProcessorKind::Cqt
+    );
+    assert_eq!(AudioProcessorKind::Cqt.name(), "cqt");
+    assert!(
+        "mel"
+            .parse::<AudioProcessorKind>()
+            .unwrap_err()
+            .to_string()
+            .contains("cqt")
+    );
 
     let method_error = "outerhmm".parse::<AudioMethod>().unwrap_err();
     assert!(matches!(method_error, Error::AudioConfig { .. }));

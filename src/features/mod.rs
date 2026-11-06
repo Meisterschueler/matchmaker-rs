@@ -15,6 +15,7 @@
 
 pub mod chord_onset;
 pub mod chroma;
+pub mod cqt;
 pub mod lse;
 pub mod pitch;
 pub mod raw_spectrum;

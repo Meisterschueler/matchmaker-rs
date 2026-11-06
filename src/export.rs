@@ -17,7 +17,9 @@ use serde_json::json;
 
 use crate::base::SkfStepDebug;
 use crate::error::{Error, Result};
-use crate::features::{AudioProcessor, Observation, raw_spectrum::RawSpectrumProcessor};
+use crate::features::{
+    AudioProcessor, Observation, cqt::CqtProcessor, raw_spectrum::RawSpectrumProcessor,
+};
 use crate::io::audio::AudioStream;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
 use crate::matchmaker::{AudioMatchmaker, AudioMethod, Matchmaker, Method, ProcessorKind};
@@ -642,8 +644,6 @@ pub fn write_audio_features(
     hop_length: usize,
     n_fft: usize,
 ) -> Result<()> {
-    let performance = performance.as_ref();
-    let dir = dir.as_ref();
     if sample_rate == 0 || hop_length == 0 || n_fft == 0 || n_fft < hop_length {
         return Err(Error::AudioConfig {
             key: "n_fft".into(),
@@ -652,44 +652,100 @@ pub fn write_audio_features(
                     .into(),
         });
     }
-    let mut stream = AudioStream::open(performance, sample_rate, hop_length, n_fft - hop_length)?;
+    write_features(
+        performance.as_ref(),
+        dir.as_ref(),
+        Extraction {
+            key: "raw_spectrum",
+            sample_rate,
+            hop_length,
+            cache_size: n_fft - hop_length,
+            n_fft: Some(n_fft),
+        },
+        &mut RawSpectrumProcessor::new(sample_rate, hop_length, n_fft),
+    )
+}
+
+/// Decode and export standalone constant-Q features using the existing audio stream.
+pub fn write_cqt_features(
+    performance: impl AsRef<Path>,
+    dir: impl AsRef<Path>,
+    sample_rate: u32,
+    hop_length: usize,
+) -> Result<()> {
+    let mut processor = CqtProcessor::new(sample_rate, hop_length, Some(f64::INFINITY))?;
+    write_features(
+        performance.as_ref(),
+        dir.as_ref(),
+        Extraction {
+            key: "cqt",
+            sample_rate,
+            hop_length,
+            cache_size: hop_length,
+            n_fft: None,
+        },
+        &mut processor,
+    )
+}
+
+struct Extraction {
+    key: &'static str,
+    sample_rate: u32,
+    hop_length: usize,
+    cache_size: usize,
+    n_fft: Option<usize>,
+}
+
+fn write_features(
+    performance: &Path,
+    dir: &Path,
+    extraction: Extraction,
+    processor: &mut dyn AudioProcessor,
+) -> Result<()> {
+    let Extraction {
+        key,
+        sample_rate,
+        hop_length,
+        cache_size,
+        n_fft,
+    } = extraction;
+    let mut stream = AudioStream::open(performance, sample_rate, hop_length, cache_size)?;
     let source_sample_rate = stream.source_sample_rate();
     let source_channels = stream.source_channels();
-    let mut processor = RawSpectrumProcessor::new(sample_rate, hop_length, n_fft);
-    stream.prime(&mut processor);
+    stream.prime(processor);
     let mut outputs = Vec::new();
     for frame in stream {
         outputs.push(
             processor
                 .process(&frame)
                 .ok_or_else(|| Error::AudioConfig {
-                    key: "raw_spectrum".into(),
+                    key: key.into(),
                     reason: "failed to process a complete audio frame".into(),
                 })?,
         );
     }
     let output_refs: Vec<&Observation> = outputs.iter().collect();
-    observations(&dir.join("processor/raw_spectrum"), "", &output_refs)?;
+    observations(&dir.join("processor").join(key), "", &output_refs)?;
     let frame_times: Vec<f64> = outputs.iter().map(|output| output.perf_time).collect();
     f8(
         &dir.join("audio/frame_times.npy"),
         &[frame_times.len()],
         frame_times.iter().copied(),
     )?;
-    write_json(
-        &dir.join("audio/meta.json"),
-        &json!({
-            "generator": "matchmaker-rs feature export",
-            "performance": performance.to_string_lossy(),
-            "processor": "raw_spectrum",
-            "source_sample_rate": source_sample_rate,
-            "source_channels": source_channels,
-            "sample_rate": sample_rate,
-            "hop_length": hop_length,
-            "n_fft": n_fft,
-            "frames": frame_times.len(),
-        }),
-    )
+    let mut meta = json!({
+        "generator": "matchmaker-rs feature export",
+        "performance": performance.to_string_lossy(),
+        "processor": key,
+        "source_sample_rate": source_sample_rate,
+        "source_channels": source_channels,
+        "sample_rate": sample_rate,
+        "hop_length": hop_length,
+        "frames": frame_times.len(),
+    });
+    if let Some(n_fft) = n_fft {
+        meta["n_fft"] = json!(n_fft);
+    }
+    write_json(&dir.join("audio/meta.json"), &meta)
 }
 
 /// Write audio ground-truth metrics and identify the direct TSV used to compute them.

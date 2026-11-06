@@ -256,6 +256,43 @@ def test_raw_spectrum_audio_following_with_compatible_hop():
     assert mm.score_follower.alignment_path.shape == (2, len(positions))
 
 
+def test_cqt_extraction_returns_88_bins_and_rejects_foreign_options():
+    features, times = matchmaker_rs.extract_audio_features(str(PERFORMANCE), "cqt")
+    assert features.dtype == np.float32
+    assert features.shape == (227, 88)
+    assert np.isfinite(features).all() and (features >= 0).all()
+    assert times.dtype == np.float64
+    assert times.shape == (227,)
+
+    overridden, _ = matchmaker_rs.extract_audio_features(
+        str(PERFORMANCE), "cqt", {"sample_rate": 44_100, "hop_length": 735}
+    )
+    assert overridden.shape[1] == 88 and overridden.shape[0] > features.shape[0]
+    with pytest.raises(ValueError, match="n_fft"):
+        matchmaker_rs.extract_audio_features(str(PERFORMANCE), "cqt", {"n_fft": 512})
+    with pytest.raises(ValueError, match="sample_rate"):
+        matchmaker_rs.extract_audio_features(str(PERFORMANCE), "cqt", {"sample_rate": 8_000})
+    with pytest.raises(ValueError, match="unknown audio processor"):
+        matchmaker_rs.extract_audio_features(str(PERFORMANCE), "mel")
+
+
+@pytest.mark.parametrize("method,steps", [("arzt", 226), ("dixon", 379)])
+def test_cqt_audio_following_yields_the_reference_step_count(method, steps):
+    mm = make_audio(method, processor="cqt")
+    positions = list(mm.run(verbose=False))
+    assert len(positions) == steps
+    assert all(np.isfinite(position) for position in positions)
+    assert mm.score_follower.alignment_path.shape == (2, steps)
+
+
+def test_cqt_rejects_incompatible_methods_and_filter_norms():
+    for method in ["arzt_tempo", "arzt_multi_fold", "skf"]:
+        with pytest.raises(ValueError, match="processor"):
+            make_audio(method, processor="cqt")
+    with pytest.raises(ValueError, match="norm"):
+        make_audio("arzt", processor="cqt", norm=2.0)
+
+
 def test_audio_skf_defaults_template_modes_and_errors():
     assert matchmaker_rs.DEFAULT_KWARGS["audio"]["skf"] == {
         "processor": "raw_spectrum",

@@ -30,8 +30,8 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `outerhmm` | MIDI | `pitch`, `chord_onset` | outer-product HMM with pitch-error model |
 | `arzt` | MIDI | `chord_onset`, `pitch` | event-level online time warping over the onset pianoroll |
 | `dixon` | MIDI | `chord_onset`, `pitch` | event-level online time warping with sparse path-normalized costs |
-| `arzt` | Audio | `chroma`, `lse`, `raw_spectrum` | frame-level online time warping; defaults to `chroma` at 30 fps |
-| `dixon` | Audio | `chroma`, `lse`, `raw_spectrum` | frame-level online time warping; defaults to `lse` at 50 fps |
+| `arzt` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt` | frame-level online time warping; defaults to `chroma` at 30 fps |
+| `dixon` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt` | frame-level online time warping; defaults to `lse` at 50 fps |
 | `arzt_tempo` | Audio | `chroma`, `lse` | seeded tempo-aware Arzt; defaults to `chroma` at 30 fps |
 | `arzt_multi_fold` | Audio | `chroma`, `lse` | parallel repeat hypotheses; defaults to `chroma` at 30 fps, 50-cost window and 5% switch margin |
 | `skf` | Audio | `raw_spectrum` | switching Kalman filter over chords with hidden tempo; 8000 Hz, hop 128, FFT 512 |
@@ -49,6 +49,10 @@ per chord. The template mode is explicit and recorded in the export (`score/meta
 The reference falls back to Gaussian peaks silently on any synthesis error; this port reports the
 error instead. See research R12 in
 [specs/004-audio-methods/research.md](specs/004-audio-methods/research.md).
+`cqt` is the magnitude of `librosa.cqt` over the 88 piano keys (A0 to C8). It keeps 44100 Hz and
+takes its hop from `frame_rate` (1470 for `arzt`, 882 for `dixon`); `norm` and `n_fft` are not
+options, and a configuration for which the reference would downsample by more than 2 before the
+transform (above about 70 kHz with a hop that is a multiple of 512) is rejected.
 Audio files support WAV, FLAC, MP3 and Ogg/Vorbis. For score synthesis, provision the pinned
 CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/README.md), then run:
 
@@ -56,11 +60,13 @@ CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/REA
 cargo run --release -p matchmaker-cli -- follow score.musicxml performance.wav --input-type audio --method arzt --soundfont-path target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2 --output path.tsv --export export/
 ```
 
-Standalone raw-spectrum extraction does not require a score or SoundFont. It defaults to 8000 Hz,
-hop 128, and FFT size 512; use `--sample-rate`, `--hop-length`, and `--n-fft` for overrides:
+Standalone feature extraction does not require a score or SoundFont. `raw_spectrum` defaults to
+8000 Hz, hop 128, and FFT size 512, `cqt` to 44100 Hz and hop 1470; use `--sample-rate`,
+`--hop-length`, and (`raw_spectrum` only) `--n-fft` for overrides:
 
 ```text
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor raw_spectrum --export target/raw-spectrum/
+cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor cqt --export target/cqt/
 ```
 
 Audio `--ground-truth` accepts a direct TSV with `perf_sec` and `score_beat` columns and writes
@@ -109,7 +115,7 @@ Standalone feature arrays and their timestamps are available without constructin
 ```python
 from matchmaker_rs import extract_audio_features
 
-features, times = extract_audio_features("performance.wav", "raw_spectrum")
+features, times = extract_audio_features("performance.wav", "raw_spectrum")  # or "cqt"
 ```
 
 ## Parity and accuracy
@@ -128,6 +134,10 @@ still frames per hop with a cache. Both conventions matter for level-sensitive p
 [specs/004-audio-methods/research.md](specs/004-audio-methods/research.md).
 Renderer metrics are checked separately from exact feature-replay parity, see
 [the audio contract](specs/004-audio-methods/contracts/audio-api.md).
+`cqt` features are compared with `|a - b| <= 1e-5 + 1e-5 * |ref| + 1e-5 * max(frame)`: the
+reference computes in `float32` and halves the sample rate with `soxr`, which leaves noise that
+scales with the largest bin of a frame and that an implementation that is not bit-identical cannot
+match per element. The deviation measured so far is below 3 % of that limit (research R13).
 
 ## Development
 
@@ -163,7 +173,7 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 ## Roadmap
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
-2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`; processors `lse`, `chroma`, `raw_spectrum` (implemented).
+2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`; processors `lse`, `chroma`, `raw_spectrum`, `cqt` (implemented).
 3. Later: remaining methods (audio `outerhmm`, `pfkorz`) and parangonar methods.
 
 ## Benchmark datasets

@@ -27,6 +27,7 @@ from matchmaker import Matchmaker
 from matchmaker.features.audio import (
     SAMPLE_RATE,
     ChromagramProcessor,
+    CQTProcessor,
     LogSpectralEnergyProcessor,
     RawSpectrumProcessor,
 )
@@ -304,6 +305,182 @@ def generate_raw_spectrum_goldens(output: Path) -> None:
         },
     )
     print("raw_spectrum/short: 0 frames (reference direct call rejects short input)")
+
+
+def stream_cqt(samples: np.ndarray, sample_rate: int, hop: int, norm=np.inf):
+    """Rows and timestamps the reference stream adapter yields for ``samples``.
+
+    ``CQTProcessor`` has no ``n_fft``, so the adapter caches one hop: every call sees two hops.
+    """
+    processor = CQTProcessor(sample_rate, hop, norm)
+    padded = np.pad(samples, (0, (-len(samples)) % hop), mode="constant")
+    cache = np.zeros(hop, dtype=np.float32)
+    rows, times = [], []
+    for chunk_index, chunk in enumerate(padded.reshape(-1, hop)):
+        block = np.concatenate((cache, chunk))
+        features, frame_time = processor((block, max(0, chunk_index - 1) * hop / sample_rate))
+        if chunk_index > 0:
+            rows.extend(features)
+            times.extend([float(frame_time)] * len(features))
+        cache = block[-hop:].copy()
+    return rows, times
+
+
+@contextmanager
+def record_cqt_stages():
+    """Capture the soxr outputs and sparse kernels of the reference ``librosa.cqt`` calls."""
+    from librosa.core import audio as librosa_audio
+    from librosa.core import constantq
+
+    stages = {"resample": [], "kernels": []}
+    original_resample = librosa_audio.resample
+    original_kernel = getattr(constantq, "__vqt_filter_fft")
+
+    def resample(y, *, orig_sr, target_sr, **kwargs):
+        out = original_resample(y, orig_sr=orig_sr, target_sr=target_sr, **kwargs)
+        stages["resample"].append(
+            {"factor": int(orig_sr // target_sr), "input_length": int(len(y)), "output": np.array(out, dtype=np.float32)}
+        )
+        return out
+
+    def kernel(sample_rate, *args, **kwargs):
+        basis, n_fft, lengths = original_kernel(sample_rate, *args, **kwargs)
+        csr = basis.tocsr()  # recorded before librosa rescales it for the downsampled rate
+        stages["kernels"].append(
+            {
+                "sample_rate": float(sample_rate),
+                "n_fft": int(n_fft),
+                "indptr": csr.indptr.copy(),
+                "indices": csr.indices.copy(),
+                "data": csr.data.copy(),
+            }
+        )
+        return basis, n_fft, lengths
+
+    librosa_audio.resample = resample
+    setattr(constantq, "__vqt_filter_fft", kernel)
+    try:
+        yield stages
+    finally:
+        librosa_audio.resample = original_resample
+        setattr(constantq, "__vqt_filter_fft", original_kernel)
+
+
+def generate_cqt_goldens(output: Path) -> None:
+    """Stream rows, whole-signal rows, soxr decimations and kernels of ``CQTProcessor``."""
+    base = output / "processors/cqt"
+    performance, performance_rate = sf.read(DEFAULT_PERFORMANCE, dtype=np.float32, always_2d=True)
+    performance = performance.mean(axis=1, dtype=np.float32)
+    assert performance_rate == 44_100
+    # Amended for cqt only (research R13): the reference's float32/soxr noise is amplified in the
+    # low bins, so a per-element limit also gets a frame-maximum (kernel: row-maximum) term.
+    tolerances = {
+        "features_rtol": 1e-5,
+        "features_atol": 1e-5,
+        "features_frame_max_rtol": 1e-5,
+        "decimated_rtol": 1e-5,
+        "decimated_atol": 1e-5,
+        "kernel_rtol": 1e-5,
+        "kernel_atol": 1e-5,
+        "kernel_row_max_rtol": 1e-5,
+    }
+
+    def tones(sample_rate: int, seconds: float, low: bool = False) -> np.ndarray:
+        times = np.arange(int(sample_rate * seconds), dtype=np.float64) / sample_rate
+        signal = (
+            0.35 * np.sin(2 * np.pi * 440.0 * times)
+            + 0.2 * np.sin(2 * np.pi * 659.2551138257398 * times)
+            + 0.1 * np.sin(2 * np.pi * 783.9908719634985 * times)
+        )
+        if low:
+            signal += 0.25 * np.sin(2 * np.pi * 110.0 * times)
+        return signal.astype(np.float32)
+
+    def write_case(name, samples, sample_rate, hop, whole_samples, norm=np.inf, what=""):
+        rows, times = stream_cqt(samples, sample_rate, hop, norm)
+        processor = CQTProcessor(sample_rate, hop, norm)
+        with record_cqt_stages() as stages:
+            whole, _ = processor((samples[:whole_samples], 0.0))
+        directory = base / name
+        write_array(directory / "input_samples.npy", samples, "<f4")
+        write_array(directory / "stream_features.npy", np.asarray(rows, dtype=np.float32).reshape(-1, 88), "<f4")
+        write_array(directory / "stream_times.npy", times, "<f8")
+        write_array(directory / "whole_features.npy", whole, "<f4")
+        for index, stage in enumerate(stages["resample"]):
+            write_array(directory / f"decimated_{index}.npy", stage["output"], "<f4")
+        kernels = stages["kernels"]
+        write_array(directory / "kernel_octave_rows.npy", [len(k["indptr"]) - 1 for k in kernels], "<i4")
+        write_array(directory / "kernel_octave_n_fft.npy", [k["n_fft"] for k in kernels], "<i4")
+        write_array(directory / "kernel_octave_rate.npy", [k["sample_rate"] for k in kernels], "<f8")
+        write_array(directory / "kernel_row_nnz.npy", np.concatenate([np.diff(k["indptr"]) for k in kernels]), "<i4")
+        write_array(directory / "kernel_indices.npy", np.concatenate([k["indices"] for k in kernels]), "<i4")
+        write_array(
+            directory / "kernel_values.npy",
+            np.concatenate([np.stack([k["data"].real, k["data"].imag], axis=1) for k in kernels]),
+            "<f4",
+        )
+        write_json(
+            directory / "meta.json",
+            {
+                "reference": reference_info(),
+                "generator": "tools/golden/generate_audio.py",
+                "processor": "cqt",
+                "description": what,
+                "sample_rate": sample_rate,
+                "hop_length": hop,
+                "norm": "inf" if norm == np.inf else norm,
+                "n_bins": 88,
+                "fmin_hz": float(librosa.note_to_hz("A0")),
+                "whole_samples": int(whole_samples),
+                "stream_frames": len(rows),
+                "whole_frames": int(len(whole)),
+                "resamples": [
+                    {"factor": s["factor"], "input_length": s["input_length"], "output_length": len(s["output"])}
+                    for s in stages["resample"]
+                ],
+                "librosa": librosa.__version__,
+                "soxr": __import__("soxr").__libsoxr_version__,
+                "tolerances": tolerances,
+            },
+        )
+        print(f"cqt/{name}: {len(rows)} stream rows, {len(whole)} whole rows, {len(kernels)} octaves, {len(stages['resample'])} decimations")
+
+    start = 22_050
+    write_case("default", performance[start : start + 35_280], 44_100, 1_470, 22_050, what="piano, 44.1 kHz, one decimation")
+    at_16k = librosa.resample(performance[start : start + 44_100], orig_sr=44_100, target_sr=16_000, res_type="soxr_hq")
+    write_case("override", at_16k[:12_800].astype(np.float32), 16_000, 640, 8_000, what="piano, 16 kHz, seven decimations")
+    write_case("tones", tones(44_100, 0.4), 44_100, 735, 17_640, what="odd hop: no decimation at all")
+    write_case("early", tones(44_100, 0.4, low=True), 44_100, 2_048, 17_640, what="hop 2048: early downsampling by 2")
+    write_case("norm2", tones(44_100, 0.25), 44_100, 735, 11_025, norm=2.0, what="filter norm 2 instead of infinity")
+    write_case("silent", np.zeros(4_410, dtype=np.float32), 44_100, 1_470, 4_410, what="digital silence")
+    short = (0.1 * np.sin(np.arange(100) * 0.3)).astype(np.float32)
+    write_case("short", short, 44_100, 1_470, 100, what="fewer samples than one hop: no row survives the edge trim")
+
+    # The whole bundled performance, rows only: `matchmaker features` exports of the same file are
+    # compared with these (tools/golden/compare.py); the WAV itself is the input.
+    rows, times = stream_cqt(performance, 44_100, 1_470)
+    directory = base / "performance"
+    write_array(directory / "stream_features.npy", np.asarray(rows, dtype=np.float32).reshape(-1, 88), "<f4")
+    write_array(directory / "stream_times.npy", times, "<f8")
+    write_json(
+        directory / "meta.json",
+        {
+            "reference": reference_info(),
+            "generator": "tools/golden/generate_audio.py",
+            "processor": "cqt",
+            "description": "bundled performance WAV, whole file; no input copy",
+            "input": "tests/data/audio/simple_mozart_k265_var1_sf2.wav",
+            "sample_rate": 44_100,
+            "hop_length": 1_470,
+            "norm": "inf",
+            "n_bins": 88,
+            "stream_frames": len(rows),
+            "librosa": librosa.__version__,
+            "soxr": __import__("soxr").__libsoxr_version__,
+            "tolerances": tolerances,
+        },
+    )
+    print(f"cqt/performance: {len(rows)} stream rows")
 
 
 # Frames whose full hypothesis state is stored for the real-score replay.
@@ -1081,6 +1258,11 @@ def main() -> None:
         help="generate raw-spectrum processor goldens without FluidSynth",
     )
     parser.add_argument(
+        "--cqt-only",
+        action="store_true",
+        help="generate cqt processor goldens (stream, whole-signal, soxr stages, kernels)",
+    )
+    parser.add_argument(
         "--skf-only",
         action="store_true",
         help="generate fixed-template SKF replays (needs FluidSynth and the pinned SoundFont)",
@@ -1177,6 +1359,9 @@ def main() -> None:
         return
     if args.raw_spectrum_only:
         generate_raw_spectrum_goldens(args.out.resolve())
+        return
+    if args.cqt_only:
+        generate_cqt_goldens(args.out.resolve())
         return
     if args.skf_only:
         soundfont = args.soundfont.resolve()

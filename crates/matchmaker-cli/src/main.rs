@@ -48,7 +48,7 @@ enum Command {
         /// Tempo in BPM (default: score marking, else 120)
         #[arg(long)]
         tempo: Option<f64>,
-        /// Feature processor: MIDI pitch/chord_onset or audio chroma/lse/raw_spectrum
+        /// Feature processor: MIDI pitch/chord_onset or audio chroma/lse/raw_spectrum/cqt
         #[arg(long)]
         processor: Option<String>,
         /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20;
@@ -107,21 +107,21 @@ enum Command {
     Features {
         /// Performance audio file.
         performance: PathBuf,
-        /// Audio feature processor.
+        /// Audio feature processor: raw_spectrum or cqt.
         #[arg(long)]
         processor: String,
         /// Directory for NumPy-readable feature and metadata exports.
         #[arg(long)]
         export: PathBuf,
-        /// Target sample rate in hertz.
-        #[arg(long, default_value_t = 8_000)]
-        sample_rate: u32,
-        /// Hop length in samples.
-        #[arg(long, default_value_t = 128)]
-        hop_length: usize,
-        /// FFT size in samples.
-        #[arg(long, default_value_t = 512)]
-        n_fft: usize,
+        /// Target sample rate in hertz (default: raw_spectrum 8000, cqt 44100).
+        #[arg(long)]
+        sample_rate: Option<u32>,
+        /// Hop length in samples (default: raw_spectrum 128, cqt 1470).
+        #[arg(long)]
+        hop_length: Option<usize>,
+        /// FFT size in samples (raw_spectrum only, default 512).
+        #[arg(long)]
+        n_fft: Option<usize>,
     },
 }
 
@@ -210,7 +210,7 @@ fn audio_config(
                 ConfigValue::Str(name) => {
                     selected_processor = Some(name.parse::<AudioProcessorKind>()?)
                 }
-                _ => anyhow::bail!("--set processor expects chroma, lse, or raw_spectrum"),
+                _ => anyhow::bail!("--set processor expects chroma, lse, raw_spectrum, or cqt"),
             }
         }
     }
@@ -492,17 +492,27 @@ fn main() -> Result<()> {
             hop_length,
             n_fft,
         } => {
-            anyhow::ensure!(
-                processor == "raw_spectrum",
-                "unknown audio processor {processor:?}"
-            );
-            matchmaker_rs::export::write_audio_features(
-                performance,
-                export,
-                sample_rate,
-                hop_length,
-                n_fft,
-            )?;
+            match processor.as_str() {
+                "raw_spectrum" => matchmaker_rs::export::write_audio_features(
+                    performance,
+                    export,
+                    sample_rate.unwrap_or(8_000),
+                    hop_length.unwrap_or(128),
+                    n_fft.unwrap_or(512),
+                )?,
+                "cqt" => {
+                    anyhow::ensure!(n_fft.is_none(), "--n-fft is only valid for raw_spectrum");
+                    matchmaker_rs::export::write_cqt_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(1_470),
+                    )?;
+                }
+                _ => anyhow::bail!(
+                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt"
+                ),
+            }
             Ok(())
         }
     }

@@ -53,6 +53,17 @@ score = "../../tests/data/simple_mozart_k265_var1.musicxml"
 performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
 
+# cqt keeps its own defaults (44100 Hz, hop 1470 for arzt, 882 for dixon); norm and n_fft are not options.
+[[pieces]]
+dataset = "audio-cqt"
+piece = "mozart_cqt"
+methods = ["arzt", "dixon"]
+input_type = "audio"
+processor = "cqt"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
 # skf follows chords, not a rendered score, so only a direct ground truth can judge it.
 [[pieces]]
 dataset = "audio-skf"

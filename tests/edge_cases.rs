@@ -14,7 +14,7 @@ use matchmaker_rs::export::write_audio_features;
 use matchmaker_rs::features::Observation;
 use matchmaker_rs::io::stream::MidiMessageKind;
 use matchmaker_rs::matchmaker::{
-    AudioMatchmaker, AudioMethod, AudioMethodConfig, Matchmaker, Method,
+    AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind, Matchmaker, Method,
 };
 use matchmaker_rs::performance::Performance;
 use matchmaker_rs::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
@@ -411,6 +411,48 @@ fn skf_reports_template_asset_errors_instead_of_falling_back() {
         Err(Error::AudioRender { .. })
     ));
     assert!(matches!(build(None), Err(Error::AudioConfig { .. })));
+}
+
+#[test]
+fn cqt_handles_short_silent_overrun_and_one_onset_scores() {
+    let soundfont = data(
+        "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2",
+    );
+    let short = audio_wav("cqt_short", 1, &[0; 100]);
+    let silent = audio_wav("cqt_silent", 1, &vec![0; 44_100]);
+    let empty = audio_wav("cqt_empty", 1, &[]);
+    let overrun = audio_melody_wav("cqt_overrun", 9);
+    let one_onset = midi_file("cqt_one_onset_score", &[(0, 60, 80), (480, 60, 0)]);
+    for method in [AudioMethod::Arzt, AudioMethod::Dixon] {
+        let make = |score: &PathBuf| {
+            let mut config = AudioMethodConfig::for_method(method);
+            config.set_processor(AudioProcessorKind::Cqt);
+            config.soundfont_path = Some(soundfont.clone());
+            if method == AudioMethod::Arzt {
+                AudioMatchmaker::new_arzt(score, config, None, true)
+            } else {
+                AudioMatchmaker::new_dixon(score, config, None, true)
+            }
+            .unwrap()
+        };
+        assert!(make(&data(SCORE)).run_file(&short).unwrap().is_empty());
+        let silent_positions = make(&data(SCORE)).run_file(&silent).unwrap();
+        assert!(!silent_positions.is_empty());
+        assert!(silent_positions.iter().all(|position| position.is_finite()));
+
+        let mut long_run = make(&data(SCORE));
+        let positions = long_run.run_file(&overrun).unwrap();
+        let last = *long_run.reference().frame_to_beat.last().unwrap();
+        assert!(
+            positions
+                .iter()
+                .all(|position| (0.0..=last).contains(position))
+        );
+        assert_eq!(long_run.reference().features[0].len(), 88);
+
+        let mut one = make(&one_onset);
+        assert!(one.run_file(&empty).unwrap().is_empty(), "{method:?}");
+    }
 }
 
 #[test]

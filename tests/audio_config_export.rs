@@ -4,7 +4,7 @@ mod common;
 
 use common::{data, npy};
 use matchmaker_rs::Error;
-use matchmaker_rs::export::{write_audio_evaluation, write_audio_run};
+use matchmaker_rs::export::{write_audio_evaluation, write_audio_run, write_cqt_features};
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind,
 };
@@ -94,6 +94,8 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
         (AudioMethod::ArztMultiFold, AudioProcessorKind::Chroma),
         (AudioMethod::ArztMultiFold, AudioProcessorKind::Lse),
         (AudioMethod::Arzt, AudioProcessorKind::RawSpectrum),
+        (AudioMethod::Arzt, AudioProcessorKind::Cqt),
+        (AudioMethod::Dixon, AudioProcessorKind::Cqt),
     ] {
         let mut config = AudioMethodConfig::for_method(method);
         config.set_processor(processor);
@@ -146,6 +148,102 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
         raw_tempo.validate(AudioMethod::ArztTempo),
         Err(Error::AudioConfig { key, .. }) if key == "processor"
     ));
+
+    let key_of = |config: &AudioMethodConfig, method| match config.validate(method) {
+        Err(Error::AudioConfig { key, .. }) => key,
+        other => panic!("expected an audio config error, got {other:?}"),
+    };
+    for method in [
+        AudioMethod::ArztTempo,
+        AudioMethod::ArztMultiFold,
+        AudioMethod::Skf,
+    ] {
+        let mut config = AudioMethodConfig::for_method(method);
+        config.set_processor(AudioProcessorKind::Cqt);
+        assert_eq!(key_of(&config, method), "processor", "{method:?}");
+    }
+    let mut cqt = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    cqt.set_processor(AudioProcessorKind::Cqt);
+    assert_eq!(cqt.norm, None);
+    cqt.norm = Some(f64::INFINITY);
+    assert_eq!(key_of(&cqt, AudioMethod::Arzt), "norm");
+    cqt.norm = None;
+    cqt.n_fft = Some(512);
+    assert_eq!(key_of(&cqt, AudioMethod::Arzt), "n_fft");
+}
+
+#[test]
+fn cqt_audio_follow_exports_88_feature_bins_for_performance_and_score() {
+    let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    config.set_processor(AudioProcessorKind::Cqt);
+    config.soundfont_path = Some(pinned_soundfont());
+    let mut matchmaker =
+        AudioMatchmaker::new_arzt(data("simple_mozart_k265_var1.musicxml"), config, None, true)
+            .unwrap()
+            .record();
+    matchmaker
+        .run_file(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .unwrap();
+
+    let output = std::env::temp_dir().join("matchmaker_audio_cqt_export");
+    let _ = std::fs::remove_dir_all(&output);
+    write_audio_run(&matchmaker, &output).unwrap();
+    let performance = npy(output.join("processor/cqt/features.npy"));
+    assert_eq!(
+        performance.shape,
+        [matchmaker.alignment_path().perf_time.len(), 88]
+    );
+    let score = npy(output.join("score/audio/features.npy"));
+    assert_eq!(score.shape[1], 88);
+    assert_eq!(
+        score.shape[0],
+        npy(output.join("score/audio/frame_to_beat.npy")).shape[0]
+    );
+    let read = |file: &str| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(output.join(file)).unwrap()).unwrap()
+    };
+    assert_eq!(read("score/meta.json")["processor"], "cqt");
+    assert!(read("audio/meta.json").get("n_fft").is_none());
+}
+
+#[test]
+fn cqt_extraction_exports_features_without_a_score_or_soundfont() {
+    let output = std::env::temp_dir().join("matchmaker_cqt_features_export");
+    let _ = std::fs::remove_dir_all(&output);
+    write_cqt_features(
+        data("audio/simple_mozart_k265_var1_sf2.wav"),
+        &output,
+        44_100,
+        1_470,
+    )
+    .unwrap();
+    assert_eq!(
+        npy(output.join("processor/cqt/features.npy")).shape,
+        [227, 88]
+    );
+    assert_eq!(npy(output.join("processor/cqt/times.npy")).shape, [227]);
+    assert_eq!(npy(output.join("audio/frame_times.npy")).shape, [227]);
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["processor"], "cqt");
+    assert_eq!(meta["sample_rate"], 44_100);
+    assert_eq!(meta["hop_length"], 1_470);
+    assert!(meta.get("n_fft").is_none());
+
+    let rejected = std::env::temp_dir().join("matchmaker_cqt_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    for (sample_rate, hop_length) in [(0, 1_470), (44_100, 0), (8_000, 128)] {
+        assert!(matches!(
+            write_cqt_features(
+                data("audio/simple_mozart_k265_var1_sf2.wav"),
+                &rejected,
+                sample_rate,
+                hop_length
+            ),
+            Err(Error::AudioConfig { .. })
+        ));
+    }
+    assert!(!rejected.exists());
 }
 
 #[test]

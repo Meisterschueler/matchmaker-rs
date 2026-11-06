@@ -74,6 +74,44 @@ fn features_command_exports_raw_spectrum_without_a_score_or_soundfont() {
 }
 
 #[test]
+fn features_command_exports_cqt_with_its_own_defaults_and_rejects_n_fft() {
+    let features = |extra: &[&str], output: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+            .arg("features")
+            .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+            .args(["--processor", "cqt", "--export"])
+            .arg(output)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let output = std::env::temp_dir().join("matchmaker_cli_cqt_features");
+    let _ = std::fs::remove_dir_all(&output);
+    let run = features(&[], &output);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(output.join("processor/cqt/features.npy").is_file());
+    assert!(output.join("processor/cqt/times.npy").is_file());
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(
+        (meta["sample_rate"].as_u64(), meta["hop_length"].as_u64()),
+        (Some(44_100), Some(1_470))
+    );
+    assert!(meta.get("n_fft").is_none());
+
+    let rejected = std::env::temp_dir().join("matchmaker_cli_cqt_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    let run = features(&["--n-fft", "512"], &rejected);
+    assert!(!run.status.success());
+    assert!(String::from_utf8_lossy(&run.stderr).contains("--n-fft"));
+    assert!(!rejected.exists());
+}
+
+#[test]
 fn audio_arzt_multi_fold_defaults_and_repeat_mode() {
     let defaults = follow_audio("arzt_multi_fold", &[]);
     assert!(
@@ -456,6 +494,40 @@ fn audio_dixon_defaults_and_output_path() {
     let invalid = follow_audio("dixon", &["--set", "max_run_count=0"]);
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("max_run_count"));
+}
+
+#[test]
+fn audio_followers_accept_the_cqt_processor_and_reject_incompatible_options() {
+    for (method, frames) in [("arzt", 226), ("dixon", 379)] {
+        let default = follow_audio(method, &["--processor", "cqt"]);
+        assert!(
+            default.status.success(),
+            "{method}: {}",
+            String::from_utf8_lossy(&default.stderr)
+        );
+        assert_eq!(positions(&default).len(), frames, "{method}");
+        let explicit = follow_audio(
+            method,
+            &["--set", "processor=cqt", "--set", "sample_rate=44100"],
+        );
+        assert_eq!(positions(&default), positions(&explicit), "{method}");
+    }
+    for (extra, key) in [
+        (vec!["--processor", "cqt", "--set", "norm=2"], "norm"),
+        (vec!["--processor", "cqt", "--set", "n_fft=512"], "n_fft"),
+    ] {
+        let invalid = follow_audio("arzt", &extra);
+        assert!(!invalid.status.success(), "{extra:?}");
+        assert!(
+            String::from_utf8_lossy(&invalid.stderr).contains(key),
+            "{extra:?}"
+        );
+    }
+    for method in ["arzt_tempo", "arzt_multi_fold", "skf"] {
+        let invalid = follow_audio(method, &["--processor", "cqt"]);
+        assert!(!invalid.status.success(), "{method}");
+        assert!(String::from_utf8_lossy(&invalid.stderr).contains("processor"));
+    }
 }
 
 #[test]

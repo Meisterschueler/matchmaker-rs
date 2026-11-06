@@ -40,6 +40,7 @@ PROCESSORS = {
     "ChromagramProcessor": "chroma",
     "LogSpectralEnergyProcessor": "lse",
     "RawSpectrumProcessor": "raw_spectrum",
+    "CQTProcessor": "cqt",
 }
 
 

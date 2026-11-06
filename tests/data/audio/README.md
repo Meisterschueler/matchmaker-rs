@@ -165,6 +165,20 @@ would do so silently here because Partitura's bundled MuseScore file is an empty
 (research R12). `tools/golden/compare.py tests/golden/audio/skf/bundled <export>` checks the
 template mode, chord model and templates of a `follow --method skf --export` run.
 
+### CQT references
+
+`tools/golden/generate_audio.py --cqt-only` (locked reference environment, no FluidSynth) writes
+`tests/golden/audio/processors/cqt/` (98 files, about 800 KB, deterministic): `default`
+(44.1 kHz, hop 1470), `override` (16 kHz, hop 640), `tones` (odd hop, no decimation), `early`
+(hop 2048, early downsampling), `norm2`, `silent`, `short`, and `performance` (the rows of the
+bundled performance WAV above, which is the input; no copy of the samples). The other cases store
+the stream rows, the whole-signal rows, the `soxr` decimation outputs and the sparse kernels of the
+reference octaves. The comparison limits, including the frame-maximum term that `float32` and
+`soxr` noise make necessary, are in research R13 of `specs/004-audio-methods` and in every
+`meta.json`. `tools/golden/compare.py tests/golden/audio/processors/cqt/performance <export>`
+checks the export of `matchmaker features tests/data/audio/simple_mozart_k265_var1_sf2.wav
+--processor cqt --export <dir>` against the reference rows.
+
 ### Rejected candidate
 
 GeneralUser GS 2.0.3 was considered at upstream commit

@@ -91,19 +91,19 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T034 [US5] Add SKF defaults (8000 Hz, hop=128, n_fft=512), raw_spectrum-only compatibility and construction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs, with typed invalid-input failures in src/error.rs.
 - [X] T035 [US5] Export beam weights/tempo moments/templates/mode in src/export.rs and compare in tools/golden/compare.py; cover short/one-onset/unstable-state and legacy exports in tests/audio_config_export.rs and tests/edge_cases.rs.
 - [X] T036 [US5] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for SKF feature/inference/full-pipeline metrics; document public examples, README.md and UPSTREAM.md.
-- [ ] T037 [US5] Run all quickstart gates, fixed-template limits and renderer metric limits; record asset/mode/hash/report/platform evidence in specs/004-audio-methods/research.md and create only C05 `feat(audio): add skf follower`; pause on unverified template mode.
+- [X] T037 [US5] Run all quickstart gates, fixed-template limits and renderer metric limits; record asset/mode/hash/report/platform evidence in specs/004-audio-methods/research.md and create only C05 `feat(audio): add skf follower`; pause on unverified template mode.
 
 ## Phase 8: US6 - cqt (P2, C06)
 
 **Goal**: Pure-Rust reference-compatible constant-Q features.
 **Independent test**: 88 bins, norm, complex magnitude, edge trim and rate/hop overrides.
 
-- [ ] T038 [US6] Evaluate maintained pure-Rust CQT alternatives and record version/license/MSRV/WASM/parity evidence in specs/004-audio-methods/research.md; generate small reference probes with tools/golden/generate_audio.py and tests/golden/audio/ before choosing a targeted kernel port or Cargo.toml dependency (FR-006, FR-021).
-- [ ] T039 [US6] Add failing cqt probes/default/rate/hop/trim/norm tests in tests/golden_audio_processors.rs and compatible follower/extraction tests in tests/audio_config_export.rs, crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py; failed probe blocks registration.
-- [ ] T040 [US6] Implement validated CQT in src/features/cqt.rs and src/features/mod.rs using the chosen parity-compatible approach; reuse existing FFT/resampling, preserve complex magnitude and [1:-1] trimming, and update Cargo.toml/deny.toml only if the audited candidate is selected.
-- [ ] T041 [US6] Enable only cqt current-story config, compatible frame-following and standalone extraction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; reject invalid rates/hops or unsupported pairs.
-- [ ] T042 [US6] Export CQT rows/config/timestamps in src/export.rs, diagnose first-difference bins/frames in tools/golden/compare.py, and cover short/empty/reset and dimension errors in tests/audio_config_export.rs and tests/edge_cases.rs.
-- [ ] T043 [US6] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for compatible CQT runs; document numeric/library decision, module examples, README.md and UPSTREAM.md.
+- [X] T038 [US6] Evaluate maintained pure-Rust CQT alternatives and record version/license/MSRV/WASM/parity evidence in specs/004-audio-methods/research.md; generate small reference probes with tools/golden/generate_audio.py and tests/golden/audio/ before choosing a targeted kernel port or Cargo.toml dependency (FR-006, FR-021).
+- [X] T039 [US6] Add failing cqt probes/default/rate/hop/trim/norm tests in tests/golden_audio_processors.rs and compatible follower/extraction tests in tests/audio_config_export.rs, crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py; failed probe blocks registration.
+- [X] T040 [US6] Implement validated CQT in src/features/cqt.rs and src/features/mod.rs using the chosen parity-compatible approach; reuse existing FFT/resampling, preserve complex magnitude and [1:-1] trimming, and update Cargo.toml/deny.toml only if the audited candidate is selected.
+- [X] T041 [US6] Enable only cqt current-story config, compatible frame-following and standalone extraction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; reject invalid rates/hops or unsupported pairs.
+- [X] T042 [US6] Export CQT rows/config/timestamps in src/export.rs, diagnose first-difference bins/frames in tools/golden/compare.py, and cover short/empty/reset and dimension errors in tests/audio_config_export.rs and tests/edge_cases.rs.
+- [X] T043 [US6] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for compatible CQT runs; document numeric/library decision, module examples, README.md and UPSTREAM.md.
 - [ ] T044 [US6] Run all quickstart gates including CQT numeric/MSRV/WASM/license proof, record evidence in specs/004-audio-methods/research.md, and create only C06 `feat(audio): add cqt processor`; no approximation, FFI, or tolerance weakening to bypass a failure.
 
 ## Phase 9: US7 - cqt_spectral_flux (P2, C07)

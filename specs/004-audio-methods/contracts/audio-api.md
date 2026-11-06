@@ -21,7 +21,7 @@ The direct KorzeniowskiAudioProcessor class defaults hop=512; the facade passes 
 | Key | Observation / defaults | Reference-critical operations |
 |---|---|---|
 | raw_spectrum | n_fft/2+1 bins; n_fft=512 | center=False STFT, magnitude, transposed float32 rows |
-| cqt | 88 bins A0-C8; norm=infinity | complex CQT magnitude, float32, drop first/last rows |
+| cqt | 88 bins A0-C8; norm=infinity, fixed (the facade forwards only sample_rate and hop, so `norm` and `n_fft` are rejected); 44100 Hz, hop floor(rate/frame_rate) | complex CQT magnitude, float32, drop first/last rows; a performance call sees two hops (cache of one hop) and yields one row, the score is one whole-signal call; stateless, reset is a no-op |
 | cqt_spectral_flux | 89 bins by default, 88 if flux disabled | same edge trim; positive matrix difference against previous call; first-call flux zero; inherited reset is a no-op |
 | mel | 128 mel bands; n_fft=2*hop; norm=infinity | center=False power spectrum, exact librosa mel bank/scaling |
 | mfcc | 13 coefficients; n_fft=2*hop; norm="backward" | exact locked librosa log-power/DCT normalization; error if reference default is unusable, never silently substitute |
@@ -30,6 +30,7 @@ The direct KorzeniowskiAudioProcessor class defaults hop=512; the facade passes 
 ## Compatibility and exposure
 
 - Vector processors are selectable on the already delivered Arzt/Dixon frame followers; tempo/multi-fold variants inherit only combinations whose reference construction/replay succeeds. Score and performance processing settings must match.
+- `cqt` runs on `arzt` and `dixon` only; `arzt_tempo` and `arzt_multi_fold` reject it until their replay evidence exists. A rate/hop pair for which the reference would downsample the input by more than 2 before the transform (above about 70 kHz with a hop that is a multiple of 512) is an `AudioConfig` error: the 2:1 decimator is the only factor ported (research R13).
 - SKF accepts raw_spectrum observations; Audio-OuterHMM accepts its CQT(+flux) layout; PF accepts structured Korzeniowski observations. Reject dimensionally or semantically incompatible pairs at construction.
 - SKF follows the score's chord sequence (not a rendered score), so its audio reference is empty and `window_size`, `distance_func`, `norm`, `step_size`, `max_run_count` are rejected. Its keys are the shared ones (`processor`=raw_spectrum, `sample_rate`, `hop_length`/`frame_rate`, `n_fft`, `soundfont_path`) plus `template_mode`; the beam width and noise scales are constructor arguments of the library type only, as in the reference registry.
 - CQT flux tests must capture inherited no-op reset and the score-to-performance matrix shape interaction. Fresh instances isolate separate runs. If the locked reference's default pipeline fails on those shapes, report a reference blocker rather than silently clearing history or fabricating successful goldens.
@@ -44,8 +45,8 @@ Cross-cutting for every audio method and processor; they follow the pinned refer
 
 | Convention | Contract | Replace in |
 |---|---|---|
-| Level | The rendered score is peak-normalized to 1.0 before padding/cropping (Partitura `synthesize_fluidsynth`). Unnormalized processors (`raw_spectrum`, later `mel`, `cqt`, ...) depend on it. A silent piece stays unchanged. | `normalize_level` in `src/score/audio.rs` |
-| Framing | Score features come from one whole-signal `center=False` pass: frame `j` covers `j*hop .. j*hop + n_fft`, no padding, trailing partial window dropped; chroma tuning is estimated once over the score; a score shorter than one window is an `AudioConfig` error. The performance stream is unaffected (cache of `n_fft - hop`, first block primed). | `extract_score_features` in `src/score/audio.rs` |
+| Level | The rendered score is peak-normalized to 1.0 before padding/cropping (Partitura `synthesize_fluidsynth`). Unnormalized processors (`raw_spectrum`, `cqt`, later `mel`, ...) depend on it. A silent piece stays unchanged. | `normalize_level` in `src/score/audio.rs` |
+| Framing | Score features come from one whole-signal `center=False` pass: frame `j` covers `j*hop .. j*hop + n_fft`, no padding, trailing partial window dropped; chroma tuning is estimated once over the score; a score shorter than one window is an `AudioConfig` error. The performance stream is unaffected (cache of `n_fft - hop`, first block primed). `cqt` is the exception: one centered whole-signal transform with the first and last frame dropped, so row `j` is centered on sample `(j + 1) * hop`; a score shorter than two hops is an `AudioConfig` error. | `extract_score_features` in `src/score/audio.rs` |
 
 Known deviation: Partitura divides by the peak of the last (track, channel) signal; Rust renders one mix, so multi-track scores are unverified. Replacing either function is allowed when the audio benchmark's parity against the reference stays within the limits below; research R11 records the alternatives that were weighed.
 
@@ -68,6 +69,7 @@ These are initial acceptance limits, declared before implementation; they are no
 | Names, shapes, counts, integer state indices, repeat selection with identical observations | EXACT |
 | Frame timestamps and deterministic alignment beats from identical references/observations | Absolute error <=1e-9 |
 | New float32 vector features | Per-element abs(a-b) <= 1e-5 + 1e-5*abs(reference) |
+| cqt float32 features (C06, reviewed design change, research R13) | Per-element abs(a-b) <= 1e-5 + 1e-5*abs(reference) + 1e-5*max(abs(reference frame)); sparse kernel coefficients: the same with the maximum of their row; the 2:1 decimation stage keeps the strict row above |
 | Deterministic float64 model diagnostics and structured fields with identical inputs/templates/draws | Per-element abs(a-b) <= 1e-9 + 1e-7*abs(reference) |
 | Ground-truth mapping and evaluation primitives on identical paths | Exact discrete mapping, floating metrics absolute error <=1e-9 |
 | Full pipeline with differing synthesizers | Absolute accuracy-rate difference <=0.01; absolute median beat-error difference <=0.01 beat; absolute p95 beat-error difference <=0.05 beat |
