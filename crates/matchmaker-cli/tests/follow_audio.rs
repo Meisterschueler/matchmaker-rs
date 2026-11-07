@@ -18,16 +18,302 @@ fn soundfont() -> PathBuf {
 }
 
 fn follow_audio(method: &str, extra: &[&str]) -> Output {
+    follow_audio_files(
+        &data("simple_mozart_k265_var1.musicxml"),
+        &data("audio/simple_mozart_k265_var1_sf2.wav"),
+        method,
+        extra,
+    )
+}
+
+fn follow_audio_files(
+    score: &std::path::Path,
+    performance: &std::path::Path,
+    method: &str,
+    extra: &[&str],
+) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_matchmaker"));
     command
         .arg("follow")
-        .arg(data("simple_mozart_k265_var1.musicxml"))
-        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .arg(score)
+        .arg(performance)
         .args(["--input-type", "audio", "--method", method])
         .arg("--soundfont-path")
         .arg(soundfont())
         .args(extra);
     command.output().unwrap()
+}
+
+#[test]
+fn features_command_exports_raw_spectrum_without_a_score_or_soundfont() {
+    let output = std::env::temp_dir().join("matchmaker_cli_raw_spectrum_features");
+    let _ = std::fs::remove_dir_all(&output);
+    let run = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("features")
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--processor", "raw_spectrum", "--export"])
+        .arg(&output)
+        .args([
+            "--sample-rate",
+            "44100",
+            "--hop-length",
+            "128",
+            "--n-fft",
+            "512",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(output.join("processor/raw_spectrum/features.npy").is_file());
+    assert!(output.join("processor/raw_spectrum/times.npy").is_file());
+    assert!(output.join("audio/meta.json").is_file());
+}
+
+#[test]
+fn features_command_exports_cqt_with_its_own_defaults_and_rejects_n_fft() {
+    let features = |extra: &[&str], output: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+            .arg("features")
+            .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+            .args(["--processor", "cqt", "--export"])
+            .arg(output)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let output = std::env::temp_dir().join("matchmaker_cli_cqt_features");
+    let _ = std::fs::remove_dir_all(&output);
+    let run = features(&[], &output);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(output.join("processor/cqt/features.npy").is_file());
+    assert!(output.join("processor/cqt/times.npy").is_file());
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(
+        (meta["sample_rate"].as_u64(), meta["hop_length"].as_u64()),
+        (Some(44_100), Some(1_470))
+    );
+    assert!(meta.get("n_fft").is_none());
+
+    let rejected = std::env::temp_dir().join("matchmaker_cli_cqt_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    let run = features(&["--n-fft", "512"], &rejected);
+    assert!(!run.status.success());
+    assert!(String::from_utf8_lossy(&run.stderr).contains("--n-fft"));
+    assert!(!rejected.exists());
+}
+
+#[test]
+fn features_command_exports_cqt_spectral_flux_with_an_optional_flux_column() {
+    let features = |processor: &str, extra: &[&str], output: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+            .arg("features")
+            .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+            .args(["--processor", processor, "--export"])
+            .arg(output)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let meta = |output: &std::path::Path| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap()
+    };
+    for (extra, include_flux) in [(vec![], true), (vec!["--no-spectral-flux"], false)] {
+        let output =
+            std::env::temp_dir().join(format!("matchmaker_cli_flux_features_{include_flux}"));
+        let _ = std::fs::remove_dir_all(&output);
+        let run = features("cqt_spectral_flux", &extra, &output);
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert!(
+            output
+                .join("processor/cqt_spectral_flux/features.npy")
+                .is_file()
+        );
+        assert!(
+            output
+                .join("processor/cqt_spectral_flux/times.npy")
+                .is_file()
+        );
+        let meta = meta(&output);
+        assert_eq!(meta["include_spectral_flux"], include_flux);
+        assert_eq!(
+            (meta["sample_rate"].as_u64(), meta["hop_length"].as_u64()),
+            (Some(44_100), Some(1_470))
+        );
+    }
+
+    let rejected = std::env::temp_dir().join("matchmaker_cli_flux_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    for (processor, extra, message) in [
+        ("cqt", vec!["--no-spectral-flux"], "--no-spectral-flux"),
+        ("cqt_spectral_flux", vec!["--n-fft", "512"], "--n-fft"),
+    ] {
+        let run = features(processor, &extra, &rejected);
+        assert!(!run.status.success(), "{processor} {extra:?}");
+        assert!(String::from_utf8_lossy(&run.stderr).contains(message));
+        assert!(!rejected.exists());
+    }
+}
+
+#[test]
+fn audio_arzt_multi_fold_defaults_and_repeat_mode() {
+    let defaults = follow_audio("arzt_multi_fold", &[]);
+    assert!(
+        defaults.status.success(),
+        "{}",
+        String::from_utf8_lossy(&defaults.stderr)
+    );
+    assert!(!positions(&defaults).is_empty());
+
+    let export = std::env::temp_dir().join("matchmaker_cli_audio_multi_fold_export");
+    let _ = std::fs::remove_dir_all(&export);
+    let export_arg = export.to_str().unwrap();
+    let repeat = follow_audio_files(
+        &data("fixture_repeats_voltas.musicxml"),
+        &data("audio/arzt_multi_fold/repeat_taken.wav"),
+        "arzt_multi_fold",
+        &["--no-unfold", "--export", export_arg],
+    );
+    assert!(
+        repeat.status.success(),
+        "{}",
+        String::from_utf8_lossy(&repeat.stderr)
+    );
+    let path = positions(&repeat);
+    assert!(!path.is_empty());
+    assert!(path.iter().all(|(_, beat)| (0.0..=14.0).contains(beat)));
+    for file in [
+        "arzt_multi_fold/hypothesis_metadata.json",
+        "arzt_multi_fold/selected_hypothesis.npy",
+        "arzt_multi_fold/candidate_current_frames.npy",
+        "arzt_multi_fold/candidate_local_costs.npy",
+        "arzt_multi_fold/candidate_mean_costs.npy",
+        "arzt_multi_fold/candidates/0/frame_to_unfolded_beat.npy",
+        "arzt_multi_fold/candidates/0/frame_to_notated_beat.npy",
+    ] {
+        assert!(
+            export.join(file).is_file(),
+            "missing multi-fold export {file}"
+        );
+    }
+    let metadata = std::fs::read_to_string(export.join("arzt_multi_fold/meta.json")).unwrap();
+    assert!(metadata.contains("\"selection_window\":50"));
+    assert!(metadata.contains("\"switch_margin\":0.05"));
+
+    for (parameter, value) in [
+        ("selection_window", "0"),
+        ("selection_window", "none"),
+        ("switch_margin", "1.1"),
+        ("switch_margin", "none"),
+    ] {
+        let invalid = follow_audio(
+            "arzt_multi_fold",
+            &["--set", &format!("{parameter}={value}")],
+        );
+        assert!(!invalid.status.success());
+        assert!(String::from_utf8_lossy(&invalid.stderr).contains(parameter));
+    }
+}
+
+#[test]
+fn audio_ground_truth_writes_reference_metric_json() {
+    let output = std::env::temp_dir().join("matchmaker_cli_audio_ground_truth");
+    let _ = std::fs::remove_dir_all(&output);
+    let ground_truth = data("audio/ground_truth/score_onsets.tsv");
+    let ground_truth = ground_truth.to_str().unwrap();
+    let output_dir = output.to_str().unwrap();
+    let run = follow_audio(
+        "arzt",
+        &["--ground-truth", ground_truth, "--export", output_dir],
+    );
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let actual: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("arzt/evaluation.json")).unwrap())
+            .unwrap();
+    let evaluation_meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("arzt/evaluation_meta.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        evaluation_meta["ground_truth_format"],
+        "perf_sec/score_beat TSV"
+    );
+    assert_eq!(evaluation_meta["ground_truth_path"], ground_truth);
+    let expected: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(data("../golden/audio/ground_truth/evaluation.json")).unwrap(),
+    )
+    .unwrap();
+    for key in [
+        "median_b",
+        "accuracy_0.05b",
+        "accuracy_0.1b",
+        "accuracy_0.3b",
+    ] {
+        assert!(
+            (actual[key].as_f64().unwrap() - expected[key].as_f64().unwrap()).abs() <= 0.01,
+            "{key}: actual {}, expected {}",
+            actual[key],
+            expected[key]
+        );
+    }
+}
+
+#[test]
+fn malformed_audio_ground_truth_does_not_overwrite_existing_output() {
+    let directory = std::env::temp_dir().join("matchmaker_cli_bad_audio_ground_truth");
+    std::fs::create_dir_all(&directory).unwrap();
+    let ground_truth = directory.join("malformed.tsv");
+    let output = directory.join("existing.tsv");
+    std::fs::write(&ground_truth, "wrong\theader\n0\t1\n").unwrap();
+    std::fs::write(&output, "preserve this file\n").unwrap();
+    let ground_truth_arg = ground_truth.to_str().unwrap();
+    let output_arg = output.to_str().unwrap();
+    let export_arg = directory.join("export").to_str().unwrap().to_owned();
+    let run = follow_audio(
+        "arzt",
+        &[
+            "--ground-truth",
+            ground_truth_arg,
+            "--output",
+            output_arg,
+            "--export",
+            &export_arg,
+        ],
+    );
+    assert!(!run.status.success());
+    assert_eq!(
+        std::fs::read_to_string(output).unwrap(),
+        "preserve this file\n"
+    );
+}
+
+#[test]
+fn audio_follow_rejects_note_id_match_ground_truth_without_midi_performance() {
+    let ground_truth = data("simple_mozart_k265_var1.match");
+    let ground_truth = ground_truth.to_str().unwrap();
+    let export = std::env::temp_dir().join("matchmaker_cli_audio_match_gt");
+    let export = export.to_str().unwrap().to_owned();
+    let run = follow_audio(
+        "arzt",
+        &["--ground-truth", ground_truth, "--export", &export],
+    );
+    assert!(!run.status.success());
+    assert!(String::from_utf8_lossy(&run.stderr).contains("separate MIDI performance"));
 }
 
 fn positions(output: &Output) -> Vec<(f64, f64)> {
@@ -38,6 +324,102 @@ fn positions(output: &Output) -> Vec<(f64, f64)> {
             (time.parse().unwrap(), beat.parse().unwrap())
         })
         .collect()
+}
+
+#[test]
+fn audio_skf_defaults_template_modes_and_parameter_errors() {
+    let defaults = follow_audio("skf", &[]);
+    assert!(
+        defaults.status.success(),
+        "{}",
+        String::from_utf8_lossy(&defaults.stderr)
+    );
+    assert!(!positions(&defaults).is_empty());
+
+    // Gaussian templates need no SoundFont and are recorded as such.
+    let export = std::env::temp_dir().join("matchmaker_cli_audio_skf_export");
+    let _ = std::fs::remove_dir_all(&export);
+    let gaussian = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("follow")
+        .arg(data("simple_mozart_k265_var1.musicxml"))
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--input-type", "audio", "--method", "skf", "--quiet"])
+        .args(["--set", "template_mode=gaussian", "--export"])
+        .arg(&export)
+        .output()
+        .unwrap();
+    assert!(
+        gaussian.status.success(),
+        "{}",
+        String::from_utf8_lossy(&gaussian.stderr)
+    );
+    for file in ["score/skf/templates.npy", "skf/state_probability.npy"] {
+        assert!(export.join(file).is_file(), "missing skf export {file}");
+    }
+    let meta = std::fs::read_to_string(export.join("score/meta.json")).unwrap();
+    assert!(meta.contains("\"template_mode\":\"gaussian\""));
+
+    for (extra, expected) in [
+        (vec!["--set", "template_mode=auto"], "template_mode"),
+        (vec!["--set", "window_size=5"], "not used by audio skf"),
+        (
+            vec!["--set", "distance_func=euclidean"],
+            "not used by audio skf",
+        ),
+        (vec!["--set", "step_size=3"], "step_size"),
+        (vec!["--set", "n_fft=64"], "n_fft"),
+        (vec!["--processor", "chroma"], "processor"),
+    ] {
+        let invalid = follow_audio("skf", &extra);
+        assert!(!invalid.status.success(), "{extra:?}");
+        assert!(
+            String::from_utf8_lossy(&invalid.stderr).contains(expected),
+            "{extra:?}: {}",
+            String::from_utf8_lossy(&invalid.stderr)
+        );
+    }
+    let no_soundfont = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("follow")
+        .arg(data("simple_mozart_k265_var1.musicxml"))
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--input-type", "audio", "--method", "skf"])
+        .output()
+        .unwrap();
+    assert!(!no_soundfont.status.success());
+    assert!(String::from_utf8_lossy(&no_soundfont.stderr).contains("soundfont_path"));
+}
+
+#[test]
+fn audio_arzt_tempo_defaults_seed_and_parameter_errors() {
+    let default = follow_audio("arzt_tempo", &[]);
+    assert!(
+        default.status.success(),
+        "{}",
+        String::from_utf8_lossy(&default.stderr)
+    );
+    assert!(!positions(&default).is_empty());
+    let explicit = follow_audio(
+        "arzt_tempo",
+        &[
+            "--processor",
+            "chroma",
+            "--set",
+            "random_seed=1984",
+            "--set",
+            "frame_rate=30",
+            "--set",
+            "step_size=3",
+        ],
+    );
+    assert!(
+        explicit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+    assert_eq!(positions(&default), positions(&explicit));
+    let invalid = follow_audio("arzt_tempo", &["--set", "random_seed=-1"]);
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("random_seed"));
 }
 
 #[test]
@@ -137,7 +519,7 @@ fn audio_dixon_defaults_and_output_path() {
         String::from_utf8_lossy(&default.stderr)
     );
     let printed = positions(&default);
-    assert_eq!(printed.len(), 379);
+    assert_eq!(printed.len(), 378);
 
     let explicit = follow_audio(
         "dixon",
@@ -168,6 +550,55 @@ fn audio_dixon_defaults_and_output_path() {
     let invalid = follow_audio("dixon", &["--set", "max_run_count=0"]);
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("max_run_count"));
+}
+
+#[test]
+fn audio_followers_accept_the_cqt_processor_and_reject_incompatible_options() {
+    for (method, frames) in [("arzt", 226), ("dixon", 379)] {
+        let default = follow_audio(method, &["--processor", "cqt"]);
+        assert!(
+            default.status.success(),
+            "{method}: {}",
+            String::from_utf8_lossy(&default.stderr)
+        );
+        assert_eq!(positions(&default).len(), frames, "{method}");
+        let explicit = follow_audio(
+            method,
+            &["--set", "processor=cqt", "--set", "sample_rate=44100"],
+        );
+        assert_eq!(positions(&default), positions(&explicit), "{method}");
+    }
+    for (extra, key) in [
+        (vec!["--processor", "cqt", "--set", "norm=2"], "norm"),
+        (vec!["--processor", "cqt", "--set", "n_fft=512"], "n_fft"),
+    ] {
+        let invalid = follow_audio("arzt", &extra);
+        assert!(!invalid.status.success(), "{extra:?}");
+        assert!(
+            String::from_utf8_lossy(&invalid.stderr).contains(key),
+            "{extra:?}"
+        );
+    }
+    for method in ["arzt_tempo", "arzt_multi_fold", "skf"] {
+        let invalid = follow_audio(method, &["--processor", "cqt"]);
+        assert!(!invalid.status.success(), "{method}");
+        assert!(String::from_utf8_lossy(&invalid.stderr).contains("processor"));
+    }
+}
+
+#[test]
+fn audio_followers_reject_cqt_spectral_flux_which_the_reference_cannot_follow_with() {
+    for method in ["arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf"] {
+        for extra in [
+            vec!["--processor", "cqt_spectral_flux"],
+            vec!["--set", "processor=cqt_spectral_flux"],
+        ] {
+            let invalid = follow_audio(method, &extra);
+            assert!(!invalid.status.success(), "{method} {extra:?}");
+            let message = String::from_utf8_lossy(&invalid.stderr);
+            assert!(message.contains("no frame follower"), "{method}: {message}");
+        }
+    }
 }
 
 #[test]

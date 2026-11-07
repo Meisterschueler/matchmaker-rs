@@ -97,6 +97,102 @@ is 1,340,698 bytes with SHA-256
 reference runs are checked in under `tests/golden/audio/`; metadata records
 FluidSynth, pymatchmaker, Partitura, and SoundFont versions/hashes.
 
+### Tempo-aware Arzt references
+
+`generate_audio.py --tempo-replay-only` writes fixed, synthetic feature-vector cases
+under `tests/golden/audio/tempo_replay/` (steady, accelerating, slowing). The cases
+record eight tempo-state columns, every MT19937 uniform draw, final altered score
+features/mapping, and exact reset reproducibility with seed 1984. They contain no
+third-party recording or SoundFont-derived samples.
+
+`generate_audio.py --arzt-tempo-only` writes separate Chroma/LSE references under
+`tests/golden/audio/tempo_pipeline/` using the existing verified WAV and SF2.
+Initial score frames and mappings are saved before the tempo model alters them.
+The same FluidSynth 2.6.2 archive pin above applies. On Windows, put its `bin`
+directory on PATH and in the DLL search path before importing Partitura.
+
+The Rust score renderer explicitly initializes CC91 to zero. The reference
+FluidSynth channel has CC91=0, whereas RustySynth initializes it to 40; accepting
+that default introduces additional reverb and changes the score reference.
+This is renderer calibration, not a relaxed test tolerance or a new native runtime dependency.
+
+The Rust score renderer also peak-normalizes the rendered score to 1.0, because
+Partitura's FluidSynth export does (`synthesize_fluidsynth` divides the piece by
+its peak). RustySynth returns its raw level (peak about 0.14), which is 17 dB below
+the reference in every band; chroma and LSE hide that through per-frame
+normalization, unnormalized features such as `raw_spectrum` do not. Score features
+are extracted in one whole-signal pass like the reference. Both conventions are
+documented, with their known limits, in research R11 of `specs/004-audio-methods`.
+
+### Repeat / volta audio fixtures
+
+`tests/data/fixture_repeats_voltas.musicxml` is a small hand-authored synthetic
+score. `tools/golden/generate_audio.py --multi-fold-only` renders its taken- and
+skipped-repeat variants with the pinned CC0 SoundFont above and records Partitura
+0.4.0 candidate/replay goldens under `tests/golden/audio/multi_fold/`.
+The score SHA-256 is `44E765CBD6CA3C48871123F290CC6B360234855C8599207DFC0D358B8809D4E9`.
+
+| File | Bytes | SHA-256 |
+|---|---:|---|
+| `arzt_multi_fold/repeat_taken.wav` | 2,134,498 | `F35C15390B45259DBAA9A72421FD0141871705749911496549DF497A18061F07` |
+| `arzt_multi_fold/repeat_skipped.wav` | 1,193,694 | `6F7D56C9D82778DCB10C8EE412C99F3EF6EE79EBA89AF9CCFE91F560CD97668E` |
+
+These are score-derived synthetic renders, not third-party recordings. Their
+metadata pins the source score hash, SoundFont hash, reference lock, and FluidSynth
+version. The matching `.tsv` files contain unique note-onset times and folded-score
+beats for metric evaluation, not one row for every intermediate audio frame.
+
+`ground_truth/score_onsets.tsv` is an eight-onset direct TSV fixture generated from
+the bundled score's locked-reference frame-to-beat mapping. Its score, performance,
+and CC0 SoundFont hashes and reference metric golden are under
+`tests/golden/audio/ground_truth/`.
+
+### SKF fixed-template replays
+
+`tools/golden/generate_audio.py --skf-only` (needs FluidSynth and the pinned SoundFont above)
+writes `tests/golden/audio/skf/` (about 420 KB, deterministic): `synthetic` (eight chords with
+Gaussian templates, a beam of 12 hypotheses, one silent and one half-negative frame), `override`
+(16 kHz, FFT 1024, hop 512), `one_chord`, and `bundled` (the bundled score with the reference's
+synthesized templates and 90 raw-spectrum frames of the bundled performance). Each case stores
+the inputs both sides consume (score table, templates, observations), the reference's chord
+sequence, positions, chord path and the hypotheses `(chord, age, probability, tempo mean and
+variance)` after selected frames, so `tests/golden_audio_skf.rs` isolates the recurrence from
+template synthesis. The `bundled` metadata records the SoundFont, performance and FluidSynth
+identities; its templates are the reference's float32-rounded spectra of chords rendered from the
+CC0 SF2 (derived spectra, no samples). The generator patches `partitura.save_wav_fluidsynth` with
+the pinned SF2 and fails if the reference falls back to Gaussian peaks: unpatched, the reference
+would do so silently here because Partitura's bundled MuseScore file is an empty placeholder
+(research R12). `tools/golden/compare.py tests/golden/audio/skf/bundled <export>` checks the
+template mode, chord model and templates of a `follow --method skf --export` run.
+
+### CQT references
+
+`tools/golden/generate_audio.py --cqt-only` (locked reference environment, no FluidSynth) writes
+`tests/golden/audio/processors/cqt/` (98 files, about 800 KB, deterministic): `default`
+(44.1 kHz, hop 1470), `override` (16 kHz, hop 640), `tones` (odd hop, no decimation), `early`
+(hop 2048, early downsampling), `norm2`, `silent`, `short`, and `performance` (the rows of the
+bundled performance WAV above, which is the input; no copy of the samples). The other cases store
+the stream rows, the whole-signal rows, the `soxr` decimation outputs and the sparse kernels of the
+reference octaves. The comparison limits, including the frame-maximum term that `float32` and
+`soxr` noise make necessary, are in research R13 of `specs/004-audio-methods` and in every
+`meta.json`. `tools/golden/compare.py tests/golden/audio/processors/cqt/performance <export>`
+checks the export of `matchmaker features tests/data/audio/simple_mozart_k265_var1_sf2.wav
+--processor cqt --export <dir>` against the reference rows.
+
+### CQT spectral-flux references
+
+`tools/golden/generate_audio.py --cqt-spectral-flux-only` (locked reference environment, no
+FluidSynth) writes `tests/golden/audio/processors/cqt_spectral_flux/` (36 files, about 420 KB,
+deterministic): `default` (piano, 44.1 kHz, hop 1470), `override` (16 kHz, hop 640, the
+Audio-OuterHMM rates), `melody` (synthetic repeated and changing pitches with silences, hop 882),
+`silent`, `short` and `performance` (the rows of the bundled WAV, no copy of the samples). Each
+case stores the stream rows (89 values, and 88 without flux for the first three), the dropped first
+call (flux 0) and a whole-signal call (a fresh processor, flux 0); `default` also records the
+lifecycle: `reset()` keeps the history, and a stream call after the whole-signal call fails with
+NumPy's broadcast error. The limit is the cqt one, with the frame maximum over the 88 bins.
+`compare.py tests/golden/audio/processors/cqt_spectral_flux/performance <export>` checks the export
+of `matchmaker features ... --processor cqt_spectral_flux --export <dir>`.
+
 ### Rejected candidate
 
 GeneralUser GS 2.0.3 was considered at upstream commit

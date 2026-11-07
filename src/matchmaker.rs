@@ -11,6 +11,7 @@
 //! # Ok::<(), matchmaker_rs::Error>(())
 //! ```
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
@@ -19,12 +20,15 @@ use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::dp::Distance;
 use crate::dp::arzt::{ArztEvent, ArztEventConfig};
 use crate::dp::arzt_frame::ArztFrame;
+use crate::dp::arzt_multi_fold::{ArztMultiFoldCandidate, ArztMultiFoldFrame};
+use crate::dp::arzt_tempo::ArztTempoFrame;
 use crate::dp::dixon::{DixonEvent, DixonEventConfig};
 use crate::dp::dixon_frame::DixonFrame;
 use crate::error::{Error, Result};
 use crate::features::{
     AudioProcessor, Observation, Processor, chord_onset::ChordOnsetProcessor,
-    chroma::ChromaProcessor, lse::LseProcessor, pitch::PitchProcessor,
+    chroma::ChromaProcessor, cqt::CqtProcessor, lse::LseProcessor, pitch::PitchProcessor,
+    raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioStream;
 use crate::io::stream::{Frame, MidiMessage};
@@ -32,6 +36,7 @@ use crate::performance::Performance;
 use crate::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
 use crate::prob::outerhmm::{OuterProductHmm, OuterProductHmmConfig};
 use crate::prob::pthmm::PitchHmm;
+use crate::prob::skf::{SkfConfig, SkfFollower, SkfScoreModel, TemplateMode};
 use crate::score::Score;
 use crate::score::audio::{ScoreAudioReference, build_reference};
 
@@ -123,17 +128,27 @@ pub enum AudioMethod {
     Arzt,
     /// Frame-level OLTW with a normalized sparse cost search.
     Dixon,
+    /// Seeded tempo-aware frame-level Arzt OLTW.
+    ArztTempo,
+    /// Parallel frame-level Arzt OLTW over repeat/unfolding hypotheses.
+    ArztMultiFold,
+    /// Switching Kalman filter over raw-spectrum observations with hidden tempo.
+    Skf,
 }
 
 impl AudioMethod {
     /// Reference names of the supported audio methods.
-    pub const AVAILABLE: [&'static str; 2] = ["arzt", "dixon"];
+    pub const AVAILABLE: [&'static str; 5] =
+        ["arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf"];
 
     /// Reference name of this method.
     pub fn name(self) -> &'static str {
         match self {
             AudioMethod::Arzt => "arzt",
             AudioMethod::Dixon => "dixon",
+            AudioMethod::ArztTempo => "arzt_tempo",
+            AudioMethod::ArztMultiFold => "arzt_multi_fold",
+            AudioMethod::Skf => "skf",
         }
     }
 }
@@ -145,6 +160,9 @@ impl FromStr for AudioMethod {
         match name {
             "arzt" => Ok(AudioMethod::Arzt),
             "dixon" => Ok(AudioMethod::Dixon),
+            "arzt_tempo" => Ok(AudioMethod::ArztTempo),
+            "arzt_multi_fold" => Ok(AudioMethod::ArztMultiFold),
+            "skf" => Ok(AudioMethod::Skf),
             _ => Err(Error::AudioConfig {
                 key: "method".into(),
                 reason: format!(
@@ -203,17 +221,23 @@ pub enum AudioProcessorKind {
     Chroma,
     /// Log-spectral energy onset feature.
     Lse,
+    /// Non-centered magnitude spectrum.
+    RawSpectrum,
+    /// Constant-Q magnitude over the 88 piano keys (88 features per frame).
+    Cqt,
 }
 
 impl AudioProcessorKind {
     /// Reference names of the supported audio processors.
-    pub const AVAILABLE: [&'static str; 2] = ["chroma", "lse"];
+    pub const AVAILABLE: [&'static str; 4] = ["chroma", "lse", "raw_spectrum", "cqt"];
 
     /// Reference name of this processor.
     pub fn name(self) -> &'static str {
         match self {
             AudioProcessorKind::Chroma => "chroma",
             AudioProcessorKind::Lse => "lse",
+            AudioProcessorKind::RawSpectrum => "raw_spectrum",
+            AudioProcessorKind::Cqt => "cqt",
         }
     }
 }
@@ -225,6 +249,15 @@ impl FromStr for AudioProcessorKind {
         match name {
             "chroma" => Ok(AudioProcessorKind::Chroma),
             "lse" => Ok(AudioProcessorKind::Lse),
+            "raw_spectrum" => Ok(AudioProcessorKind::RawSpectrum),
+            "cqt" => Ok(AudioProcessorKind::Cqt),
+            "cqt_spectral_flux" => Err(Error::AudioConfig {
+                key: "processor".into(),
+                reason: "cqt_spectral_flux has no frame follower: the reference keeps the rendered \
+                         score's CQT matrix as its flux history (reset is a no-op) and fails on the \
+                         first performance frame; use it for feature extraction"
+                    .into(),
+            }),
             _ => Err(Error::AudioConfig {
                 key: "processor".into(),
                 reason: format!(
@@ -275,6 +308,8 @@ pub struct AudioMethodConfig {
     pub hop_length: Option<usize>,
     /// Per-frame processor norm (`None` disables normalization; infinity is valid).
     pub norm: Option<f64>,
+    /// Raw-spectrum transform size; defaults to 512 for that processor.
+    pub n_fft: Option<usize>,
     /// Required local SF2 path for runtime score synthesis.
     pub soundfont_path: Option<std::path::PathBuf>,
     /// Search window in seconds.
@@ -287,33 +322,52 @@ pub struct AudioMethodConfig {
     pub max_run_count: Option<usize>,
     /// Local feature distance.
     pub distance_func: AudioDistance,
+    /// Explicit MT19937 seed for tempo-aware Arzt; invalid on deterministic frame methods.
+    pub random_seed: Option<u32>,
+    /// Number of recent frame costs used to select a repeat hypothesis.
+    pub selection_window: Option<usize>,
+    /// Relative improvement required to switch repeat hypotheses.
+    pub switch_margin: Option<f64>,
+    /// How `skf` obtains its spectral templates; invalid on the other methods.
+    pub template_mode: Option<TemplateMode>,
 }
 
 impl AudioMethodConfig {
     /// Reference defaults for the selected audio method.
     pub fn for_method(method: AudioMethod) -> Self {
-        let arzt = method == AudioMethod::Arzt;
-        let processor = if arzt {
+        let arzt = matches!(
+            method,
+            AudioMethod::Arzt | AudioMethod::ArztTempo | AudioMethod::ArztMultiFold
+        );
+        let skf = method == AudioMethod::Skf;
+        let processor = if skf {
+            AudioProcessorKind::RawSpectrum
+        } else if arzt {
             AudioProcessorKind::Chroma
         } else {
             AudioProcessorKind::Lse
         };
         Self {
             processor,
-            sample_rate: 44_100,
+            sample_rate: if skf { 8_000 } else { 44_100 },
             frame_rate: if arzt { 30 } else { 50 },
-            hop_length: None,
-            norm: Some(processor.default_norm()),
+            hop_length: skf.then_some(128),
+            norm: processor.default_norm(),
+            n_fft: skf.then_some(512),
             soundfont_path: None,
             window_size: 10.0,
             start_window_size: arzt.then_some(0.1),
             step_size: arzt.then_some(3),
-            max_run_count: (!arzt).then_some(3),
+            max_run_count: (!arzt && !skf).then_some(3),
             distance_func: if arzt {
                 AudioDistance::Manhattan
             } else {
                 AudioDistance::Euclidean
             },
+            random_seed: (method == AudioMethod::ArztTempo).then_some(1984),
+            selection_window: (method == AudioMethod::ArztMultiFold).then_some(50),
+            switch_margin: (method == AudioMethod::ArztMultiFold).then_some(0.05),
+            template_mode: skf.then_some(TemplateMode::Synthesized),
         }
     }
 
@@ -326,7 +380,8 @@ impl AudioMethodConfig {
     /// Set `norm` afterward to provide an explicit override.
     pub fn set_processor(&mut self, processor: AudioProcessorKind) {
         self.processor = processor;
-        self.norm = Some(processor.default_norm());
+        self.norm = processor.default_norm();
+        self.n_fft = (processor == AudioProcessorKind::RawSpectrum).then_some(512);
     }
 
     /// Validate shared audio values and method-specific parameter ranges.
@@ -344,6 +399,47 @@ impl AudioMethodConfig {
         if self.hop_length.is_none() && self.frame_rate == 0 {
             return Err(invalid("frame_rate", "must be at least 1 frame per second"));
         }
+        let hop_length = self
+            .hop_length
+            .unwrap_or((self.sample_rate / self.frame_rate.max(1)) as usize);
+        match self.processor {
+            AudioProcessorKind::RawSpectrum => {
+                if !matches!(
+                    method,
+                    AudioMethod::Arzt | AudioMethod::Dixon | AudioMethod::Skf
+                ) {
+                    return Err(invalid(
+                        "processor",
+                        "raw_spectrum is currently supported by audio arzt, dixon and skf",
+                    ));
+                }
+                let n_fft = self.n_fft.unwrap_or(512);
+                if self.norm.is_some() {
+                    return Err(invalid("norm", "raw_spectrum does not normalize features"));
+                }
+                if n_fft == 0 || n_fft < hop_length {
+                    return Err(invalid("n_fft", "must be at least hop_length"));
+                }
+            }
+            _ if method == AudioMethod::Skf => {
+                return Err(invalid("processor", "skf needs the raw_spectrum processor"));
+            }
+            _ if self.n_fft.is_some() => {
+                return Err(invalid("n_fft", "is only valid for raw_spectrum"));
+            }
+            AudioProcessorKind::Cqt => {
+                if !matches!(method, AudioMethod::Arzt | AudioMethod::Dixon) {
+                    return Err(invalid(
+                        "processor",
+                        "cqt is currently supported by audio arzt and dixon",
+                    ));
+                }
+                if self.norm.is_some() {
+                    return Err(invalid("norm", "cqt takes no norm through the facade"));
+                }
+            }
+            _ => {}
+        }
         if !self.window_size.is_finite() || self.window_size <= 0.0 {
             return Err(invalid(
                 "window_size",
@@ -353,8 +449,49 @@ impl AudioMethodConfig {
         if self.norm.is_some_and(|norm| norm.is_nan() || norm <= 0.0) {
             return Err(invalid("norm", "must be positive or None"));
         }
+        if self.random_seed.is_some() && method != AudioMethod::ArztTempo {
+            return Err(invalid("random_seed", "is only valid for audio arzt_tempo"));
+        }
+        if self.selection_window.is_some() && method != AudioMethod::ArztMultiFold {
+            return Err(invalid(
+                "selection_window",
+                "is only valid for audio arzt_multi_fold",
+            ));
+        }
+        if self.switch_margin.is_some() && method != AudioMethod::ArztMultiFold {
+            return Err(invalid(
+                "switch_margin",
+                "is only valid for audio arzt_multi_fold",
+            ));
+        }
+        if self.template_mode.is_some() != (method == AudioMethod::Skf) {
+            return Err(invalid(
+                "template_mode",
+                "is required for, and only valid on, audio skf",
+            ));
+        }
+        if self.selection_window == Some(0) {
+            return Err(invalid("selection_window", "must be at least 1"));
+        }
+        if self
+            .switch_margin
+            .is_some_and(|margin| !margin.is_finite() || !(0.0..=1.0).contains(&margin))
+        {
+            return Err(invalid(
+                "switch_margin",
+                "must be finite and between 0 and 1",
+            ));
+        }
+        if method == AudioMethod::ArztMultiFold
+            && (self.selection_window.is_none() || self.switch_margin.is_none())
+        {
+            return Err(invalid(
+                "selection_window/switch_margin",
+                "are required for audio arzt_multi_fold",
+            ));
+        }
         match method {
-            AudioMethod::Arzt => {
+            AudioMethod::Arzt | AudioMethod::ArztTempo | AudioMethod::ArztMultiFold => {
                 if self.max_run_count.is_some() {
                     return Err(invalid("max_run_count", "is only valid for audio dixon"));
                 }
@@ -382,16 +519,28 @@ impl AudioMethodConfig {
                     return Err(invalid("max_run_count", "must be at least 1"));
                 }
             }
+            AudioMethod::Skf => {
+                if self.max_run_count.is_some()
+                    || self.start_window_size.is_some()
+                    || self.step_size.is_some()
+                {
+                    return Err(invalid(
+                        "max_run_count/start_window_size/step_size",
+                        "are not used by audio skf",
+                    ));
+                }
+            }
         }
         Ok(())
     }
 }
 
 impl AudioProcessorKind {
-    fn default_norm(self) -> f64 {
+    fn default_norm(self) -> Option<f64> {
         match self {
-            AudioProcessorKind::Chroma => f64::INFINITY,
-            AudioProcessorKind::Lse => 2.0,
+            AudioProcessorKind::Chroma => Some(f64::INFINITY),
+            AudioProcessorKind::Lse => Some(2.0),
+            AudioProcessorKind::RawSpectrum | AudioProcessorKind::Cqt => None,
         }
     }
 }
@@ -840,6 +989,8 @@ pub struct AudioMatchmaker {
     config: AudioMethodConfig,
     tempo: f64,
     reference: ScoreAudioReference,
+    multi_fold_candidates: Vec<ArztMultiFoldCandidate>,
+    skf_model: Option<SkfScoreModel>,
     processor: Box<dyn AudioProcessor>,
     cache_size: usize,
     follower: Box<dyn OnlineAlignment>,
@@ -878,6 +1029,32 @@ impl AudioMatchmaker {
         Self::new_audio(score_path, AudioMethod::Arzt, config, tempo, unfold)
     }
 
+    /// Load a score and build its audio reference for seeded tempo-aware Arzt.
+    pub fn new_arzt_tempo(
+        score_path: impl AsRef<Path>,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        Self::new_audio(score_path, AudioMethod::ArztTempo, config, tempo, unfold)
+    }
+
+    /// Load a score and build parallel repeat hypotheses for audio `arzt_multi_fold`.
+    pub fn new_arzt_multi_fold(
+        score_path: impl AsRef<Path>,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        Self::new_audio(
+            score_path,
+            AudioMethod::ArztMultiFold,
+            config,
+            tempo,
+            unfold,
+        )
+    }
+
     /// Load a score and build its audio reference for the audio `dixon` method.
     pub fn new_dixon(
         score_path: impl AsRef<Path>,
@@ -888,6 +1065,16 @@ impl AudioMatchmaker {
         Self::new_audio(score_path, AudioMethod::Dixon, config, tempo, unfold)
     }
 
+    /// Load a score and build its chord and template model for the audio `skf` method.
+    pub fn new_skf(
+        score_path: impl AsRef<Path>,
+        config: AudioMethodConfig,
+        tempo: Option<f64>,
+        unfold: bool,
+    ) -> Result<Self> {
+        Self::new_audio(score_path, AudioMethod::Skf, config, tempo, unfold)
+    }
+
     fn new_audio(
         score_path: impl AsRef<Path>,
         method: AudioMethod,
@@ -896,13 +1083,9 @@ impl AudioMatchmaker {
         unfold: bool,
     ) -> Result<Self> {
         config.validate(method)?;
-        let soundfont_path = config
-            .soundfont_path
-            .as_ref()
-            .ok_or_else(|| Error::AudioConfig {
-                key: "soundfont_path".into(),
-                reason: "is required for score rendering".into(),
-            })?;
+        if method != AudioMethod::Skf {
+            required_soundfont(&config)?;
+        }
         let hop_length = config
             .hop_length
             .unwrap_or((config.sample_rate / config.frame_rate) as usize);
@@ -918,22 +1101,75 @@ impl AudioMatchmaker {
             score.tempo = Some(tempo);
         }
         let tempo = score.tempo.unwrap_or(DEFAULT_TEMPO);
-        let reference = build_reference(&score, soundfont_path, &config, method)?;
-        let follower: Box<dyn OnlineAlignment> = match method {
-            AudioMethod::Arzt => Box::new(ArztFrame::new(
-                reference.features.clone(),
-                reference.score_positions.clone(),
-                reference.frame_to_beat.clone(),
+        let (reference, follower, multi_fold_candidates, skf_model) = if method == AudioMethod::Skf
+        {
+            let (reference, follower, model) = skf_parts(&score, &config, tempo, hop_length)?;
+            (reference, follower, Vec::new(), Some(model))
+        } else if method == AudioMethod::ArztMultiFold {
+            let soundfont_path = required_soundfont(&config)?;
+            let mut candidates = Vec::new();
+            let mut references = Vec::new();
+            for (index, candidate_score) in score.multi_fold_variants()?.into_iter().enumerate() {
+                let reference = build_reference(&candidate_score, soundfont_path, &config, method)?;
+                let max_onset_beat = candidate_score
+                    .notes
+                    .iter()
+                    .map(|note| note.onset_beat)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                candidates.push(ArztMultiFoldCandidate {
+                    index,
+                    note_count: candidate_score.notes.len(),
+                    max_onset_beat,
+                    features: reference.features.clone(),
+                    score_positions: reference.score_positions.clone(),
+                    unfolded_frame_to_beat: reference.frame_to_beat.clone(),
+                    notated_frame_to_beat: multi_fold_frame_to_notated(
+                        &score,
+                        &candidate_score,
+                        &reference.frame_to_beat,
+                    ),
+                });
+                references.push(reference);
+            }
+            let reference = references.remove(0);
+            let follower = Box::new(ArztMultiFoldFrame::new(
+                candidates.clone(),
+                score.unique_onsets(),
                 config.clone(),
-            )?),
-            AudioMethod::Dixon => Box::new(DixonFrame::new(
-                reference.features.clone(),
-                reference.score_positions.clone(),
-                reference.frame_to_beat.clone(),
-                config.clone(),
-            )?),
+            )?);
+            (
+                reference,
+                follower as Box<dyn OnlineAlignment>,
+                candidates,
+                None,
+            )
+        } else {
+            let soundfont_path = required_soundfont(&config)?;
+            let reference = build_reference(&score, soundfont_path, &config, method)?;
+            let follower: Box<dyn OnlineAlignment> = match method {
+                AudioMethod::Arzt => Box::new(ArztFrame::new(
+                    reference.features.clone(),
+                    reference.score_positions.clone(),
+                    reference.frame_to_beat.clone(),
+                    config.clone(),
+                )?),
+                AudioMethod::Dixon => Box::new(DixonFrame::new(
+                    reference.features.clone(),
+                    reference.score_positions.clone(),
+                    reference.frame_to_beat.clone(),
+                    config.clone(),
+                )?),
+                AudioMethod::ArztTempo => Box::new(ArztTempoFrame::new(
+                    reference.features.clone(),
+                    reference.score_positions.clone(),
+                    reference.frame_to_beat.clone(),
+                    config.clone(),
+                )?),
+                AudioMethod::ArztMultiFold | AudioMethod::Skf => unreachable!("handled above"),
+            };
+            (reference, follower, Vec::new(), None)
         };
-        let (processor, cache_size) = make_audio_processor(&config, hop_length);
+        let (processor, cache_size) = make_audio_processor(&config, hop_length)?;
 
         Ok(Self {
             method,
@@ -941,6 +1177,8 @@ impl AudioMatchmaker {
             config,
             tempo,
             reference,
+            multi_fold_candidates,
+            skf_model,
             processor,
             cache_size,
             follower,
@@ -1041,6 +1279,16 @@ impl AudioMatchmaker {
         &self.reference
     }
 
+    /// Ordered candidate references for multi-fold Arzt, empty for other methods.
+    pub fn multi_fold_candidates(&self) -> &[ArztMultiFoldCandidate] {
+        &self.multi_fold_candidates
+    }
+
+    /// Chords, lengths and spectral templates of `skf`, `None` for the other methods.
+    pub fn skf_model(&self) -> Option<&SkfScoreModel> {
+        self.skf_model.as_ref()
+    }
+
     /// Alignment path so far.
     pub fn alignment_path(&self) -> &AlignmentPath {
         self.follower.alignment_path()
@@ -1058,11 +1306,121 @@ impl AudioMatchmaker {
     }
 }
 
+fn required_soundfont(config: &AudioMethodConfig) -> Result<&PathBuf> {
+    config
+        .soundfont_path
+        .as_ref()
+        .ok_or_else(|| Error::AudioConfig {
+            key: "soundfont_path".into(),
+            reason: "is required for score rendering".into(),
+        })
+}
+
+/// `skf` follows chords, not a rendered score: its reference is the chord and template model, so
+/// the audio reference stays empty apart from the onsets and rates.
+fn skf_parts(
+    score: &Score,
+    config: &AudioMethodConfig,
+    tempo: f64,
+    hop_length: usize,
+) -> Result<(ScoreAudioReference, Box<dyn OnlineAlignment>, SkfScoreModel)> {
+    let n_fft = config.n_fft.unwrap_or(512);
+    let mode = config.template_mode.unwrap_or(TemplateMode::Synthesized);
+    let model = SkfScoreModel::from_notes(
+        &score.notes,
+        n_fft,
+        config.sample_rate,
+        mode,
+        config.soundfont_path.as_deref(),
+    )?;
+    let follower = SkfFollower::new(
+        model.clone(),
+        SkfConfig {
+            tempo,
+            sample_rate: config.sample_rate,
+            n_fft,
+            hop_length,
+            ..SkfConfig::default()
+        },
+    )?;
+    let reference = ScoreAudioReference {
+        samples: Vec::new(),
+        features: Vec::new(),
+        frame_to_beat: Vec::new(),
+        score_positions: score.unique_onsets(),
+        sample_rate: config.sample_rate,
+        frame_rate: f64::from(config.sample_rate) / hop_length as f64,
+    };
+    Ok((
+        reference,
+        Box::new(follower) as Box<dyn OnlineAlignment>,
+        model,
+    ))
+}
+
+fn multi_fold_frame_to_notated(
+    input_score: &Score,
+    candidate_score: &Score,
+    frame_to_unfolded_beat: &[f64],
+) -> Vec<f64> {
+    let folded_beats: HashMap<&str, f64> = input_score
+        .notes
+        .iter()
+        .map(|note| (note.id.as_str(), f64::from(note.onset_beat)))
+        .collect();
+    let mut knots: Vec<(f64, f64)> = candidate_score
+        .notes
+        .iter()
+        .filter_map(|note| {
+            let id = strip_repeat_suffix(&note.id);
+            folded_beats
+                .get(id)
+                .map(|&notated| (f64::from(note.onset_beat), notated))
+        })
+        .collect();
+    knots.sort_by(|left, right| left.0.total_cmp(&right.0));
+    knots.dedup_by(|left, right| left.0 == right.0);
+    if knots.is_empty() {
+        return frame_to_unfolded_beat
+            .iter()
+            .map(|beat| f64::from(*beat as f32))
+            .collect();
+    }
+    frame_to_unfolded_beat
+        .iter()
+        .map(|&beat| {
+            let beat = f64::from(beat as f32);
+            let upper = knots.partition_point(|(unfolded, _)| *unfolded <= beat);
+            if upper == 0 {
+                return knots[0].1;
+            }
+            if upper == knots.len() {
+                return knots[knots.len() - 1].1;
+            }
+            let (left_beat, left_notated) = knots[upper - 1];
+            let (right_beat, right_notated) = knots[upper];
+            left_notated
+                + (right_notated - left_notated) * (beat - left_beat) / (right_beat - left_beat)
+        })
+        .collect()
+}
+
+fn strip_repeat_suffix(note_id: &str) -> &str {
+    match note_id.rsplit_once('-') {
+        Some((original, suffix))
+            if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            original
+        }
+        _ => note_id,
+    }
+}
+
 fn make_audio_processor(
     config: &AudioMethodConfig,
     hop_length: usize,
-) -> (Box<dyn AudioProcessor>, usize) {
-    match config.processor {
+) -> Result<(Box<dyn AudioProcessor>, usize)> {
+    Ok(match config.processor {
         AudioProcessorKind::Chroma => {
             let processor = ChromaProcessor::new(config.sample_rate, hop_length, config.norm);
             let cache_size = processor.n_fft().saturating_sub(hop_length);
@@ -1073,5 +1431,19 @@ fn make_audio_processor(
             let cache_size = processor.n_fft().saturating_sub(hop_length);
             (Box::new(processor), cache_size)
         }
-    }
+        AudioProcessorKind::RawSpectrum => {
+            let n_fft = config.n_fft.unwrap_or(512);
+            let processor = RawSpectrumProcessor::new(config.sample_rate, hop_length, n_fft);
+            (Box::new(processor), n_fft - hop_length)
+        }
+        // No `n_fft` attribute, so the reference's stream caches one hop: frames carry two.
+        AudioProcessorKind::Cqt => (
+            Box::new(CqtProcessor::new(
+                config.sample_rate,
+                hop_length,
+                Some(f64::INFINITY),
+            )?),
+            hop_length,
+        ),
+    })
 }

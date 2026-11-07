@@ -109,7 +109,7 @@ description: "Task list for audio online time warping"
 - [X] T032 [P] Add runnable documentation examples for audio stream, both processors, score audio, and frame followers in `src/io/audio.rs`, `src/features/chroma.rs`, `src/features/lse.rs`, `src/score/audio.rs`, `src/dp/arzt_frame.rs`, and `src/dp/dixon_frame.rs`.
 - [X] T033 [P] Update method/input tables, supported decoder formats, SoundFont setup, audio roadmap, and upstream module map in `README.md` and `UPSTREAM.md`.
 - [X] T034 Run the quickstart and the full Rust/Python, fmt, clippy, MSRV, WASM, cargo-deny, and benchmark gates; record any renderer or resampler parity deviations and metrics in `specs/003-audio-oltw/research.md` and fix regressions in the touched modules.
-- [ ] T035 Verify the benchmark runs at least five times on identical fixtures, reports any slowdown greater than 10% against the current baseline, and publishes only license-compliant derived metrics in `tools/bench/report.py` and `.github/workflows/benchmark.yml`.
+- [X] T035 Verify the benchmark runs at least five times on identical fixtures, reports any slowdown greater than 10% against the current baseline, and publishes only license-compliant derived metrics in `tools/bench/report.py` and `.github/workflows/benchmark.yml`.
 
 ## Dependencies & Execution Order
 

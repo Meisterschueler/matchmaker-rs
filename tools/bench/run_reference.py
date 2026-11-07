@@ -39,6 +39,8 @@ PROCESSORS = {
     "ChordOnsetProcessor": "chord_onset",
     "ChromagramProcessor": "chroma",
     "LogSpectralEnergyProcessor": "lse",
+    "RawSpectrumProcessor": "raw_spectrum",
+    "CQTProcessor": "cqt",
 }
 
 
@@ -100,6 +102,8 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
     records = []
 
     for method in methods:
+        if piece.get("methods") and method not in piece["methods"]:
+            continue
         kwargs = dict(matchmaker.DEFAULT_KWARGS["audio"][method])
         kwargs.update(piece.get("kwargs", {}))
         kwargs["soundfont_path"] = str(soundfont)
@@ -114,23 +118,34 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                     input_type="audio",
                     method=method,
                     kwargs=kwargs,
+                    unfold_score=piece.get("unfold_score", True),
                 )
                 processor = PROCESSORS[type(mm.processor).__name__]
+                frame_to_beat = mm.ref_frame_to_beat().copy()
+                tempo_model = getattr(mm.score_follower, "tempo_model", None)
+                if method == "arzt_tempo" and tempo_model is None:
+                    raise RuntimeError("arzt_tempo benchmark requires an active tempo model")
                 timed(mm.processor, feature, only_results=True)
                 timed(mm.score_follower, inference)
                 for _ in mm.run(verbose=False):
                     pass
             path = np.asarray(mm.score_follower.alignment_path, dtype=float).reshape(2, -1)
-            frame_to_beat = mm.ref_frame_to_beat()
             frame_indices = np.clip(path[0] * mm.frame_rate, 0, len(frame_to_beat) - 1)
-            expected_beats = np.interp(
-                frame_indices,
-                np.arange(len(frame_to_beat), dtype=float),
-                frame_to_beat,
-            )
-            evaluation = evaluate_alignment(
-                path[1], path[0], expected_beats, path[0]
-            )
+            if piece.get("ground_truth"):
+                gt_perf, gt_score = resolve_gt(
+                    str(base / piece["ground_truth"]),
+                    mm.score_part.note_array(),
+                )
+                evaluation = evaluate_alignment(path[1], path[0], gt_score, gt_perf)
+            else:
+                expected_beats = np.interp(
+                    frame_indices,
+                    np.arange(len(frame_to_beat), dtype=float),
+                    frame_to_beat,
+                )
+                evaluation = evaluate_alignment(
+                    path[1], path[0], expected_beats, path[0]
+                )
             if run == 0:
                 tsv = out_dir / "paths" / piece["dataset"] / piece["piece"] / f"{method}.tsv"
                 tsv.parent.mkdir(parents=True, exist_ok=True)
@@ -141,6 +156,11 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                 "implementation_version": matchmaker.__version__,
                 "input_type": "audio",
                 "method": method,
+                "random_seed": getattr(tempo_model, "random_seed", None),
+                "unfold_score": piece.get("unfold_score", True),
+                "candidate_count": len(mm.score_follower.hypotheses) if method == "arzt_multi_fold" else 0,
+                "selection_window": getattr(mm.score_follower, "selection_window", None),
+                "switch_margin": getattr(mm.score_follower, "switch_margin", None),
                 "processor": processor,
                 "dataset": piece["dataset"],
                 "piece": piece["piece"],
@@ -151,6 +171,8 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                 "total_processing_s": total,
                 "real_time_factor": total / duration if duration else None,
                 "evaluation": evaluation,
+                "ground_truth": bool(piece.get("ground_truth")),
+                "ground_truth_path": piece.get("ground_truth"),
                 "renderer": "FluidSynth",
                 "renderer_version": fluidsynth_version(),
                 "soundfont_sha256": soundfont_hash,

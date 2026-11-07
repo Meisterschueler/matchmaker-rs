@@ -15,8 +15,11 @@
 
 pub mod chord_onset;
 pub mod chroma;
+pub mod cqt;
+pub mod cqt_spectral_flux;
 pub mod lse;
 pub mod pitch;
+pub mod raw_spectrum;
 
 use crate::io::stream::Frame;
 

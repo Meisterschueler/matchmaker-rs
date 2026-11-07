@@ -7,16 +7,18 @@ mod common;
 
 use std::path::PathBuf;
 
-use common::data;
+use common::{data, npy};
 use matchmaker_rs::Error;
 use matchmaker_rs::base::OnlineAlignment;
+use matchmaker_rs::export::{write_audio_features, write_cqt_spectral_flux_features};
 use matchmaker_rs::features::Observation;
 use matchmaker_rs::io::stream::MidiMessageKind;
 use matchmaker_rs::matchmaker::{
-    AudioMatchmaker, AudioMethod, AudioMethodConfig, Matchmaker, Method,
+    AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind, Matchmaker, Method,
 };
 use matchmaker_rs::performance::Performance;
 use matchmaker_rs::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
+use matchmaker_rs::prob::skf::TemplateMode;
 use matchmaker_rs::score::Score;
 use midly::num::{u4, u7, u15, u28};
 use midly::{Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
@@ -287,15 +289,27 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
     let overrun = audio_melody_wav("audio_overrun", 30);
     let one_onset = midi_file("audio_one_onset_score", &[(0, 60, 80), (480, 60, 0)]);
 
-    for method in [AudioMethod::Arzt, AudioMethod::Dixon] {
+    for method in [
+        AudioMethod::Arzt,
+        AudioMethod::Dixon,
+        AudioMethod::ArztTempo,
+        AudioMethod::ArztMultiFold,
+    ] {
         let make = |score: &PathBuf| {
             let mut config = AudioMethodConfig::for_method(method);
             config.soundfont_path = Some(soundfont.clone());
             match method {
                 AudioMethod::Arzt => AudioMatchmaker::new_arzt(score, config, None, true).unwrap(),
+                AudioMethod::ArztTempo => {
+                    AudioMatchmaker::new_arzt_tempo(score, config, None, true).unwrap()
+                }
+                AudioMethod::ArztMultiFold => {
+                    AudioMatchmaker::new_arzt_multi_fold(score, config, None, true).unwrap()
+                }
                 AudioMethod::Dixon => {
                     AudioMatchmaker::new_dixon(score, config, None, true).unwrap()
                 }
+                AudioMethod::Skf => unreachable!("skf has its own edge-case test"),
             }
         };
 
@@ -309,16 +323,29 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
             "{method:?} produced a non-finite position"
         );
 
-        let mut long_run = make(&data(SCORE));
+        let mut long_run = make(&data(SCORE)).record();
         let long_positions = long_run.run_file(&overrun).unwrap();
         let frame_to_beat = &long_run.reference().frame_to_beat;
-        assert!(
-            long_positions.len() <= frame_to_beat.len(),
-            "{method:?}: {} positions for {} score frames; final beat {}",
-            long_positions.len(),
-            frame_to_beat.len(),
-            frame_to_beat.last().unwrap()
-        );
+        let reference_frames = long_run
+            .recording()
+            .and_then(|recording| recording.steps.last())
+            .and_then(|step| step.debug.tempo.as_ref())
+            .map_or(frame_to_beat.len(), |tempo| tempo.state[7] as usize);
+        if method == AudioMethod::ArztMultiFold {
+            assert_eq!(
+                long_positions.len(),
+                long_run.recording().unwrap().frame_times.len(),
+                "{method:?} must consume the complete performance"
+            );
+        } else {
+            assert!(
+                long_positions.len() <= reference_frames,
+                "{method:?}: {} positions for {} score frames; final beat {}",
+                long_positions.len(),
+                reference_frames,
+                frame_to_beat.last().unwrap()
+            );
+        }
         assert!(long_positions.iter().all(|position| {
             *position >= frame_to_beat[0]
                 && *position <= *frame_to_beat.last().expect("score frame beat map")
@@ -331,4 +358,181 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
         );
         assert!(one_onset_run.alignment_path().perf_time.is_empty());
     }
+}
+
+#[test]
+fn skf_handles_short_silent_overrun_and_one_onset_scores() {
+    let short = audio_wav("skf_short", 1, &[0; 100]);
+    let silent = audio_wav("skf_silent", 1, &vec![0; 44_100]);
+    let empty = audio_wav("skf_empty", 1, &[]);
+    let overrun = audio_melody_wav("skf_overrun", 30);
+    let one_onset = midi_file("skf_one_onset_score", &[(0, 60, 80), (480, 60, 0)]);
+    let make = |score: &PathBuf| {
+        let mut config = AudioMethodConfig::for_method(AudioMethod::Skf);
+        config.template_mode = Some(TemplateMode::Gaussian);
+        AudioMatchmaker::new_skf(score, config, None, true).unwrap()
+    };
+
+    assert!(make(&data(SCORE)).run_file(&short).unwrap().is_empty());
+    let last = f64::from(*make(&data(SCORE)).score_positions().last().unwrap());
+    for performance in [&silent, &overrun] {
+        let positions = make(&data(SCORE)).run_file(performance).unwrap();
+        assert!(!positions.is_empty());
+        assert!(
+            positions.iter().all(|p| (0.0..=last).contains(p)),
+            "position outside the score"
+        );
+    }
+    let first = make(&data(SCORE)).run_file(&overrun).unwrap();
+    assert_eq!(
+        first,
+        make(&data(SCORE)).run_file(&overrun).unwrap(),
+        "fresh runs share no state"
+    );
+
+    let mut one = make(&one_onset);
+    assert!(one.run_file(&empty).unwrap().is_empty());
+    assert!(one.alignment_path().perf_time.is_empty());
+    assert!(make(&one_onset).run_file(&overrun).unwrap().is_empty());
+}
+
+#[test]
+fn skf_reports_template_asset_errors_instead_of_falling_back() {
+    let missing = data("audio/does_not_exist.sf2");
+    let corrupt = temp_file("skf_corrupt.sf2", b"not a soundfont");
+    let build = |soundfont: Option<PathBuf>| {
+        let mut config = AudioMethodConfig::for_method(AudioMethod::Skf);
+        config.soundfont_path = soundfont;
+        AudioMatchmaker::new_skf(data(SCORE), config, None, true)
+    };
+    assert!(matches!(build(Some(missing)), Err(Error::Io { .. })));
+    assert!(matches!(
+        build(Some(corrupt)),
+        Err(Error::AudioRender { .. })
+    ));
+    assert!(matches!(build(None), Err(Error::AudioConfig { .. })));
+}
+
+#[test]
+fn cqt_handles_short_silent_overrun_and_one_onset_scores() {
+    let soundfont = data(
+        "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2",
+    );
+    let short = audio_wav("cqt_short", 1, &[0; 100]);
+    let silent = audio_wav("cqt_silent", 1, &vec![0; 44_100]);
+    let empty = audio_wav("cqt_empty", 1, &[]);
+    let overrun = audio_melody_wav("cqt_overrun", 9);
+    let one_onset = midi_file("cqt_one_onset_score", &[(0, 60, 80), (480, 60, 0)]);
+    for method in [AudioMethod::Arzt, AudioMethod::Dixon] {
+        let make = |score: &PathBuf| {
+            let mut config = AudioMethodConfig::for_method(method);
+            config.set_processor(AudioProcessorKind::Cqt);
+            config.soundfont_path = Some(soundfont.clone());
+            if method == AudioMethod::Arzt {
+                AudioMatchmaker::new_arzt(score, config, None, true)
+            } else {
+                AudioMatchmaker::new_dixon(score, config, None, true)
+            }
+            .unwrap()
+        };
+        assert!(make(&data(SCORE)).run_file(&short).unwrap().is_empty());
+        let silent_positions = make(&data(SCORE)).run_file(&silent).unwrap();
+        assert!(!silent_positions.is_empty());
+        assert!(silent_positions.iter().all(|position| position.is_finite()));
+
+        let mut long_run = make(&data(SCORE));
+        let positions = long_run.run_file(&overrun).unwrap();
+        let last = *long_run.reference().frame_to_beat.last().unwrap();
+        assert!(
+            positions
+                .iter()
+                .all(|position| (0.0..=last).contains(position))
+        );
+        assert_eq!(long_run.reference().features[0].len(), 88);
+
+        let mut one = make(&one_onset);
+        assert!(one.run_file(&empty).unwrap().is_empty(), "{method:?}");
+    }
+}
+
+#[test]
+fn invalid_raw_spectrum_export_preserves_existing_output() {
+    let output = std::env::temp_dir().join("matchmaker_invalid_raw_spectrum_export");
+    let _ = std::fs::remove_dir_all(&output);
+    std::fs::create_dir_all(&output).unwrap();
+    let sentinel = output.join("sentinel.txt");
+    std::fs::write(&sentinel, b"preserve").unwrap();
+
+    for (sample_rate, hop_length, n_fft) in [(0, 128, 512), (8_000, 0, 512), (8_000, 256, 128)] {
+        assert!(matches!(
+            write_audio_features(
+                data("audio/simple_mozart_k265_var1_sf2.wav"),
+                &output,
+                sample_rate,
+                hop_length,
+                n_fft,
+            ),
+            Err(Error::AudioConfig { .. })
+        ));
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve");
+    }
+    assert!(!output.join("audio/meta.json").exists());
+}
+
+#[test]
+fn cqt_spectral_flux_extraction_handles_short_silent_empty_and_long_performances() {
+    let extract = |performance: &PathBuf, name: &str| {
+        let output = std::env::temp_dir().join(format!("matchmaker_edge_flux_{name}"));
+        let _ = std::fs::remove_dir_all(&output);
+        write_cqt_spectral_flux_features(performance, &output, 44_100, 1_470, true).unwrap();
+        npy(output.join("processor/cqt_spectral_flux/features.npy"))
+    };
+    for (name, performance) in [
+        ("short", audio_wav("flux_short", 1, &[0; 100])),
+        ("empty", audio_wav("flux_empty", 1, &[])),
+    ] {
+        assert_eq!(extract(&performance, name).shape[0], 0, "{name}");
+    }
+
+    let silent = extract(&audio_wav("flux_silent", 1, &vec![0; 44_100]), "silent");
+    assert_eq!(silent.shape, [29, 89]);
+    assert!(silent.values().iter().all(|&value| value == 0.0));
+
+    // Tones change every half second: the flux rises there and stays quiet in between; two fresh
+    // extractions share no history.
+    let melody = audio_melody_wav("flux_melody", 9);
+    let features = extract(&melody, "melody");
+    assert_eq!(features.shape[1], 89);
+    let flux: Vec<f64> = features.values().chunks(89).map(|row| row[88]).collect();
+    assert!(flux.iter().all(|value| value.is_finite() && *value >= 0.0));
+    let peak = flux.iter().copied().fold(0.0, f64::max);
+    assert!(
+        flux.iter().filter(|&&value| value > 0.5 * peak).count() >= 8,
+        "an onset every 15 frames"
+    );
+    assert_eq!(features.values(), extract(&melody, "melody_again").values());
+}
+
+#[test]
+fn invalid_cqt_spectral_flux_export_preserves_existing_output() {
+    let output = std::env::temp_dir().join("matchmaker_invalid_cqt_spectral_flux_export");
+    let _ = std::fs::remove_dir_all(&output);
+    std::fs::create_dir_all(&output).unwrap();
+    let sentinel = output.join("sentinel.txt");
+    std::fs::write(&sentinel, b"preserve").unwrap();
+
+    for (sample_rate, hop_length) in [(0, 1_470), (44_100, 0), (8_000, 128)] {
+        assert!(matches!(
+            write_cqt_spectral_flux_features(
+                data("audio/simple_mozart_k265_var1_sf2.wav"),
+                &output,
+                sample_rate,
+                hop_length,
+                true,
+            ),
+            Err(Error::AudioConfig { .. })
+        ));
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve");
+    }
+    assert!(!output.join("audio/meta.json").exists());
 }

@@ -51,28 +51,6 @@ pub struct AudioStream {
 }
 
 impl AudioStream {
-    pub(crate) fn from_mono_samples(
-        samples: Vec<f32>,
-        sample_rate: u32,
-        hop_length: usize,
-        cache_size: usize,
-    ) -> Result<Self> {
-        if sample_rate == 0 {
-            return Err(audio_config("sample_rate", "must be at least 1 Hz"));
-        }
-        if hop_length == 0 {
-            return Err(audio_config("hop_length", "must be at least 1 sample"));
-        }
-        let (priming_frame, frames) = frame_samples(samples, sample_rate, hop_length, cache_size);
-        Ok(Self {
-            source_sample_rate: sample_rate,
-            source_channels: 1,
-            sample_rate,
-            priming_frame,
-            frames: frames.into_iter(),
-        })
-    }
-
     /// Decode an audio file and prepare its processor blocks.
     ///
     /// `target_sample_rate` and `hop_length` are positive values. `cache_size` is the number of

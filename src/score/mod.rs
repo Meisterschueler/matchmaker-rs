@@ -186,6 +186,49 @@ impl Score {
         onsets
     }
 
+    pub(crate) fn multi_fold_variants(&self) -> Result<Vec<Score>> {
+        let mut parts = Vec::new();
+        if let Ok(maximal) = unfold::unfold_part_maximal(&self.part) {
+            parts.push(maximal);
+        }
+        parts.push(self.part.clone());
+        if let Ok(variants) = unfold::iter_unfolded_parts(&self.part, 4) {
+            parts.extend(variants);
+        }
+
+        let mut seen = BTreeSet::new();
+        let mut scores = Vec::new();
+        for part in parts {
+            let notes = note_array(&part).map_err(|reason| Error::InvalidParameter {
+                key: "score".into(),
+                reason,
+            })?;
+            let Some(max_onset) = notes
+                .iter()
+                .map(|note| f64::from(note.onset_beat))
+                .reduce(f64::max)
+            else {
+                continue;
+            };
+            let key = (notes.len(), (max_onset * 100.0).round_ties_even() as i64);
+            if seen.insert(key) {
+                scores.push(Score {
+                    notes,
+                    tempo: self.tempo,
+                    unfolded: self.unfolded,
+                    part,
+                });
+            }
+        }
+        if scores.is_empty() {
+            return Err(Error::InvalidParameter {
+                key: "score".into(),
+                reason: "multi-fold candidates require at least one note".into(),
+            });
+        }
+        Ok(scores)
+    }
+
     /// Pitch set per unique onset (`get_chords_from_score`).
     pub fn chords(&self) -> Vec<BTreeSet<i32>> {
         let onsets = self.unique_onsets();

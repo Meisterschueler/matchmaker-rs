@@ -9,6 +9,13 @@ use std::path::PathBuf;
 use matchmaker_rs::Error;
 use matchmaker_rs::base::AlignmentPath;
 use matchmaker_rs::export::{write_audio_run, write_run};
+use matchmaker_rs::features::{
+    AudioProcessor,
+    cqt::{CqtProcessor, N_BINS},
+    cqt_spectral_flux::CqtSpectralFluxProcessor,
+    raw_spectrum::RawSpectrumProcessor,
+};
+use matchmaker_rs::io::audio::AudioStream;
 use matchmaker_rs::io::stream::MidiMessage;
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind, ConfigValue,
@@ -23,9 +30,127 @@ use pyo3::exceptions::{
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
+use pyo3::wrap_pyfunction;
 
 /// Reference tag the build was validated against (`tools/golden/pyproject.toml`).
 const REFERENCE_VERSION: &str = "v0.4.0";
+type ExtractedAudioFeatures<'py> = (Bound<'py, PyArray2<f32>>, Bound<'py, PyArray1<f64>>);
+
+#[pyfunction(signature = (performance_path, processor, kwargs=None))]
+fn extract_audio_features<'py>(
+    py: Python<'py>,
+    performance_path: PathBuf,
+    processor: &str,
+    kwargs: Option<&Bound<'py, PyDict>>,
+) -> PyResult<ExtractedAudioFeatures<'py>> {
+    let (raw_spectrum, flux) = match processor {
+        "raw_spectrum" => (true, false),
+        "cqt" => (false, false),
+        "cqt_spectral_flux" => (false, true),
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "unknown audio processor {processor:?}; available: ['raw_spectrum', 'cqt', 'cqt_spectral_flux']"
+            )));
+        }
+    };
+    let (mut sample_rate, mut hop_length, mut n_fft) = if raw_spectrum {
+        (8_000u32, 128usize, 512usize)
+    } else {
+        (44_100, 1_470, 0)
+    };
+    let mut include_flux = true;
+    if let Some(kwargs) = kwargs {
+        for (key, value) in kwargs.iter() {
+            let key = key.extract::<String>()?;
+            match key.as_str() {
+                "sample_rate" => {
+                    sample_rate = value.extract().map_err(|_| {
+                        PyValueError::new_err("sample_rate must be a positive integer")
+                    })?;
+                }
+                "hop_length" => {
+                    hop_length = value.extract().map_err(|_| {
+                        PyValueError::new_err("hop_length must be a positive integer")
+                    })?;
+                }
+                "n_fft" if raw_spectrum => {
+                    n_fft = value
+                        .extract()
+                        .map_err(|_| PyValueError::new_err("n_fft must be a positive integer"))?;
+                }
+                "include_spectral_flux" if flux => {
+                    include_flux = value.extract().map_err(|_| {
+                        PyValueError::new_err("include_spectral_flux must be a bool")
+                    })?;
+                }
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown {processor} option {key:?}"
+                    )));
+                }
+            }
+        }
+    }
+    if sample_rate == 0 {
+        return Err(PyValueError::new_err("sample_rate must be at least 1 Hz"));
+    }
+    if hop_length == 0 {
+        return Err(PyValueError::new_err(
+            "hop_length must be at least 1 sample",
+        ));
+    }
+    if raw_spectrum && (n_fft == 0 || n_fft < hop_length) {
+        return Err(PyValueError::new_err("n_fft must be at least hop_length"));
+    }
+
+    let (mut feature_processor, cache_size, bins): (Box<dyn AudioProcessor>, usize, usize) =
+        if raw_spectrum {
+            (
+                Box::new(RawSpectrumProcessor::new(sample_rate, hop_length, n_fft)),
+                n_fft - hop_length,
+                n_fft / 2 + 1,
+            )
+        } else if flux {
+            (
+                Box::new(
+                    CqtSpectralFluxProcessor::new(
+                        sample_rate,
+                        hop_length,
+                        Some(f64::INFINITY),
+                        include_flux,
+                    )
+                    .map_err(to_py_err)?,
+                ),
+                hop_length,
+                N_BINS + usize::from(include_flux),
+            )
+        } else {
+            (
+                Box::new(
+                    CqtProcessor::new(sample_rate, hop_length, Some(f64::INFINITY))
+                        .map_err(to_py_err)?,
+                ),
+                hop_length,
+                N_BINS,
+            )
+        };
+    let mut stream = AudioStream::open(&performance_path, sample_rate, hop_length, cache_size)
+        .map_err(to_py_err)?;
+    stream.prime(feature_processor.as_mut());
+    let mut features = Vec::new();
+    let mut times = Vec::new();
+    for frame in stream {
+        let output = feature_processor
+            .process(&frame)
+            .ok_or_else(|| PyRuntimeError::new_err("failed to process a complete audio frame"))?;
+        features.extend(output.features);
+        times.push(output.perf_time);
+    }
+    let features = Array2::from_shape_vec((times.len(), bins), features)
+        .expect("every processor produces one fixed-width vector per frame")
+        .into_pyarray(py);
+    Ok((features, times.into_pyarray(py)))
+}
 
 /// `AVAILABLE_METHODS["midi"]` formatted like a Python list.
 fn available_methods() -> String {
@@ -105,7 +230,7 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
 fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<Bound<'py, PyDict>> {
     let kwargs = PyDict::new(py);
     match method {
-        AudioMethod::Arzt => {
+        AudioMethod::Arzt | AudioMethod::ArztTempo | AudioMethod::ArztMultiFold => {
             kwargs.set_item("processor", "chroma")?;
             kwargs.set_item("sample_rate", 44_100)?;
             kwargs.set_item("frame_rate", 30)?;
@@ -122,6 +247,19 @@ fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<B
             kwargs.set_item("max_run_count", 3)?;
             kwargs.set_item("distance_func", "euclidean")?;
         }
+        AudioMethod::Skf => {
+            kwargs.set_item("processor", "raw_spectrum")?;
+            kwargs.set_item("sample_rate", 8_000)?;
+            kwargs.set_item("hop_length", 128)?;
+            kwargs.set_item("n_fft", 512)?;
+        }
+    }
+    if method == AudioMethod::ArztTempo {
+        kwargs.set_item("random_seed", 1984)?;
+    }
+    if method == AudioMethod::ArztMultiFold {
+        kwargs.set_item("selection_window", 50)?;
+        kwargs.set_item("switch_margin", 0.05)?;
     }
     Ok(kwargs)
 }
@@ -161,6 +299,12 @@ fn set_audio_config(
                 _ => Some(integer(&value)?),
             };
         }
+        "n_fft" => {
+            config.n_fft = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
         "norm" => {
             config.norm = match value {
                 ConfigValue::None => None,
@@ -173,6 +317,19 @@ fn set_audio_config(
                 _ => Some(number(&value)?),
             };
         }
+        "window_size" | "distance_func" if method == AudioMethod::Skf => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid audio parameter {key}"
+            )));
+        }
+        "template_mode" if method == AudioMethod::Skf => {
+            let ConfigValue::Str(value) = value else {
+                return Err(PyValueError::new_err(
+                    "Invalid audio parameter template_mode",
+                ));
+            };
+            config.template_mode = Some(value.parse().map_err(to_py_err)?);
+        }
         "window_size" => config.window_size = number(&value)?,
         "start_window_size" => {
             config.start_window_size = match value {
@@ -180,7 +337,12 @@ fn set_audio_config(
                 _ => Some(number(&value)?),
             };
         }
-        "step_size" if method == AudioMethod::Arzt => {
+        "step_size"
+            if matches!(
+                method,
+                AudioMethod::Arzt | AudioMethod::ArztTempo | AudioMethod::ArztMultiFold
+            ) =>
+        {
             config.step_size = match value {
                 ConfigValue::None => None,
                 _ => Some(integer(&value)?),
@@ -190,6 +352,24 @@ fn set_audio_config(
             config.max_run_count = match value {
                 ConfigValue::None => None,
                 _ => Some(integer(&value)?),
+            };
+        }
+        "random_seed" if method == AudioMethod::ArztTempo => {
+            config.random_seed = Some(
+                u32::try_from(integer(&value)?)
+                    .map_err(|_| PyValueError::new_err("Invalid audio parameter random_seed"))?,
+            );
+        }
+        "selection_window" if method == AudioMethod::ArztMultiFold => {
+            config.selection_window = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
+        "switch_margin" if method == AudioMethod::ArztMultiFold => {
+            config.switch_margin = match value {
+                ConfigValue::None => None,
+                _ => Some(number(&value)?),
             };
         }
         "distance_func" => {
@@ -355,10 +535,22 @@ fn new_audio_matchmaker(
         AudioMethod::Dixon => {
             AudioMatchmaker::new_dixon(&score_file, audio_config, tempo, unfold_score)
         }
+        AudioMethod::ArztTempo => {
+            AudioMatchmaker::new_arzt_tempo(&score_file, audio_config, tempo, unfold_score)
+        }
+        AudioMethod::ArztMultiFold => {
+            AudioMatchmaker::new_arzt_multi_fold(&score_file, audio_config, tempo, unfold_score)
+        }
+        AudioMethod::Skf => {
+            AudioMatchmaker::new_skf(&score_file, audio_config, tempo, unfold_score)
+        }
     }
     .map_err(to_py_err)?;
     let method_kind = match audio_method {
-        AudioMethod::Arzt => Method::Arzt,
+        AudioMethod::Arzt
+        | AudioMethod::ArztTempo
+        | AudioMethod::ArztMultiFold
+        | AudioMethod::Skf => Method::Arzt,
         AudioMethod::Dixon => Method::Dixon,
     };
 
@@ -607,6 +799,24 @@ impl PyMatchmaker {
                         self.tempo_arg,
                         self.unfold,
                     ),
+                    AudioMethod::ArztTempo => AudioMatchmaker::new_arzt_tempo(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                    AudioMethod::ArztMultiFold => AudioMatchmaker::new_arzt_multi_fold(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                    AudioMethod::Skf => AudioMatchmaker::new_skf(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
                 }
                 .map_err(to_py_err)?
                 .record();
@@ -777,10 +987,11 @@ impl ScoreFollower {
 fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     m.add_class::<PyMatchmaker>()?;
+    m.add_function(wrap_pyfunction!(extract_audio_features, m)?)?;
 
     let methods = PyDict::new(py);
     methods.set_item("midi", Method::AVAILABLE.to_vec())?;
-    methods.set_item("audio", vec!["arzt", "dixon"])?;
+    methods.set_item("audio", AudioMethod::AVAILABLE.to_vec())?;
     m.add("AVAILABLE_METHODS", methods)?;
 
     let defaults = PyDict::new(py);
