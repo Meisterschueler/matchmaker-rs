@@ -293,6 +293,38 @@ def test_cqt_rejects_incompatible_methods_and_filter_norms():
         make_audio("arzt", processor="cqt", norm=2.0)
 
 
+def test_cqt_spectral_flux_extraction_returns_89_or_88_columns():
+    features, times = matchmaker_rs.extract_audio_features(str(PERFORMANCE), "cqt_spectral_flux")
+    assert features.dtype == np.float32
+    assert features.shape == (227, 89)
+    assert np.isfinite(features).all() and (features >= 0).all()
+    assert features[0, 88] > 0  # the primed first call already set the history
+    assert times.shape == (227,)
+
+    plain, _ = matchmaker_rs.extract_audio_features(str(PERFORMANCE), "cqt")
+    without, _ = matchmaker_rs.extract_audio_features(
+        str(PERFORMANCE), "cqt_spectral_flux", {"include_spectral_flux": False}
+    )
+    assert without.shape == (227, 88)
+    np.testing.assert_array_equal(without, plain)
+    np.testing.assert_array_equal(features[:, :88], plain)
+
+    for processor, kwargs in [
+        ("cqt_spectral_flux", {"include_spectral_flux": 1}),
+        ("cqt", {"include_spectral_flux": False}),
+        ("cqt_spectral_flux", {"n_fft": 512}),
+        ("cqt_spectral_flux", {"sample_rate": 8_000}),
+    ]:
+        with pytest.raises(ValueError, match=next(iter(kwargs))):
+            matchmaker_rs.extract_audio_features(str(PERFORMANCE), processor, kwargs)
+
+
+def test_cqt_spectral_flux_has_no_frame_follower():
+    for method in ["arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf"]:
+        with pytest.raises(ValueError, match="no frame follower"):
+            make_audio(method, processor="cqt_spectral_flux")
+
+
 def test_audio_skf_defaults_template_modes_and_errors():
     assert matchmaker_rs.DEFAULT_KWARGS["audio"]["skf"] == {
         "processor": "raw_spectrum",

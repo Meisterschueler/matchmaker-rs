@@ -12,6 +12,7 @@ use matchmaker_rs::export::{write_audio_run, write_run};
 use matchmaker_rs::features::{
     AudioProcessor,
     cqt::{CqtProcessor, N_BINS},
+    cqt_spectral_flux::CqtSpectralFluxProcessor,
     raw_spectrum::RawSpectrumProcessor,
 };
 use matchmaker_rs::io::audio::AudioStream;
@@ -42,12 +43,13 @@ fn extract_audio_features<'py>(
     processor: &str,
     kwargs: Option<&Bound<'py, PyDict>>,
 ) -> PyResult<ExtractedAudioFeatures<'py>> {
-    let raw_spectrum = match processor {
-        "raw_spectrum" => true,
-        "cqt" => false,
+    let (raw_spectrum, flux) = match processor {
+        "raw_spectrum" => (true, false),
+        "cqt" => (false, false),
+        "cqt_spectral_flux" => (false, true),
         _ => {
             return Err(PyValueError::new_err(format!(
-                "unknown audio processor {processor:?}; available: ['raw_spectrum', 'cqt']"
+                "unknown audio processor {processor:?}; available: ['raw_spectrum', 'cqt', 'cqt_spectral_flux']"
             )));
         }
     };
@@ -56,6 +58,7 @@ fn extract_audio_features<'py>(
     } else {
         (44_100, 1_470, 0)
     };
+    let mut include_flux = true;
     if let Some(kwargs) = kwargs {
         for (key, value) in kwargs.iter() {
             let key = key.extract::<String>()?;
@@ -74,6 +77,11 @@ fn extract_audio_features<'py>(
                     n_fft = value
                         .extract()
                         .map_err(|_| PyValueError::new_err("n_fft must be a positive integer"))?;
+                }
+                "include_spectral_flux" if flux => {
+                    include_flux = value.extract().map_err(|_| {
+                        PyValueError::new_err("include_spectral_flux must be a bool")
+                    })?;
                 }
                 _ => {
                     return Err(PyValueError::new_err(format!(
@@ -101,6 +109,20 @@ fn extract_audio_features<'py>(
                 Box::new(RawSpectrumProcessor::new(sample_rate, hop_length, n_fft)),
                 n_fft - hop_length,
                 n_fft / 2 + 1,
+            )
+        } else if flux {
+            (
+                Box::new(
+                    CqtSpectralFluxProcessor::new(
+                        sample_rate,
+                        hop_length,
+                        Some(f64::INFINITY),
+                        include_flux,
+                    )
+                    .map_err(to_py_err)?,
+                ),
+                hop_length,
+                N_BINS + usize::from(include_flux),
             )
         } else {
             (

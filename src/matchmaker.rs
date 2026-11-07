@@ -251,6 +251,13 @@ impl FromStr for AudioProcessorKind {
             "lse" => Ok(AudioProcessorKind::Lse),
             "raw_spectrum" => Ok(AudioProcessorKind::RawSpectrum),
             "cqt" => Ok(AudioProcessorKind::Cqt),
+            "cqt_spectral_flux" => Err(Error::AudioConfig {
+                key: "processor".into(),
+                reason: "cqt_spectral_flux has no frame follower: the reference keeps the rendered \
+                         score's CQT matrix as its flux history (reset is a no-op) and fails on the \
+                         first performance frame; use it for feature extraction"
+                    .into(),
+            }),
             _ => Err(Error::AudioConfig {
                 key: "processor".into(),
                 reason: format!(

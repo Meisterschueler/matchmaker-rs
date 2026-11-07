@@ -179,6 +179,20 @@ reference octaves. The comparison limits, including the frame-maximum term that 
 checks the export of `matchmaker features tests/data/audio/simple_mozart_k265_var1_sf2.wav
 --processor cqt --export <dir>` against the reference rows.
 
+### CQT spectral-flux references
+
+`tools/golden/generate_audio.py --cqt-spectral-flux-only` (locked reference environment, no
+FluidSynth) writes `tests/golden/audio/processors/cqt_spectral_flux/` (36 files, about 420 KB,
+deterministic): `default` (piano, 44.1 kHz, hop 1470), `override` (16 kHz, hop 640, the
+Audio-OuterHMM rates), `melody` (synthetic repeated and changing pitches with silences, hop 882),
+`silent`, `short` and `performance` (the rows of the bundled WAV, no copy of the samples). Each
+case stores the stream rows (89 values, and 88 without flux for the first three), the dropped first
+call (flux 0) and a whole-signal call (a fresh processor, flux 0); `default` also records the
+lifecycle: `reset()` keeps the history, and a stream call after the whole-signal call fails with
+NumPy's broadcast error. The limit is the cqt one, with the frame maximum over the 88 bins.
+`compare.py tests/golden/audio/processors/cqt_spectral_flux/performance <export>` checks the export
+of `matchmaker features ... --processor cqt_spectral_flux --export <dir>`.
+
 ### Rejected candidate
 
 GeneralUser GS 2.0.3 was considered at upstream commit

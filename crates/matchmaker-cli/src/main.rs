@@ -107,21 +107,24 @@ enum Command {
     Features {
         /// Performance audio file.
         performance: PathBuf,
-        /// Audio feature processor: raw_spectrum or cqt.
+        /// Audio feature processor: raw_spectrum, cqt or cqt_spectral_flux.
         #[arg(long)]
         processor: String,
         /// Directory for NumPy-readable feature and metadata exports.
         #[arg(long)]
         export: PathBuf,
-        /// Target sample rate in hertz (default: raw_spectrum 8000, cqt 44100).
+        /// Target sample rate in hertz (default: raw_spectrum 8000, the others 44100).
         #[arg(long)]
         sample_rate: Option<u32>,
-        /// Hop length in samples (default: raw_spectrum 128, cqt 1470).
+        /// Hop length in samples (default: raw_spectrum 128, the others 1470).
         #[arg(long)]
         hop_length: Option<usize>,
         /// FFT size in samples (raw_spectrum only, default 512).
         #[arg(long)]
         n_fft: Option<usize>,
+        /// Leave out the flux column: 88 instead of 89 values (cqt_spectral_flux only).
+        #[arg(long)]
+        no_spectral_flux: bool,
     },
 }
 
@@ -491,7 +494,12 @@ fn main() -> Result<()> {
             sample_rate,
             hop_length,
             n_fft,
+            no_spectral_flux,
         } => {
+            anyhow::ensure!(
+                !no_spectral_flux || processor == "cqt_spectral_flux",
+                "--no-spectral-flux is only valid for cqt_spectral_flux"
+            );
             match processor.as_str() {
                 "raw_spectrum" => matchmaker_rs::export::write_audio_features(
                     performance,
@@ -509,8 +517,18 @@ fn main() -> Result<()> {
                         hop_length.unwrap_or(1_470),
                     )?;
                 }
+                "cqt_spectral_flux" => {
+                    anyhow::ensure!(n_fft.is_none(), "--n-fft is only valid for raw_spectrum");
+                    matchmaker_rs::export::write_cqt_spectral_flux_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(1_470),
+                        !no_spectral_flux,
+                    )?;
+                }
                 _ => anyhow::bail!(
-                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt"
+                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt, cqt_spectral_flux"
                 ),
             }
             Ok(())

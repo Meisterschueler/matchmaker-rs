@@ -4,7 +4,9 @@ mod common;
 
 use common::{data, npy};
 use matchmaker_rs::Error;
-use matchmaker_rs::export::{write_audio_evaluation, write_audio_run, write_cqt_features};
+use matchmaker_rs::export::{
+    write_audio_evaluation, write_audio_run, write_cqt_features, write_cqt_spectral_flux_features,
+};
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind,
 };
@@ -239,6 +241,52 @@ fn cqt_extraction_exports_features_without_a_score_or_soundfont() {
                 &rejected,
                 sample_rate,
                 hop_length
+            ),
+            Err(Error::AudioConfig { .. })
+        ));
+    }
+    assert!(!rejected.exists());
+}
+
+#[test]
+fn cqt_spectral_flux_extraction_exports_89_or_88_columns_and_rejects_unusable_rates() {
+    let performance = data("audio/simple_mozart_k265_var1_sf2.wav");
+    for (include_flux, columns) in [(true, 89), (false, 88)] {
+        let output =
+            std::env::temp_dir().join(format!("matchmaker_cqt_spectral_flux_{include_flux}"));
+        let _ = std::fs::remove_dir_all(&output);
+        write_cqt_spectral_flux_features(&performance, &output, 44_100, 1_470, include_flux)
+            .unwrap();
+        let features = npy(output.join("processor/cqt_spectral_flux/features.npy"));
+        assert_eq!(features.shape, [227, columns]);
+        assert_eq!(
+            npy(output.join("processor/cqt_spectral_flux/times.npy")).shape,
+            [227]
+        );
+        let meta: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap())
+                .unwrap();
+        assert_eq!(meta["processor"], "cqt_spectral_flux");
+        assert_eq!(meta["include_spectral_flux"], include_flux);
+        assert!(meta.get("n_fft").is_none());
+        if include_flux {
+            // The first emitted row already has a flux: the primed first call set the history.
+            let flux: Vec<f64> = features.values().chunks(89).map(|row| row[88]).collect();
+            assert!(flux.iter().all(|value| value.is_finite() && *value >= 0.0));
+            assert!(flux[0] > 0.0);
+        }
+    }
+
+    let rejected = std::env::temp_dir().join("matchmaker_cqt_spectral_flux_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    for (sample_rate, hop_length) in [(0, 1_470), (44_100, 0), (8_000, 128)] {
+        assert!(matches!(
+            write_cqt_spectral_flux_features(
+                &performance,
+                &rejected,
+                sample_rate,
+                hop_length,
+                true
             ),
             Err(Error::AudioConfig { .. })
         ));

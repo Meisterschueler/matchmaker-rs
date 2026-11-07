@@ -112,6 +112,62 @@ fn features_command_exports_cqt_with_its_own_defaults_and_rejects_n_fft() {
 }
 
 #[test]
+fn features_command_exports_cqt_spectral_flux_with_an_optional_flux_column() {
+    let features = |processor: &str, extra: &[&str], output: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+            .arg("features")
+            .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+            .args(["--processor", processor, "--export"])
+            .arg(output)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let meta = |output: &std::path::Path| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap()
+    };
+    for (extra, include_flux) in [(vec![], true), (vec!["--no-spectral-flux"], false)] {
+        let output =
+            std::env::temp_dir().join(format!("matchmaker_cli_flux_features_{include_flux}"));
+        let _ = std::fs::remove_dir_all(&output);
+        let run = features("cqt_spectral_flux", &extra, &output);
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert!(
+            output
+                .join("processor/cqt_spectral_flux/features.npy")
+                .is_file()
+        );
+        assert!(
+            output
+                .join("processor/cqt_spectral_flux/times.npy")
+                .is_file()
+        );
+        let meta = meta(&output);
+        assert_eq!(meta["include_spectral_flux"], include_flux);
+        assert_eq!(
+            (meta["sample_rate"].as_u64(), meta["hop_length"].as_u64()),
+            (Some(44_100), Some(1_470))
+        );
+    }
+
+    let rejected = std::env::temp_dir().join("matchmaker_cli_flux_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    for (processor, extra, message) in [
+        ("cqt", vec!["--no-spectral-flux"], "--no-spectral-flux"),
+        ("cqt_spectral_flux", vec!["--n-fft", "512"], "--n-fft"),
+    ] {
+        let run = features(processor, &extra, &rejected);
+        assert!(!run.status.success(), "{processor} {extra:?}");
+        assert!(String::from_utf8_lossy(&run.stderr).contains(message));
+        assert!(!rejected.exists());
+    }
+}
+
+#[test]
 fn audio_arzt_multi_fold_defaults_and_repeat_mode() {
     let defaults = follow_audio("arzt_multi_fold", &[]);
     assert!(
@@ -527,6 +583,21 @@ fn audio_followers_accept_the_cqt_processor_and_reject_incompatible_options() {
         let invalid = follow_audio(method, &["--processor", "cqt"]);
         assert!(!invalid.status.success(), "{method}");
         assert!(String::from_utf8_lossy(&invalid.stderr).contains("processor"));
+    }
+}
+
+#[test]
+fn audio_followers_reject_cqt_spectral_flux_which_the_reference_cannot_follow_with() {
+    for method in ["arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf"] {
+        for extra in [
+            vec!["--processor", "cqt_spectral_flux"],
+            vec!["--set", "processor=cqt_spectral_flux"],
+        ] {
+            let invalid = follow_audio(method, &extra);
+            assert!(!invalid.status.success(), "{method} {extra:?}");
+            let message = String::from_utf8_lossy(&invalid.stderr);
+            assert!(message.contains("no frame follower"), "{method}: {message}");
+        }
     }
 }
 

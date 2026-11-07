@@ -28,7 +28,7 @@ Korzeniowski score defaults: beat_resolution=0.1, num_harmonics=10, harmonic_ban
 - AudioOuterHmmState: Event index, sound/pause posterior vector, transition/likelihood diagnostics.
 - PfkorzState: Seeded RNG, position/tempo particles, normalized weights, resampling/rest/onset diagnostics.
 
-Lifecycle: validate input/config -> build reference -> reset processor -> consume timestamped observations -> emit position and diagnostic state -> finalize/export/evaluate. Repeated runs build/reset state without prior-run contamination. Degenerate-state handling follows the reference and yields typed failures where external data violates invariants.
+Lifecycle: validate input/config -> build reference -> reset processor -> consume timestamped observations -> emit position and diagnostic state -> finalize/export/evaluate. Repeated runs build/reset state without prior-run contamination. Exception (C07): `cqt_spectral_flux` inherits a no-op reset, so its flux history survives it; every run and every extraction uses a fresh instance. Degenerate-state handling follows the reference and yields typed failures where external data violates invariants.
 
 ## Evaluation and delivery evidence
 

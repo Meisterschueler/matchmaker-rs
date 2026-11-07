@@ -18,7 +18,8 @@ use serde_json::json;
 use crate::base::SkfStepDebug;
 use crate::error::{Error, Result};
 use crate::features::{
-    AudioProcessor, Observation, cqt::CqtProcessor, raw_spectrum::RawSpectrumProcessor,
+    AudioProcessor, Observation, cqt::CqtProcessor, cqt_spectral_flux::CqtSpectralFluxProcessor,
+    raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioStream;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
@@ -661,6 +662,7 @@ pub fn write_audio_features(
             hop_length,
             cache_size: n_fft - hop_length,
             n_fft: Some(n_fft),
+            include_spectral_flux: None,
         },
         &mut RawSpectrumProcessor::new(sample_rate, hop_length, n_fft),
     )
@@ -683,6 +685,33 @@ pub fn write_cqt_features(
             hop_length,
             cache_size: hop_length,
             n_fft: None,
+            include_spectral_flux: None,
+        },
+        &mut processor,
+    )
+}
+
+/// Decode and export standalone constant-Q features with (89 columns) or without (88) spectral
+/// flux, using one fresh processor: its history never reaches another run.
+pub fn write_cqt_spectral_flux_features(
+    performance: impl AsRef<Path>,
+    dir: impl AsRef<Path>,
+    sample_rate: u32,
+    hop_length: usize,
+    include_flux: bool,
+) -> Result<()> {
+    let mut processor =
+        CqtSpectralFluxProcessor::new(sample_rate, hop_length, Some(f64::INFINITY), include_flux)?;
+    write_features(
+        performance.as_ref(),
+        dir.as_ref(),
+        Extraction {
+            key: "cqt_spectral_flux",
+            sample_rate,
+            hop_length,
+            cache_size: hop_length,
+            n_fft: None,
+            include_spectral_flux: Some(include_flux),
         },
         &mut processor,
     )
@@ -694,6 +723,7 @@ struct Extraction {
     hop_length: usize,
     cache_size: usize,
     n_fft: Option<usize>,
+    include_spectral_flux: Option<bool>,
 }
 
 fn write_features(
@@ -708,6 +738,7 @@ fn write_features(
         hop_length,
         cache_size,
         n_fft,
+        include_spectral_flux,
     } = extraction;
     let mut stream = AudioStream::open(performance, sample_rate, hop_length, cache_size)?;
     let source_sample_rate = stream.source_sample_rate();
@@ -744,6 +775,9 @@ fn write_features(
     });
     if let Some(n_fft) = n_fft {
         meta["n_fft"] = json!(n_fft);
+    }
+    if let Some(include) = include_spectral_flux {
+        meta["include_spectral_flux"] = json!(include);
     }
     write_json(&dir.join("audio/meta.json"), &meta)
 }

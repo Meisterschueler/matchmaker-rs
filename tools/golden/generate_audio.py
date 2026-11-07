@@ -28,6 +28,7 @@ from matchmaker.features.audio import (
     SAMPLE_RATE,
     ChromagramProcessor,
     CQTProcessor,
+    CQTSpectralFluxProcessor,
     LogSpectralEnergyProcessor,
     RawSpectrumProcessor,
 )
@@ -481,6 +482,140 @@ def generate_cqt_goldens(output: Path) -> None:
         },
     )
     print(f"cqt/performance: {len(rows)} stream rows")
+
+
+def stream_cqt_flux(samples: np.ndarray, sample_rate: int, hop: int, include_flux: bool = True, reset_after: int | None = None):
+    """First call, rows and timestamps the reference stream adapter yields for ``samples``.
+
+    Framing as in ``stream_cqt``. The adapter drops the first call's output, but that call still
+    sets the flux history. ``reset_after`` calls ``processor.reset()`` after that many calls.
+    """
+    processor = CQTSpectralFluxProcessor(sample_rate, hop, np.inf, include_spectral_flux=include_flux)
+    padded = np.pad(samples, (0, (-len(samples)) % hop), mode="constant")
+    cache = np.zeros(hop, dtype=np.float32)
+    first, rows, times = None, [], []
+    for chunk_index, chunk in enumerate(padded.reshape(-1, hop)):
+        block = np.concatenate((cache, chunk))
+        features, frame_time = processor((block, max(0, chunk_index - 1) * hop / sample_rate))
+        if chunk_index == 0:
+            first = features
+        else:
+            rows.extend(features)
+            times.extend([float(frame_time)] * len(features))
+        if reset_after == chunk_index + 1:
+            processor.reset()
+        cache = block[-hop:].copy()
+    return first, rows, times
+
+
+def generate_cqt_spectral_flux_goldens(output: Path) -> None:
+    """Stream rows (flux on and off), first call, whole-signal call and lifecycle of ``CQTSpectralFluxProcessor``."""
+    base = output / "processors/cqt_spectral_flux"
+    performance, performance_rate = sf.read(DEFAULT_PERFORMANCE, dtype=np.float32, always_2d=True)
+    performance = performance.mean(axis=1, dtype=np.float32)
+    assert performance_rate == 44_100
+    # The cqt limit of research R13; the flux column is judged like the bins (tests/golden_audio_processors.rs).
+    tolerances = {"features_rtol": 1e-5, "features_atol": 1e-5, "features_frame_max_rtol": 1e-5}
+    common = {
+        "reference": reference_info(),
+        "generator": "tools/golden/generate_audio.py",
+        "processor": "cqt_spectral_flux",
+        "norm": "inf",
+        "n_bins": 88,
+        "librosa": librosa.__version__,
+        "soxr": __import__("soxr").__libsoxr_version__,
+        "tolerances": tolerances,
+    }
+
+    def melody(sample_rate: int) -> np.ndarray:
+        """Repeated and changing pitches with silences: A4, A4 again, C5, C5 + E5, silence, A4."""
+        c5, e5 = 523.2511306011972, 659.2551138257398
+        notes = ((0.0, 0.10, (440.0,)), (0.13, 0.25, (440.0,)), (0.25, 0.35, (c5,)), (0.35, 0.45, (c5, e5)), (0.52, 0.60, (440.0,)))
+        times = np.arange(int(sample_rate * 0.6), dtype=np.float64) / sample_rate
+        signal = np.zeros_like(times)
+        for start, end, pitches in notes:
+            envelope = np.clip(np.minimum(times - start, end - times) / 0.005, 0.0, 1.0)
+            signal += envelope * sum(0.3 * np.sin(2 * np.pi * pitch * times) for pitch in pitches)
+        return signal.astype(np.float32)
+
+    def lifecycle(samples, sample_rate, hop, whole_samples, rows):
+        """reset() keeps the history; a stream call after the whole-signal (score) call fails."""
+        _, with_reset, _ = stream_cqt_flux(samples, sample_rate, hop, reset_after=2)
+        assert np.array_equal(np.asarray(with_reset), np.asarray(rows)), "reset() must not clear the history"
+        assert rows[1][88] > 0.0, "a clearing reset would be visible in this case"
+        processor = CQTSpectralFluxProcessor(sample_rate, hop, np.inf)
+        processor((samples[:whole_samples], 0.0))
+        processor.reset()
+        block = np.concatenate((np.zeros(hop, dtype=np.float32), samples[:hop]))
+        try:
+            processor((block, 0.0))
+        except ValueError as error:
+            message = str(error)
+        else:
+            raise AssertionError("the score-to-performance shapes no longer fail in the reference")
+        return {
+            "reset_keeps_history": True,
+            "history_frames": int(processor.prev_magnitude.shape[0]),
+            "call_frames": 3,
+            "after_score_call": {"error": "ValueError", "message": message},
+        }
+
+    def write_case(name, samples, sample_rate, hop, whole_samples, what, flux_off=True, lifecycle_facts=False):
+        first, rows, times = stream_cqt_flux(samples, sample_rate, hop)
+        whole, _ = CQTSpectralFluxProcessor(sample_rate, hop, np.inf)((samples[:whole_samples], 0.0))
+        assert not np.asarray(first)[:, 88].any() and not np.asarray(whole)[:, 88].any(), "the first call has no flux"
+        directory = base / name
+        write_array(directory / "input_samples.npy", samples, "<f4")
+        write_array(directory / "first_features.npy", first, "<f4")
+        write_array(directory / "stream_features.npy", np.asarray(rows, dtype=np.float32).reshape(-1, 89), "<f4")
+        write_array(directory / "stream_times.npy", times, "<f8")
+        write_array(directory / "whole_features.npy", whole, "<f4")
+        meta = {
+            **common,
+            "description": what,
+            "sample_rate": sample_rate,
+            "hop_length": hop,
+            "whole_samples": int(whole_samples),
+            "stream_frames": len(rows),
+            "whole_frames": int(len(whole)),
+        }
+        if flux_off:
+            _, rows_off, _ = stream_cqt_flux(samples, sample_rate, hop, include_flux=False)
+            assert np.array_equal(np.asarray(rows_off).reshape(-1, 88), np.asarray(rows).reshape(-1, 89)[:, :88])
+            assert np.array_equal(np.asarray(rows_off).reshape(-1, 88), np.asarray(stream_cqt(samples, sample_rate, hop)[0]).reshape(-1, 88)), "flux off must equal cqt"
+            write_array(directory / "stream_features_no_flux.npy", np.asarray(rows_off, dtype=np.float32).reshape(-1, 88), "<f4")
+            meta["flux_off_equals_cqt"] = True
+        if lifecycle_facts:
+            meta["lifecycle"] = lifecycle(samples, sample_rate, hop, whole_samples, rows)
+        write_json(directory / "meta.json", meta)
+        print(f"cqt_spectral_flux/{name}: {len(rows)} stream rows, {len(whole)} whole rows")
+
+    start = 22_050
+    write_case("default", performance[start : start + 22_050], 44_100, 1_470, 14_700, "piano, 44.1 kHz, hop 1470", lifecycle_facts=True)
+    at_16k = librosa.resample(performance[start : start + 44_100], orig_sr=44_100, target_sr=16_000, res_type="soxr_hq")
+    write_case("override", at_16k[:12_800].astype(np.float32), 16_000, 640, 8_000, "piano, 16 kHz, hop 640: the Audio-OuterHMM rates")
+    write_case("melody", melody(44_100), 44_100, 882, 17_640, "repeated and changing pitches with silences, hop 882")
+    write_case("silent", np.zeros(4_410, dtype=np.float32), 44_100, 1_470, 4_410, "digital silence", flux_off=False)
+    short = (0.1 * np.sin(np.arange(100) * 0.3)).astype(np.float32)
+    write_case("short", short, 44_100, 1_470, 100, "fewer samples than one hop: no row survives the edge trim", flux_off=False)
+
+    # The whole bundled performance, rows only (as for cqt): compared with `matchmaker features` exports.
+    _, rows, times = stream_cqt_flux(performance, 44_100, 1_470)
+    directory = base / "performance"
+    write_array(directory / "stream_features.npy", np.asarray(rows, dtype=np.float32).reshape(-1, 89), "<f4")
+    write_array(directory / "stream_times.npy", times, "<f8")
+    write_json(
+        directory / "meta.json",
+        {
+            **common,
+            "description": "bundled performance WAV, whole file; no input copy",
+            "input": "tests/data/audio/simple_mozart_k265_var1_sf2.wav",
+            "sample_rate": 44_100,
+            "hop_length": 1_470,
+            "stream_frames": len(rows),
+        },
+    )
+    print(f"cqt_spectral_flux/performance: {len(rows)} stream rows")
 
 
 # Frames whose full hypothesis state is stored for the real-score replay.
@@ -1263,6 +1398,11 @@ def main() -> None:
         help="generate cqt processor goldens (stream, whole-signal, soxr stages, kernels)",
     )
     parser.add_argument(
+        "--cqt-spectral-flux-only",
+        action="store_true",
+        help="generate cqt_spectral_flux goldens (stream rows with and without flux, first call, lifecycle)",
+    )
+    parser.add_argument(
         "--skf-only",
         action="store_true",
         help="generate fixed-template SKF replays (needs FluidSynth and the pinned SoundFont)",
@@ -1362,6 +1502,9 @@ def main() -> None:
         return
     if args.cqt_only:
         generate_cqt_goldens(args.out.resolve())
+        return
+    if args.cqt_spectral_flux_only:
+        generate_cqt_spectral_flux_goldens(args.out.resolve())
         return
     if args.skf_only:
         soundfont = args.soundfont.resolve()

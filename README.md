@@ -53,6 +53,12 @@ error instead. See research R12 in
 takes its hop from `frame_rate` (1470 for `arzt`, 882 for `dixon`); `norm` and `n_fft` are not
 options, and a configuration for which the reference would downsample by more than 2 before the
 transform (above about 70 kHz with a hop that is a multiple of 512) is rejected.
+`cqt_spectral_flux` appends the half-wave rectified flux against the previous call to every
+`cqt` row (89 values, 88 without the flux). The reference keeps the rendered score's CQT matrix as
+flux history (its `reset` is a no-op) and then fails on the first performance frame, so audio
+`arzt` and `dixon` cannot follow with it and `--processor cqt_spectral_flux` is rejected there:
+it is for feature extraction and for the audio `outerhmm` that is not ported yet. A processor
+keeps its history across `reset`, so use one per run.
 Audio files support WAV, FLAC, MP3 and Ogg/Vorbis. For score synthesis, provision the pinned
 CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/README.md), then run:
 
@@ -61,12 +67,14 @@ cargo run --release -p matchmaker-cli -- follow score.musicxml performance.wav -
 ```
 
 Standalone feature extraction does not require a score or SoundFont. `raw_spectrum` defaults to
-8000 Hz, hop 128, and FFT size 512, `cqt` to 44100 Hz and hop 1470; use `--sample-rate`,
-`--hop-length`, and (`raw_spectrum` only) `--n-fft` for overrides:
+8000 Hz, hop 128, and FFT size 512, `cqt` and `cqt_spectral_flux` to 44100 Hz and hop 1470; use
+`--sample-rate`, `--hop-length`, (`raw_spectrum` only) `--n-fft` and (`cqt_spectral_flux` only)
+`--no-spectral-flux` for overrides:
 
 ```text
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor raw_spectrum --export target/raw-spectrum/
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor cqt --export target/cqt/
+cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor cqt_spectral_flux --export target/cqt-flux/
 ```
 
 Audio `--ground-truth` accepts a direct TSV with `perf_sec` and `score_beat` columns and writes
@@ -115,7 +123,8 @@ Standalone feature arrays and their timestamps are available without constructin
 ```python
 from matchmaker_rs import extract_audio_features
 
-features, times = extract_audio_features("performance.wav", "raw_spectrum")  # or "cqt"
+features, times = extract_audio_features("performance.wav", "raw_spectrum")  # or "cqt", "cqt_spectral_flux"
+# cqt_spectral_flux without the flux column (88 values): kwargs={"include_spectral_flux": False}
 ```
 
 ## Parity and accuracy
@@ -137,7 +146,8 @@ Renderer metrics are checked separately from exact feature-replay parity, see
 `cqt` features are compared with `|a - b| <= 1e-5 + 1e-5 * |ref| + 1e-5 * max(frame)`: the
 reference computes in `float32` and halves the sample rate with `soxr`, which leaves noise that
 scales with the largest bin of a frame and that an implementation that is not bit-identical cannot
-match per element. The deviation measured so far is below 3 % of that limit (research R13).
+match per element. On the bundled performance the deviation is at most 3 % of that limit for the
+bins and 7 % for the flux column of `cqt_spectral_flux` (research R13, C07).
 
 ## Development
 
@@ -173,7 +183,7 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 ## Roadmap
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
-2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`; processors `lse`, `chroma`, `raw_spectrum`, `cqt` (implemented).
+2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`; processors `lse`, `chroma`, `raw_spectrum`, `cqt` (implemented; `cqt_spectral_flux` for extraction only).
 3. Later: remaining methods (audio `outerhmm`, `pfkorz`) and parangonar methods.
 
 ## Benchmark datasets

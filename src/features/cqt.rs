@@ -204,6 +204,24 @@ impl CqtProcessor {
         &self.octaves
     }
 
+    /// Number of frames of the untrimmed transform of `samples` samples: the columns of the matrix
+    /// `librosa.cqt` returns, of which [`CqtProcessor::transform`] drops the first and the last.
+    pub fn frames(&self, samples: usize) -> usize {
+        let mut length = if self.early.is_some() {
+            samples.div_ceil(2)
+        } else {
+            samples
+        };
+        let mut columns = usize::MAX;
+        for octave in &self.octaves {
+            columns = columns.min(1 + length / octave.hop_length);
+            if octave.decimate_after {
+                length = length.div_ceil(2);
+            }
+        }
+        columns
+    }
+
     /// Constant-Q magnitudes of a whole signal: one row of [`N_BINS`] values per hop, without the
     /// first and last frame (`abs(cqt).T[1:-1]`). Signals shorter than two hops give no row.
     pub fn transform(&self, samples: &[f32]) -> Result<Vec<Vec<f32>>> {
@@ -226,14 +244,7 @@ impl CqtProcessor {
             }
             signal = early.halve(&signal);
         }
-        let mut columns = usize::MAX;
-        let mut length = signal.len();
-        for octave in &self.octaves {
-            columns = columns.min(1 + length / octave.hop_length);
-            if octave.decimate_after {
-                length = length.div_ceil(2);
-            }
-        }
+        let columns = self.frames(samples.len());
         if columns < 3 {
             return Ok(Vec::new());
         }
@@ -562,6 +573,10 @@ mod tests {
         let processor = CqtProcessor::new(44_100, 1_470, Some(f64::INFINITY)).unwrap();
         assert_eq!(processor.transform(&vec![0.0; 2 * 1_470]).unwrap().len(), 1);
         assert_eq!(processor.transform(&vec![0.0; 4 * 1_470]).unwrap().len(), 3);
+        assert_eq!(
+            [100, 2 * 1_470, 4 * 1_470].map(|length| processor.frames(length)),
+            [1, 3, 5]
+        );
         assert!(processor.transform(&[0.0; 100]).unwrap().is_empty());
         assert!(processor.transform(&[]).unwrap().is_empty());
         assert!(

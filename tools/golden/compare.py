@@ -8,9 +8,9 @@ Only files present on both sides are compared. Tolerances follow contracts/golde
 positions and alignment path 1e-6, probabilities rtol per method (pthmm 1.5e-13, hmm 1e-13,
 outerhmm 1e-14; arzt and dixon have none), beat_period exact, evaluation
 metrics 1e-4 (hmm: 0.01), the rest exact; messages are compared as a multiset (the reference sorts them with an unstable argsort)
-and note arrays on the fields both sides have. Standalone cqt exports use the amended cqt limit
-(contracts/audio-api.md, research R13): per element 1e-5 + 1e-5 * |reference| + 1e-5 * the
-largest reference value of the same frame.
+and note arrays on the fields both sides have. Standalone cqt and cqt_spectral_flux exports use the
+amended cqt limit (contracts/audio-api.md, research R13): per element 1e-5 + 1e-5 * |reference| + 1e-5 *
+the largest reference bin of the same frame.
 """
 
 import json
@@ -234,28 +234,31 @@ def compare_raw_spectrum_case(golden_dir, export_dir, metadata):
 
 
 def compare_cqt_case(golden_dir, export_dir, metadata):
-    """Compare a standalone cqt export (``matchmaker features --processor cqt``) with a golden.
+    """Compare a standalone cqt or cqt_spectral_flux export (``matchmaker features``) with a golden.
 
     The reference computes in float32 and halves the rate with soxr, whose noise the low bins
     amplify; features therefore get the amended limit of research R13 (a frame-maximum term on
-    top of the per-element limit). The first difference is reported with its frame and bin.
-    The export must come from the golden's input, i.e. the ``performance`` case (the bundled WAV).
+    top of the per-element limit). The frame maximum is taken over the 88 bins, so the flux column
+    of cqt_spectral_flux is judged as strictly as the bins. The first difference is reported with
+    its frame and bin. The export must come from the golden's input, i.e. the ``performance`` case
+    (the bundled WAV).
     """
+    processor = metadata["processor"]
     tolerances = metadata["tolerances"]
     for name in ("features.npy", "times.npy"):
-        if not (export_dir / "processor/cqt" / name).is_file():
-            print(f"first differing stage: processor/cqt, missing {export_dir / 'processor/cqt' / name}")
+        if not (export_dir / "processor" / processor / name).is_file():
+            print(f"first differing stage: processor/{processor}, missing {export_dir / 'processor' / processor / name}")
             return 1
     expected = np.load(golden_dir / "stream_features.npy").astype(np.float64)
-    actual = np.load(export_dir / "processor/cqt/features.npy").astype(np.float64)
+    actual = np.load(export_dir / "processor" / processor / "features.npy").astype(np.float64)
     if expected.shape != actual.shape:
         print(
-            "first differing stage: processor/cqt/features.npy: "
+            f"first differing stage: processor/{processor}/features.npy: "
             f"shape differs: expected {expected.shape}, actual {actual.shape}"
         )
         return 1
     magnitude = np.abs(expected)
-    frame_max = magnitude.max(axis=1, keepdims=True) if expected.size else magnitude
+    frame_max = magnitude[:, :88].max(axis=1, keepdims=True) if expected.size else magnitude
     allowed = (
         tolerances["features_atol"]
         + tolerances["features_rtol"] * magnitude
@@ -266,7 +269,7 @@ def compare_cqt_case(golden_dir, export_dir, metadata):
     if bad.any():
         frame, bin_index = (int(i) for i in np.argwhere(bad)[0])
         print(
-            f"first differing stage: processor/cqt/features.npy: frame {frame}, bin {bin_index}: "
+            f"first differing stage: processor/{processor}/features.npy: frame {frame}, bin {bin_index}: "
             f"expected {float(expected[frame, bin_index])!r}, actual {float(actual[frame, bin_index])!r}, "
             f"allowed {allowed[frame, bin_index]:.3e}"
         )
@@ -275,11 +278,11 @@ def compare_cqt_case(golden_dir, export_dir, metadata):
     difference = first_difference(
         "times.npy",
         np.load(golden_dir / "stream_times.npy"),
-        np.load(export_dir / "processor/cqt/times.npy"),
+        np.load(export_dir / "processor" / processor / "times.npy"),
         tolerance=(0.0, 0.0),
     )
     if difference:
-        print(f"first differing stage: processor/cqt/times.npy: {difference}")
+        print(f"first differing stage: processor/{processor}/times.npy: {difference}")
         return 1
     actual_metadata = json.loads((export_dir / "audio/meta.json").read_text())
     for key, golden_key in (("processor", "processor"), ("sample_rate", "sample_rate"), ("hop_length", "hop_length"), ("frames", "stream_frames")):
@@ -290,9 +293,12 @@ def compare_cqt_case(golden_dir, export_dir, metadata):
             )
             return 1
     if "n_fft" in actual_metadata:
-        print("first differing stage: audio/meta.json: n_fft: a cqt export has no FFT size")
+        print(f"first differing stage: audio/meta.json: n_fft: a {processor} export has no FFT size")
         return 1
-    print(f"WITHIN_TOL: standalone cqt features (worst {share:.4f} of the limit), timestamps, and metadata")
+    if processor == "cqt_spectral_flux" and actual_metadata.get("include_spectral_flux") is not True:
+        print("first differing stage: audio/meta.json: include_spectral_flux: expected True")
+        return 1
+    print(f"WITHIN_TOL: standalone {processor} features (worst {share:.4f} of the limit), timestamps, and metadata")
     return 0
 
 
@@ -585,7 +591,7 @@ def main(golden_dir, export_dir):
             return compare_audio_case(golden_dir, export_dir, metadata)
         if metadata.get("processor") == "raw_spectrum" and "sample_rate" in metadata:
             return compare_raw_spectrum_case(golden_dir, export_dir, metadata)
-        if metadata.get("processor") == "cqt" and "stream_frames" in metadata:
+        if metadata.get("processor") in ("cqt", "cqt_spectral_flux") and "stream_frames" in metadata:
             return compare_cqt_case(golden_dir, export_dir, metadata)
         if metadata.get("method") == "skf":
             return compare_skf_case(golden_dir, export_dir, metadata)

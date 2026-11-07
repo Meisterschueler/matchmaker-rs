@@ -84,6 +84,12 @@ fn audio_names_and_errors_are_input_specific() {
         AudioProcessorKind::Cqt
     );
     assert_eq!(AudioProcessorKind::Cqt.name(), "cqt");
+    // Extraction-only: the reference's frame followers fail with it (research C07).
+    let flux_error = "cqt_spectral_flux"
+        .parse::<AudioProcessorKind>()
+        .unwrap_err();
+    assert!(matches!(&flux_error, Error::AudioConfig { key, .. } if key == "processor"));
+    assert!(flux_error.to_string().contains("no frame follower"));
     assert!(
         "mel"
             .parse::<AudioProcessorKind>()

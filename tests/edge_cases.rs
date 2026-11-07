@@ -7,10 +7,10 @@ mod common;
 
 use std::path::PathBuf;
 
-use common::data;
+use common::{data, npy};
 use matchmaker_rs::Error;
 use matchmaker_rs::base::OnlineAlignment;
-use matchmaker_rs::export::write_audio_features;
+use matchmaker_rs::export::{write_audio_features, write_cqt_spectral_flux_features};
 use matchmaker_rs::features::Observation;
 use matchmaker_rs::io::stream::MidiMessageKind;
 use matchmaker_rs::matchmaker::{
@@ -471,6 +471,64 @@ fn invalid_raw_spectrum_export_preserves_existing_output() {
                 sample_rate,
                 hop_length,
                 n_fft,
+            ),
+            Err(Error::AudioConfig { .. })
+        ));
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve");
+    }
+    assert!(!output.join("audio/meta.json").exists());
+}
+
+#[test]
+fn cqt_spectral_flux_extraction_handles_short_silent_empty_and_long_performances() {
+    let extract = |performance: &PathBuf, name: &str| {
+        let output = std::env::temp_dir().join(format!("matchmaker_edge_flux_{name}"));
+        let _ = std::fs::remove_dir_all(&output);
+        write_cqt_spectral_flux_features(performance, &output, 44_100, 1_470, true).unwrap();
+        npy(output.join("processor/cqt_spectral_flux/features.npy"))
+    };
+    for (name, performance) in [
+        ("short", audio_wav("flux_short", 1, &[0; 100])),
+        ("empty", audio_wav("flux_empty", 1, &[])),
+    ] {
+        assert_eq!(extract(&performance, name).shape[0], 0, "{name}");
+    }
+
+    let silent = extract(&audio_wav("flux_silent", 1, &vec![0; 44_100]), "silent");
+    assert_eq!(silent.shape, [29, 89]);
+    assert!(silent.values().iter().all(|&value| value == 0.0));
+
+    // Tones change every half second: the flux rises there and stays quiet in between; two fresh
+    // extractions share no history.
+    let melody = audio_melody_wav("flux_melody", 9);
+    let features = extract(&melody, "melody");
+    assert_eq!(features.shape[1], 89);
+    let flux: Vec<f64> = features.values().chunks(89).map(|row| row[88]).collect();
+    assert!(flux.iter().all(|value| value.is_finite() && *value >= 0.0));
+    let peak = flux.iter().copied().fold(0.0, f64::max);
+    assert!(
+        flux.iter().filter(|&&value| value > 0.5 * peak).count() >= 8,
+        "an onset every 15 frames"
+    );
+    assert_eq!(features.values(), extract(&melody, "melody_again").values());
+}
+
+#[test]
+fn invalid_cqt_spectral_flux_export_preserves_existing_output() {
+    let output = std::env::temp_dir().join("matchmaker_invalid_cqt_spectral_flux_export");
+    let _ = std::fs::remove_dir_all(&output);
+    std::fs::create_dir_all(&output).unwrap();
+    let sentinel = output.join("sentinel.txt");
+    std::fs::write(&sentinel, b"preserve").unwrap();
+
+    for (sample_rate, hop_length) in [(0, 1_470), (44_100, 0), (8_000, 128)] {
+        assert!(matches!(
+            write_cqt_spectral_flux_features(
+                data("audio/simple_mozart_k265_var1_sf2.wav"),
+                &output,
+                sample_rate,
+                hop_length,
+                true,
             ),
             Err(Error::AudioConfig { .. })
         ));

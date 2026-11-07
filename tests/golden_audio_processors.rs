@@ -1,13 +1,14 @@
-//! Golden tests for audio `chroma`, `lse`, `raw_spectrum` and `cqt` processors.
+//! Golden tests for audio `chroma`, `lse`, `raw_spectrum`, `cqt` and `cqt_spectral_flux` processors.
 
 mod common;
 
 use common::{Ctx, assert_close, assert_exact, data, golden, json, npy};
-use matchmaker_rs::export::write_cqt_features;
+use matchmaker_rs::export::{write_cqt_features, write_cqt_spectral_flux_features};
 use matchmaker_rs::features::{
     AudioProcessor,
     chroma::ChromaProcessor,
     cqt::{CqtProcessor, N_BINS, halve_rate},
+    cqt_spectral_flux::CqtSpectralFluxProcessor,
     lse::LseProcessor,
     raw_spectrum::RawSpectrumProcessor,
 };
@@ -249,7 +250,11 @@ struct CqtCase {
 
 impl CqtCase {
     fn load(name: &str) -> Self {
-        let directory = golden("audio/processors/cqt").join(name);
+        Self::open("cqt", name)
+    }
+
+    fn open(processor: &str, name: &str) -> Self {
+        let directory = golden(&format!("audio/processors/{processor}")).join(name);
         let meta = json(directory.join("meta.json"));
         Self {
             samples: npy(directory.join("input_samples.npy"))
@@ -550,4 +555,267 @@ fn cqt_reset_preserves_its_stateless_output() {
     let first = processor.process(&frame).unwrap();
     processor.reset();
     assert_eq!(processor.process(&frame).unwrap(), first);
+}
+
+const FLUX_CASES: [&str; 5] = ["default", "override", "melody", "silent", "short"];
+
+fn flux_processor(case: &CqtCase, include_flux: bool) -> CqtSpectralFluxProcessor {
+    CqtSpectralFluxProcessor::new(
+        case.sample_rate,
+        case.hop_length,
+        Some(f64::INFINITY),
+        include_flux,
+    )
+    .unwrap()
+}
+
+/// The cqt limit for rows of 88 bins plus the flux. The frame maximum is taken over the bins
+/// alone (the flux can exceed them), so the flux is judged as strictly as the bins.
+fn assert_flux_close(ctx: &Ctx, expected: &[f64], actual: &[f64], tolerances: &serde_json::Value) {
+    const WIDTH: usize = N_BINS + 1;
+    assert_eq!(
+        expected.len(),
+        actual.len(),
+        "[{} / {} / {}] length differs",
+        ctx.method,
+        ctx.piece,
+        ctx.file
+    );
+    let limit = |key: &str| tolerances[key].as_f64().unwrap();
+    let (mut worst_bins, mut worst_flux) = (0.0f64, 0.0f64);
+    for (row, (expected_row, actual_row)) in
+        expected.chunks(WIDTH).zip(actual.chunks(WIDTH)).enumerate()
+    {
+        let scale = expected_row[..N_BINS]
+            .iter()
+            .fold(0.0f64, |max, value| max.max(value.abs()));
+        for (column, (e, a)) in expected_row.iter().zip(actual_row).enumerate() {
+            let allowed = limit("features_atol")
+                + limit("features_rtol") * e.abs()
+                + limit("features_frame_max_rtol") * scale;
+            let share = (a - e).abs() / allowed;
+            if column < N_BINS {
+                worst_bins = worst_bins.max(share);
+            } else {
+                worst_flux = worst_flux.max(share);
+            }
+            assert!(
+                share <= 1.0,
+                "[{} / {} / {}] row {row}, column {column}: expected {e:?}, actual {a:?}, allowed {allowed:e}",
+                ctx.method,
+                ctx.piece,
+                ctx.file
+            );
+        }
+    }
+    println!(
+        "CQT_LIMIT_SHARE\t{}\t{}\tbins {worst_bins:.4}\tflux {worst_flux:.4}",
+        ctx.piece, ctx.file
+    );
+}
+
+#[test]
+fn cqt_spectral_flux_matches_reference_stream_first_call_and_whole_signal_rows() {
+    for name in FLUX_CASES {
+        let case = CqtCase::open("cqt_spectral_flux", name);
+        let tolerances = &case.meta["tolerances"];
+        let ctx = |file: &str| Ctx::new("cqt_spectral_flux", name, file);
+        let hop = case.hop_length;
+
+        let mut processor = flux_processor(&case, true);
+        let (rows, times) = process_raw_spectrum_samples(
+            &mut processor,
+            &case.samples,
+            case.sample_rate,
+            hop,
+            2 * hop,
+        );
+        let expected = npy(case.directory.join("stream_features.npy"));
+        assert_eq!(
+            expected.shape,
+            [rows.len(), N_BINS + 1],
+            "{name} stream shape"
+        );
+        assert_flux_close(
+            &ctx("stream_features.npy"),
+            &expected.values(),
+            &widen(rows.into_iter().flatten()),
+            tolerances,
+        );
+        assert_close(
+            &ctx("stream_times.npy"),
+            &case.array("stream_times.npy"),
+            &times,
+            0.0,
+            0.0,
+        );
+
+        // The first call of a stream has no predecessor: its row is dropped and its flux is 0.
+        let mut block = vec![0.0f32; hop];
+        block.extend(
+            case.samples
+                .iter()
+                .copied()
+                .chain(std::iter::repeat(0.0))
+                .take(hop),
+        );
+        let first = flux_processor(&case, true)
+            .process(&AudioFrame {
+                index: 0,
+                samples: block,
+                perf_time: 0.0,
+            })
+            .unwrap();
+        assert_eq!(first.features[N_BINS], 0.0);
+        assert_flux_close(
+            &ctx("first_features.npy"),
+            &case.array("first_features.npy"),
+            &widen(first.features),
+            tolerances,
+        );
+
+        let whole = flux_processor(&case, true)
+            .transform(&case.samples[..case.whole_samples])
+            .unwrap();
+        let expected = npy(case.directory.join("whole_features.npy"));
+        assert_eq!(
+            expected.shape,
+            [whole.len(), N_BINS + 1],
+            "{name} whole-signal shape"
+        );
+        assert_flux_close(
+            &ctx("whole_features.npy"),
+            &expected.values(),
+            &widen(whole.into_iter().flatten()),
+            tolerances,
+        );
+    }
+}
+
+#[test]
+fn cqt_spectral_flux_without_flux_matches_the_reference_rows() {
+    for name in ["default", "override", "melody"] {
+        let case = CqtCase::open("cqt_spectral_flux", name);
+        let mut processor = flux_processor(&case, false);
+        let (rows, _) = process_raw_spectrum_samples(
+            &mut processor,
+            &case.samples,
+            case.sample_rate,
+            case.hop_length,
+            2 * case.hop_length,
+        );
+        let expected = npy(case.directory.join("stream_features_no_flux.npy"));
+        assert_eq!(expected.shape, [rows.len(), N_BINS], "{name} stream shape");
+        assert_cqt_close(
+            &Ctx::new("cqt_spectral_flux", name, "stream_features_no_flux.npy"),
+            &expected.values(),
+            &widen(rows.into_iter().flatten()),
+            &case.meta["tolerances"],
+        );
+    }
+}
+
+#[test]
+fn cqt_spectral_flux_history_survives_reset_and_the_score_call_breaks_stream_calls() {
+    let case = CqtCase::open("cqt_spectral_flux", "default");
+    let lifecycle = &case.meta["lifecycle"];
+    assert_eq!(lifecycle["reset_keeps_history"], true);
+    let hop = case.hop_length;
+
+    // reset() after the second call changes nothing: the reference's rows come out unchanged.
+    let mut processor = flux_processor(&case, true);
+    let mut padded = case.samples.clone();
+    padded.resize(padded.len().div_ceil(hop) * hop, 0.0);
+    let mut cache = vec![0.0f32; hop];
+    let mut rows = Vec::new();
+    for (index, chunk) in padded.chunks_exact(hop).enumerate() {
+        let mut block = cache.clone();
+        block.extend_from_slice(chunk);
+        let observation = processor
+            .process(&AudioFrame {
+                index,
+                samples: block.clone(),
+                perf_time: 0.0,
+            })
+            .unwrap();
+        if index > 0 {
+            rows.push(observation.features);
+        }
+        if index == 1 {
+            processor.reset();
+        }
+        cache.copy_from_slice(&block[block.len() - hop..]);
+    }
+    assert_flux_close(
+        &Ctx::new("cqt_spectral_flux", "default", "stream_features.npy"),
+        &case.array("stream_features.npy"),
+        &widen(rows.into_iter().flatten()),
+        &case.meta["tolerances"],
+    );
+
+    // The score is one whole-signal call; its matrix stays as history and no stream call fits it.
+    let mut processor = flux_processor(&case, true);
+    let score = processor
+        .transform(&case.samples[..case.whole_samples])
+        .unwrap();
+    let history = lifecycle["history_frames"].as_u64().unwrap() as usize;
+    assert_eq!(score.len() + 2, history);
+    processor.reset();
+    let call = [vec![0.0; hop], case.samples[..hop].to_vec()].concat();
+    let message = processor.transform(&call).unwrap_err().to_string();
+    assert!(
+        message.contains("3 frames") && message.contains(&format!("{history} frames")),
+        "{message}"
+    );
+    let reference = lifecycle["after_score_call"]["message"].as_str().unwrap();
+    assert!(
+        reference.contains(&format!("(3,88) ({history},88)")),
+        "{reference}"
+    );
+}
+
+#[test]
+fn cqt_spectral_flux_export_of_the_bundled_performance_matches_the_reference() {
+    let directory = golden("audio/processors/cqt_spectral_flux/performance");
+    let meta = json(directory.join("meta.json"));
+    let sample_rate = meta["sample_rate"].as_u64().unwrap() as u32;
+    let hop_length = meta["hop_length"].as_u64().unwrap() as usize;
+    let performance = data("audio/simple_mozart_k265_var1_sf2.wav");
+    let ctx = |file: &str| Ctx::new("cqt_spectral_flux", "performance", file);
+    let output = std::env::temp_dir().join("matchmaker_golden_cqt_spectral_flux_performance");
+    let _ = std::fs::remove_dir_all(&output);
+    write_cqt_spectral_flux_features(&performance, &output, sample_rate, hop_length, true).unwrap();
+    let expected = npy(directory.join("stream_features.npy"));
+    let actual = npy(output.join("processor/cqt_spectral_flux/features.npy"));
+    assert_eq!(actual.shape, expected.shape);
+    assert_eq!(
+        expected.shape,
+        [meta["stream_frames"].as_u64().unwrap() as usize, N_BINS + 1]
+    );
+    assert_flux_close(
+        &ctx("stream_features.npy"),
+        &expected.values(),
+        &actual.values(),
+        &meta["tolerances"],
+    );
+    assert_close(
+        &ctx("stream_times.npy"),
+        &npy(directory.join("stream_times.npy")).values(),
+        &npy(output.join("processor/cqt_spectral_flux/times.npy")).values(),
+        0.0,
+        0.0,
+    );
+
+    // Without the flux the export holds the cqt rows: compare them with the cqt goldens.
+    let cqt = golden("audio/processors/cqt/performance");
+    let without = std::env::temp_dir().join("matchmaker_golden_cqt_spectral_flux_off");
+    let _ = std::fs::remove_dir_all(&without);
+    write_cqt_spectral_flux_features(&performance, &without, sample_rate, hop_length, false)
+        .unwrap();
+    assert_cqt_close(
+        &ctx("stream_features_no_flux"),
+        &npy(cqt.join("stream_features.npy")).values(),
+        &npy(without.join("processor/cqt_spectral_flux/features.npy")).values(),
+        &json(cqt.join("meta.json"))["tolerances"],
+    );
 }
