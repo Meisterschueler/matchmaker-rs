@@ -298,8 +298,9 @@ fn run_audio_piece(
             .parse()
             .with_context(|| format!("{method} is not an audio method"))?;
         anyhow::ensure!(
-            audio_method != AudioMethod::Skf || piece.ground_truth.is_some(),
-            "audio skf has no rendered score; its benchmark piece needs a ground_truth TSV"
+            !matches!(audio_method, AudioMethod::Skf | AudioMethod::OuterHmm)
+                || piece.ground_truth.is_some(),
+            "audio skf and outerhmm use score-event models; their benchmark pieces need a ground_truth TSV"
         );
         let processor = piece.processor.as_deref().unwrap_or_else(|| {
             AudioMethodConfig::for_method(audio_method)
@@ -355,6 +356,12 @@ fn run_audio_piece(
                     None,
                     piece.unfold_score.unwrap_or(true),
                 )?,
+                AudioMethod::OuterHmm => AudioMatchmaker::new_outerhmm(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
             }
             .record();
             mm.run_file(performance)?;
@@ -375,9 +382,12 @@ fn run_audio_piece(
             });
             let path = mm.alignment_path();
             let reference = mm.reference();
-            let evaluation = if let Some(ground_truth) = &piece.ground_truth {
+            let (evaluation, p95_b) = if let Some(ground_truth) = &piece.ground_truth {
                 let ground_truth = GroundTruth::load(base.join(ground_truth), mm.score(), None)?;
-                evaluate_alignment(path, &ground_truth)
+                (
+                    evaluate_alignment(path, &ground_truth),
+                    Some(p95_beat_error(path, &ground_truth)),
+                )
             } else {
                 let expected_beats = path
                     .perf_time
@@ -386,12 +396,13 @@ fn run_audio_piece(
                         interpolate_beat(&reference.frame_to_beat, time * reference.frame_rate)
                     })
                     .collect();
-                evaluate_alignment(
-                    path,
-                    &GroundTruth {
-                        perf_sec: path.perf_time.clone(),
-                        score_beat: expected_beats,
-                    },
+                let ground_truth = GroundTruth {
+                    perf_sec: path.perf_time.clone(),
+                    score_beat: expected_beats,
+                };
+                (
+                    evaluate_alignment(path, &ground_truth),
+                    Some(p95_beat_error(path, &ground_truth)),
                 )
             };
             if run == 0 {
@@ -424,6 +435,7 @@ fn run_audio_piece(
                 "total_processing_s": total,
                 "real_time_factor": if duration > 0.0 { total / duration } else { 0.0 },
                 "evaluation": evaluation,
+                "p95_b": p95_b,
                 "ground_truth": piece.ground_truth.is_some(),
                 "ground_truth_path": piece
                     .ground_truth
@@ -443,4 +455,39 @@ fn interpolate_beat(frame_to_beat: &[f64], frame: f64) -> f64 {
     let after = position.ceil() as usize;
     let fraction = position - before as f64;
     frame_to_beat[before] + fraction * (frame_to_beat[after] - frame_to_beat[before])
+}
+
+fn p95_beat_error(path: &AlignmentPath, ground_truth: &GroundTruth) -> f64 {
+    let mut errors: Vec<f64> = ground_truth
+        .perf_sec
+        .iter()
+        .zip(&ground_truth.score_beat)
+        .filter(|(time, beat)| time.is_finite() && beat.is_finite())
+        .map(|(&time, &beat)| {
+            (interpolate_beat(&path.score_beat, time_to_frame(path, time)) - beat).abs()
+        })
+        .collect();
+    if errors.is_empty() {
+        return f64::NAN;
+    }
+    errors.sort_by(f64::total_cmp);
+    let index = 0.95 * (errors.len() - 1) as f64;
+    let lower = index.floor() as usize;
+    let upper = index.ceil() as usize;
+    errors[lower] + (errors[upper] - errors[lower]) * (index - lower as f64)
+}
+
+fn time_to_frame(path: &AlignmentPath, time: f64) -> f64 {
+    let upper = path
+        .perf_time
+        .partition_point(|&frame_time| frame_time <= time);
+    if upper == 0 {
+        return 0.0;
+    }
+    if upper == path.perf_time.len() {
+        return (path.perf_time.len() - 1) as f64;
+    }
+    let lower = upper - 1;
+    let span = path.perf_time[upper] - path.perf_time[lower];
+    lower as f64 + (time - path.perf_time[lower]) / span
 }

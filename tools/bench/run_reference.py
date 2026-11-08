@@ -41,6 +41,7 @@ PROCESSORS = {
     "LogSpectralEnergyProcessor": "lse",
     "RawSpectrumProcessor": "raw_spectrum",
     "CQTProcessor": "cqt",
+    "CQTSpectralFluxProcessor": "cqt_spectral_flux",
 }
 
 
@@ -121,7 +122,7 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                     unfold_score=piece.get("unfold_score", True),
                 )
                 processor = PROCESSORS[type(mm.processor).__name__]
-                frame_to_beat = mm.ref_frame_to_beat().copy()
+                frame_to_beat = None if piece.get("ground_truth") else mm.ref_frame_to_beat().copy()
                 tempo_model = getattr(mm.score_follower, "tempo_model", None)
                 if method == "arzt_tempo" and tempo_model is None:
                     raise RuntimeError("arzt_tempo benchmark requires an active tempo model")
@@ -130,14 +131,15 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                 for _ in mm.run(verbose=False):
                     pass
             path = np.asarray(mm.score_follower.alignment_path, dtype=float).reshape(2, -1)
-            frame_indices = np.clip(path[0] * mm.frame_rate, 0, len(frame_to_beat) - 1)
             if piece.get("ground_truth"):
                 gt_perf, gt_score = resolve_gt(
                     str(base / piece["ground_truth"]),
                     mm.score_part.note_array(),
                 )
                 evaluation = evaluate_alignment(path[1], path[0], gt_score, gt_perf)
+                p95_b = float(np.percentile(np.abs(gt_score - np.interp(gt_perf, path[0], path[1])), 95))
             else:
+                frame_indices = np.clip(path[0] * mm.frame_rate, 0, len(frame_to_beat) - 1)
                 expected_beats = np.interp(
                     frame_indices,
                     np.arange(len(frame_to_beat), dtype=float),
@@ -146,6 +148,7 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                 evaluation = evaluate_alignment(
                     path[1], path[0], expected_beats, path[0]
                 )
+                p95_b = float(np.percentile(np.abs(expected_beats - np.interp(path[0], path[0], path[1])), 95))
             if run == 0:
                 tsv = out_dir / "paths" / piece["dataset"] / piece["piece"] / f"{method}.tsv"
                 tsv.parent.mkdir(parents=True, exist_ok=True)
@@ -171,6 +174,7 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                 "total_processing_s": total,
                 "real_time_factor": total / duration if duration else None,
                 "evaluation": evaluation,
+                "p95_b": p95_b,
                 "ground_truth": bool(piece.get("ground_truth")),
                 "ground_truth_path": piece.get("ground_truth"),
                 "renderer": "FluidSynth",

@@ -45,6 +45,22 @@ fn follow_audio_files(
 }
 
 #[test]
+fn midi_outerhmm_remains_available() {
+    let output = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("follow")
+        .arg(data("simple_mozart_k265_var1.musicxml"))
+        .arg(data("simple_mozart_k265_var1.mid"))
+        .args(["--input-type", "midi", "--method", "outerhmm", "--quiet"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn features_command_exports_raw_spectrum_without_a_score_or_soundfont() {
     let output = std::env::temp_dir().join("matchmaker_cli_raw_spectrum_features");
     let _ = std::fs::remove_dir_all(&output);
@@ -587,7 +603,7 @@ fn audio_followers_accept_the_cqt_processor_and_reject_incompatible_options() {
 }
 
 #[test]
-fn audio_followers_reject_cqt_spectral_flux_which_the_reference_cannot_follow_with() {
+fn only_audio_outerhmm_accepts_cqt_spectral_flux_as_a_follower_processor() {
     for method in ["arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf"] {
         for extra in [
             vec!["--processor", "cqt_spectral_flux"],
@@ -596,9 +612,53 @@ fn audio_followers_reject_cqt_spectral_flux_which_the_reference_cannot_follow_wi
             let invalid = follow_audio(method, &extra);
             assert!(!invalid.status.success(), "{method} {extra:?}");
             let message = String::from_utf8_lossy(&invalid.stderr);
-            assert!(message.contains("no frame follower"), "{method}: {message}");
+            assert!(
+                message.contains("only by audio outerhmm"),
+                "{method}: {message}"
+            );
         }
     }
+}
+
+#[test]
+fn audio_outerhmm_uses_flux_notes_and_exports_its_model() {
+    let output = std::env::temp_dir().join("matchmaker_cli_audio_outerhmm_export");
+    let _ = std::fs::remove_dir_all(&output);
+    let run = follow_audio(
+        "outerhmm",
+        &["--quiet", "--export", output.to_str().unwrap()],
+    );
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    for file in [
+        "processor/cqt_spectral_flux/features.npy",
+        "outerhmm/state_probabilities.npy",
+        "outerhmm/sound_probabilities.npy",
+        "outerhmm/pause_probabilities.npy",
+        "outerhmm/alignment_path.npy",
+        "score/outerhmm/pitch_templates.npy",
+        "score/outerhmm/learned_support.npy",
+        "score/outerhmm/chord_templates.npy",
+    ] {
+        assert!(
+            output.join(file).is_file(),
+            "missing outerhmm export {file}"
+        );
+    }
+    assert!(!output.join("score/audio/features.npy").exists());
+    let score_meta = std::fs::read_to_string(output.join("score/meta.json")).unwrap();
+    assert!(
+        score_meta.contains("7448383AA9C7B4B49B3A4A52B8BED2AFF994B0F3266BA0372A28738A3DDE8A03")
+    );
+    let invalid = follow_audio("outerhmm", &["--set", "s_j=1.1"]);
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("s_j"));
+    let invalid = follow_audio("outerhmm", &["--set", "distance_func=euclidean"]);
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("not used by audio outerhmm"));
 }
 
 #[test]

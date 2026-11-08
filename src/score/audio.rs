@@ -347,6 +347,12 @@ fn extract_score_features(
             }
             return Ok(rows);
         }
+        AudioProcessorKind::CqtSpectralFlux => {
+            return Err(audio_config(
+                "processor",
+                "cqt_spectral_flux uses the score note array, not score-audio features",
+            ));
+        }
     };
     if samples.len() < n_fft {
         return Err(audio_config(

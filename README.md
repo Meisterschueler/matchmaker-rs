@@ -35,6 +35,7 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `arzt_tempo` | Audio | `chroma`, `lse` | seeded tempo-aware Arzt; defaults to `chroma` at 30 fps |
 | `arzt_multi_fold` | Audio | `chroma`, `lse` | parallel repeat hypotheses; defaults to `chroma` at 30 fps, 50-cost window and 5% switch margin |
 | `skf` | Audio | `raw_spectrum` | switching Kalman filter over chords with hidden tempo; 8000 Hz, hop 128, FFT 512 |
+| `outerhmm` | Audio | `cqt_spectral_flux` | two-layer sound/pause HMM with weighted chord and pitch-template model; 16000 Hz, hop 640 |
 
 Select with `--method` and `--processor`; override parameters with `--set KEY=VALUE`.
 For `arzt_multi_fold`, pass `--no-unfold` when the score has repeats so the follower receives
@@ -54,11 +55,14 @@ takes its hop from `frame_rate` (1470 for `arzt`, 882 for `dixon`); `norm` and `
 options, and a configuration for which the reference would downsample by more than 2 before the
 transform (above about 70 kHz with a hop that is a multiple of 512) is rejected.
 `cqt_spectral_flux` appends the half-wave rectified flux against the previous call to every
-`cqt` row (89 values, 88 without the flux). The reference keeps the rendered score's CQT matrix as
-flux history (its `reset` is a no-op) and then fails on the first performance frame, so audio
-`arzt` and `dixon` cannot follow with it and `--processor cqt_spectral_flux` is rejected there:
-it is for feature extraction and for the audio `outerhmm` that is not ported yet. A processor
-keeps its history across `reset`, so use one per run.
+`cqt` row (89 values, 88 without the flux). The reference keeps a rendered score's CQT matrix as
+flux history and then fails for score-audio followers; audio `arzt`, `dixon`, `arzt_tempo`,
+`arzt_multi_fold` and `skf` reject it. Audio `outerhmm` instead uses score note events, so the
+history is not prefilled by score processing. The processor keeps its history across `reset`, so
+use one per run. Audio `outerhmm` builds weighted sustained-note chord templates from the score
+note array and overlays the 77 supported pitch rows in the upstream Apache-2.0 archive at its
+default 16000 Hz / hop 640. Exports record the archive hash and provenance; its training corpus
+is not identified by the reference.
 Audio files support WAV, FLAC, MP3 and Ogg/Vorbis. For score synthesis, provision the pinned
 CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/README.md), then run:
 
@@ -88,6 +92,13 @@ hashes, and provide the SoundFont to audio tests as a temporary artifact.
 cargo run --release -p matchmaker-cli -- follow tests/data/simple_mozart_k265_var1.musicxml tests/data/audio/simple_mozart_k265_var1_sf2.wav --input-type audio --method arzt --soundfont-path target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2 --ground-truth tests/data/audio/ground_truth/score_onsets.tsv --export target/audio-follow/
 ```
 
+Audio `outerhmm` follows the score note array rather than rendered score audio; its default
+processor is the 16 kHz / hop-640 CQT spectral-flux stream:
+
+```text
+cargo run --release -p matchmaker-cli -- follow tests/data/simple_mozart_k265_var1.musicxml tests/data/audio/simple_mozart_k265_var1_sf2.wav --input-type audio --method outerhmm --soundfont-path target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2 --ground-truth tests/data/audio/ground_truth/score_onsets.tsv --export target/outerhmm/
+```
+
 ## Python
 
 `Matchmaker` supports MIDI and prerecorded audio input (needs Python 3.10–3.13 and `maturin`):
@@ -103,7 +114,7 @@ mm = Matchmaker("score.musicxml", "performance.mid", input_type="midi", method="
 positions = list(mm.run(verbose=False))
 ```
 
-Audio `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold` and `skf` use the same generator API. Supply the pinned SF2 path in `kwargs` (`skf` accepts `template_mode="gaussian"` instead). For repeat hypotheses, set `unfold_score=False`; the default maximal unfolding may leave one unique candidate:
+Audio `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf` and `outerhmm` use the same generator API. Supply the pinned SF2 path in `kwargs` (`skf` accepts `template_mode="gaussian"` instead). For repeat hypotheses, set `unfold_score=False`; the default maximal unfolding may leave one unique candidate:
 
 ```python
 mm = Matchmaker(
@@ -183,8 +194,8 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 ## Roadmap
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
-2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`; processors `lse`, `chroma`, `raw_spectrum`, `cqt` (implemented; `cqt_spectral_flux` for extraction only).
-3. Later: remaining methods (audio `outerhmm`, `pfkorz`) and parangonar methods.
+2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux` (audio outerhmm only).
+3. Later: remaining method `pfkorz` and parangonar methods.
 
 ## Benchmark datasets
 

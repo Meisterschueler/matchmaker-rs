@@ -159,7 +159,11 @@ fn available_methods() -> String {
 }
 
 fn available_audio_methods() -> String {
-    "['arzt', 'dixon']".into()
+    let names: Vec<String> = AudioMethod::AVAILABLE
+        .iter()
+        .map(|name| format!("'{name}'"))
+        .collect();
+    format!("[{}]", names.join(", "))
 }
 
 /// Errors about parameters are `ValueError`; a file that cannot be read is `OSError`.
@@ -253,6 +257,12 @@ fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<B
             kwargs.set_item("hop_length", 128)?;
             kwargs.set_item("n_fft", 512)?;
         }
+        AudioMethod::OuterHmm => {
+            kwargs.set_item("processor", "cqt_spectral_flux")?;
+            kwargs.set_item("sample_rate", 16_000)?;
+            kwargs.set_item("frame_rate", 25)?;
+            kwargs.set_item("s_j", 0.0)?;
+        }
     }
     if method == AudioMethod::ArztTempo {
         kwargs.set_item("random_seed", 1984)?;
@@ -322,6 +332,11 @@ fn set_audio_config(
                 "Invalid audio parameter {key}"
             )));
         }
+        "window_size" | "distance_func" if method == AudioMethod::OuterHmm => {
+            return Err(PyValueError::new_err(format!(
+                "Invalid audio parameter {key}"
+            )));
+        }
         "template_mode" if method == AudioMethod::Skf => {
             let ConfigValue::Str(value) = value else {
                 return Err(PyValueError::new_err(
@@ -329,6 +344,9 @@ fn set_audio_config(
                 ));
             };
             config.template_mode = Some(value.parse().map_err(to_py_err)?);
+        }
+        "s_j" if method == AudioMethod::OuterHmm => {
+            config.s_j = Some(number(&value)?);
         }
         "window_size" => config.window_size = number(&value)?,
         "start_window_size" => {
@@ -544,6 +562,9 @@ fn new_audio_matchmaker(
         AudioMethod::Skf => {
             AudioMatchmaker::new_skf(&score_file, audio_config, tempo, unfold_score)
         }
+        AudioMethod::OuterHmm => {
+            AudioMatchmaker::new_outerhmm(&score_file, audio_config, tempo, unfold_score)
+        }
     }
     .map_err(to_py_err)?;
     let method_kind = match audio_method {
@@ -552,6 +573,7 @@ fn new_audio_matchmaker(
         | AudioMethod::ArztMultiFold
         | AudioMethod::Skf => Method::Arzt,
         AudioMethod::Dixon => Method::Dixon,
+        AudioMethod::OuterHmm => Method::OuterHmm,
     };
 
     Ok(PyMatchmaker {
@@ -812,6 +834,12 @@ impl PyMatchmaker {
                         self.unfold,
                     ),
                     AudioMethod::Skf => AudioMatchmaker::new_skf(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                    AudioMethod::OuterHmm => AudioMatchmaker::new_outerhmm(
                         &self.score_file,
                         config,
                         self.tempo_arg,

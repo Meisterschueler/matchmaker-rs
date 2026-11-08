@@ -193,6 +193,35 @@ NumPy's broadcast error. The limit is the cqt one, with the frame maximum over t
 `compare.py tests/golden/audio/processors/cqt_spectral_flux/performance <export>` checks the export
 of `matchmaker features ... --processor cqt_spectral_flux --export <dir>`.
 
+### Audio outer-product HMM templates
+
+`tools/golden/generate_audio.py --outerhmm-only` writes fixed-template reference replays under
+`tests/golden/audio/outerhmm/` and embeds the exact learned archive from the locked pymatchmaker
+0.4.0 package at `src/prob/assets/pitch_templates_16000_640.npz`.
+
+- Upstream: `matchmaker/prob/templates/pitch_templates_16000_640.npz`, introduced by commit
+  `b7955e645e3998e4d4b5deed7370948991766e4e`; Git blob
+  `36b3ca1a8f86760e3d4b5deed7370948991766e4e`.
+- SHA-256: `7448383AA9C7B4B49B3A4A52B8BED2AFF994B0F3266BA0372A28738A3DDE8A03`.
+- Runtime SoundFont provenance: the pinned CC0 SF2 SHA-256 is
+  `CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F`; each run export
+  records the actual configured SoundFont hash in `score/meta.json`.
+- License: Apache-2.0 under the upstream repository license; there is no separate license or
+  training-corpus statement for the archive. The corpus is therefore recorded as unidentified.
+- Arrays: `mu` and `var`, both 88x88 little-endian float64; `mu` is Fortran ordered. The released
+  overlay replaces 77 rows whose sum exceeds 0.5. `var` is not used by the follower.
+- Remaining rows are synthesized from the pinned CC0 SF2 at three velocities, with a fresh
+  RustySynth instance per velocity. Their measured minimum cosine similarity is 0.97678 and
+  maximum total variation is 0.0923 against FluidSynth;
+  fixed-template model replay and the full-pipeline evaluator/position/p95 gates are separate.
+- The reference facade forwards hop_length but not sample_rate to the follower; a rate override
+  changes processor rate and derived hop while follower templates retain 16000 Hz. The default
+  16000/640 pair uses the learned overlay; other pairs synthesize all rows.
+
+The golden cases cover weighted/sustained chords, nonzero repeat/skip probability, one chord, and
+the bundled score/performance. The bundled replay uses the score note array and CQT-flux stream;
+it does not render score audio or copy the performance samples.
+
 ### Rejected candidate
 
 GeneralUser GS 2.0.3 was considered at upstream commit

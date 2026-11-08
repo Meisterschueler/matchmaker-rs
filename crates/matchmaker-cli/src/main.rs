@@ -213,7 +213,9 @@ fn audio_config(
                 ConfigValue::Str(name) => {
                     selected_processor = Some(name.parse::<AudioProcessorKind>()?)
                 }
-                _ => anyhow::bail!("--set processor expects chroma, lse, raw_spectrum, or cqt"),
+                _ => anyhow::bail!(
+                    "--set processor expects chroma, lse, raw_spectrum, cqt, or cqt_spectral_flux"
+                ),
             }
         }
     }
@@ -249,12 +251,16 @@ fn audio_config(
             "window_size" | "distance_func" if method == AudioMethod::Skf => {
                 anyhow::bail!("{key} is not used by audio skf")
             }
+            "window_size" | "distance_func" if method == AudioMethod::OuterHmm => {
+                anyhow::bail!("{key} is not used by audio outerhmm")
+            }
             "window_size" => config.window_size = audio_f64(key, &value)?,
             "start_window_size" => config.start_window_size = audio_optional_f64(key, &value)?,
             "step_size" => config.step_size = audio_optional_usize(key, &value)?,
             "max_run_count" => config.max_run_count = audio_optional_usize(key, &value)?,
             "selection_window" => config.selection_window = audio_optional_usize(key, &value)?,
             "switch_margin" => config.switch_margin = audio_optional_f64(key, &value)?,
+            "s_j" => config.s_j = Some(audio_f64(key, &value)?),
             "template_mode" => match value {
                 ConfigValue::Str(name) => {
                     config.template_mode = Some(name.parse::<TemplateMode>()?)
@@ -399,6 +405,9 @@ fn main() -> Result<()> {
                     }
                     AudioMethod::Skf => {
                         AudioMatchmaker::new_skf(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::OuterHmm => {
+                        AudioMatchmaker::new_outerhmm(&score, config, tempo, !no_unfold)?
                     }
                 };
                 let ground_truth_path = ground_truth;

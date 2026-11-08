@@ -43,7 +43,7 @@ def make_audio(
 
 def test_audio_arzt_defaults_yield_positions_and_return_path():
     assert matchmaker_rs.AVAILABLE_METHODS["audio"] == [
-        "arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf"
+        "arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf", "outerhmm"
     ]
     defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["arzt"]
     assert defaults["processor"] == "chroma"
@@ -321,8 +321,58 @@ def test_cqt_spectral_flux_extraction_returns_89_or_88_columns():
 
 def test_cqt_spectral_flux_has_no_frame_follower():
     for method in ["arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf"]:
-        with pytest.raises(ValueError, match="no frame follower"):
+        with pytest.raises(ValueError, match="only by audio outerhmm"):
             make_audio(method, processor="cqt_spectral_flux")
+
+
+def test_audio_outerhmm_defaults_override_and_export(tmp_path):
+    assert matchmaker_rs.DEFAULT_KWARGS["audio"]["outerhmm"] == {
+        "processor": "cqt_spectral_flux",
+        "sample_rate": 16_000,
+        "frame_rate": 25,
+        "s_j": 0.0,
+    }
+    mm = make_audio("outerhmm")
+    positions = list(mm.run(verbose=False))
+    assert positions and all(np.isfinite(position) for position in positions)
+    assert mm.score_follower.alignment_path.shape == (2, len(positions))
+    mm = make_audio("outerhmm", sample_rate=22_050, hop_length=512)
+    override_positions = list(mm.run(verbose=False))
+    assert override_positions and all(np.isfinite(position) for position in override_positions)
+
+    exported = make_audio("outerhmm")
+    exported.export(tmp_path)
+    for name in [
+        "processor/cqt_spectral_flux/features.npy",
+        "score/outerhmm/pitch_templates.npy",
+        "score/outerhmm/learned_support.npy",
+        "score/outerhmm/chord_templates.npy",
+        "outerhmm/state_probabilities.npy",
+        "outerhmm/sound_probabilities.npy",
+        "outerhmm/pause_probabilities.npy",
+    ]:
+        assert (tmp_path / name).is_file(), name
+    assert not (tmp_path / "score/audio/features.npy").exists()
+
+    for kwargs, message in [
+        ({"processor": "cqt"}, "processor"),
+        ({"s_j": 1.1}, "s_j"),
+        ({"distance_func": "euclidean"}, "Invalid audio parameter distance_func"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            make_audio("outerhmm", **kwargs)
+
+
+def test_midi_outerhmm_remains_available():
+    mm = Matchmaker(
+        score_file=str(SCORE),
+        performance_file=str(DATA / "simple_mozart_k265_var1.mid"),
+        input_type="midi",
+        method="outerhmm",
+        kwargs={},
+    )
+    positions = list(mm.run(verbose=False))
+    assert positions and all(np.isfinite(position) for position in positions)
 
 
 def test_audio_skf_defaults_template_modes_and_errors():

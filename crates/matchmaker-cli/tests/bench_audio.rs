@@ -232,6 +232,41 @@ fn bench_records_direct_audio_ground_truth_identity_and_metrics() {
 }
 
 #[test]
+fn bench_runs_outerhmm_with_ground_truth_and_records_p95() {
+    let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_outerhmm");
+    std::fs::create_dir_all(&output).unwrap();
+    let records_path = output.join("records.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("bench")
+        .arg(Path::new(&root()).join("tools/bench/audio.toml"))
+        .arg("--out")
+        .arg(&records_path)
+        .args(["--runs", "1", "--methods", "outerhmm"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&records_path).unwrap()).unwrap();
+    let rows = records.as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    let record = &rows[0];
+    assert_eq!(record["method"], "outerhmm");
+    assert_eq!(record["processor"], "cqt_spectral_flux");
+    assert_eq!(record["ground_truth"], true);
+    assert!(record["evaluation"]["median_b"].as_f64().is_some());
+    assert!(record["p95_b"].as_f64().is_some());
+    assert!(
+        output
+            .join("paths/audio-outerhmm/mozart_outerhmm/outerhmm.tsv")
+            .is_file()
+    );
+}
+
+#[test]
 fn bench_accepts_multi_fold_and_records_repeat_candidates() {
     let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_multi_fold");
     std::fs::create_dir_all(&output).unwrap();

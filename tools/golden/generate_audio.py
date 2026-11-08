@@ -12,6 +12,7 @@ import hashlib
 import io
 import itertools
 import json
+import shutil
 from ctypes import c_int
 from contextlib import contextmanager, redirect_stdout
 from importlib.metadata import version
@@ -35,6 +36,7 @@ from matchmaker.features.audio import (
 from matchmaker.dp.oltw_arzt import OnlineTimeWarpingArztFrame
 from matchmaker.matchmaker import DEFAULT_TEMPO
 from matchmaker.prob import skf as reference_skf
+from matchmaker.prob import outer_product_hmm_audio as reference_outerhmm
 from matchmaker.utils.tempo_models import ArztTempoModel
 from matchmaker.utils import misc as reference_misc
 from scipy.io import wavfile
@@ -811,6 +813,145 @@ def generate_skf_goldens(output: Path, soundfont: Path, soundfont_hash: str) -> 
     )
 
 
+def write_outerhmm_case(directory: Path, note_array: np.ndarray, pitch_templates: np.ndarray,
+                        observations: np.ndarray, tempo: float, hop_length: int, s_j: float,
+                        extra_meta: dict | None = None) -> None:
+    times = np.arange(len(observations), dtype=np.float64) * hop_length / 16_000
+    with patch.object(reference_outerhmm, "build_pitch_cqt_templates", lambda *_: pitch_templates):
+        reference = reference_outerhmm.AudioOuterProductHMM(
+            note_array, tempo=tempo, sample_rate=16_000, hop_length=hop_length, s_j=s_j
+        )
+    positions, indices, states, likelihoods, pauses = [], [], [], [], []
+    for observation, perf_time in zip(observations, times):
+        positions.append(reference(observation, float(perf_time)))
+        indices.append(reference.current_index)
+        states.append(reference.state_probabilities.copy())
+        likelihoods.append(reference.compute_obs_likelihood(observation))
+        pauses.append(reference._compute_pause_emission(observation))
+    weighted_chords, score_positions = reference_outerhmm.get_weighted_chords_from_score(note_array)
+    weighted_offsets, weighted_pitches, weighted_values = [0], [], []
+    for chord in weighted_chords:
+        for pitch, weight in sorted(chord.items()):
+            weighted_pitches.append(pitch - 21)
+            weighted_values.append(weight)
+        weighted_offsets.append(len(weighted_pitches))
+    for name, values, dtype in (
+        ("note_onset_beat.npy", note_array["onset_beat"], "<f4"),
+        ("note_onset_quarter.npy", note_array["onset_quarter"], "<f4"),
+        ("note_duration_beat.npy", note_array["duration_beat"], "<f4"),
+        ("note_pitch.npy", note_array["pitch"], "<i4"),
+        ("pitch_templates.npy", pitch_templates, "<f8"),
+        ("chord_templates.npy", np.exp(reference._log_templates), "<f8"),
+        ("observations.npy", observations, "<f4"),
+        ("perf_times.npy", times, "<f8"),
+        ("positions.npy", positions, "<f8"),
+        ("current_index.npy", indices, "<i8"),
+        ("state_probabilities.npy", states, "<f8"),
+        ("sound_likelihoods.npy", likelihoods, "<f8"),
+        ("pause_likelihood.npy", pauses, "<f8"),
+        ("score_positions.npy", score_positions, "<f8"),
+        ("weighted_offsets.npy", weighted_offsets, "<i8"),
+        ("weighted_pitch.npy", weighted_pitches, "<i4"),
+        ("weighted_value.npy", weighted_values, "<f8"),
+    ):
+        write_array(directory / name, values, dtype)
+    write_json(directory / "meta.json", {
+        "reference": reference_info(), "generator": "tools/golden/generate_audio.py",
+        "method": "outerhmm", "tempo": tempo,
+        "follower": {"sample_rate": 16_000, "hop_length": hop_length, "s_j": s_j},
+        "frames": len(observations), "chords": reference.n_states,
+        "tolerances": {"model_rtol": 1e-7, "model_atol": 1e-9, "position_atol": 1e-9},
+        **(extra_meta or {}),
+    })
+    print(f"outerhmm/{directory.name}: {reference.n_states} chords, {len(observations)} frames")
+
+
+def generate_outerhmm_goldens(output: Path, soundfont: Path, soundfont_hash: str) -> None:
+    """Fixed-input Audio-OuterHMM replays using the licensed upstream pitch overlay."""
+    base = output / "outerhmm"
+    asset = Path(reference_outerhmm.__file__).parent / "templates" / "pitch_templates_16000_640.npz"
+    asset_hash = sha256(asset)
+    if asset_hash != "7448383AA9C7B4B49B3A4A52B8BED2AFF994B0F3266BA0372A28738A3DDE8A03":
+        raise RuntimeError(f"unexpected upstream pitch-template SHA-256 {asset_hash}")
+    embedded_asset = ROOT / "src/prob/assets/pitch_templates_16000_640.npz"
+    embedded_asset.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(asset, embedded_asset)
+    with use_soundfont(soundfont):
+        pitch_templates = reference_outerhmm.build_pitch_cqt_templates(16_000, 640).copy()
+    learned = np.load(asset)["mu"]
+    support = learned.sum(axis=1) > 0.5
+    write_array(base / "pitch_templates.npy", pitch_templates, "<f8")
+    write_array(base / "learned_pitch_templates.npy", learned, "<f8")
+    write_array(base / "template_support.npy", support, "|b1")
+    write_json(base / "template_meta.json", {
+        "upstream": "pymatchmaker 0.4.0, matchmaker/prob/templates/pitch_templates_16000_640.npz",
+        "upstream_commit": "b7955e645e3998e4d4b5deed7370948991766e4e",
+        "license": "Apache-2.0",
+        "training_corpus": "not identified in the upstream repository",
+        "archive_sha256": asset_hash,
+        "soundfont_sha256": soundfont_hash,
+        "shape": list(learned.shape), "support_rows": int(support.sum()),
+    })
+
+    dtype = [("onset_beat", "<f4"), ("onset_quarter", "<f4"),
+             ("duration_beat", "<f4"), ("pitch", "<i4")]
+    rows = [(0, 0, 4, 60), (2, 2, 2, 64), (3, 3, 2, 67), (4, 4, 1, 62)]
+    notes = np.array(rows, dtype=dtype)
+    weighted_chords, _ = reference_outerhmm.get_weighted_chords_from_score(notes)
+    chord_observations = []
+    for chord in weighted_chords:
+        row = np.zeros(88, dtype=np.float32)
+        for pitch, weight in chord.items():
+            row += (pitch_templates[pitch - 21] * weight).astype(np.float32)
+        chord_observations.append(row)
+    sequence = [0, 0, 1, None, 1, 2, 3, 3]
+    observations = []
+    for frame, chord_index in enumerate(sequence):
+        if chord_index is None:
+            bins = np.zeros(88, dtype=np.float32)
+        else:
+            bins = chord_observations[chord_index].copy()
+            bins *= np.float32(0.7 + 0.1 * (frame % 3))
+        observations.append(np.append(bins, np.float32(frame % 4) * 0.125))
+    observations = np.asarray(observations, dtype=np.float32)
+    write_outerhmm_case(base / "weighted", notes, pitch_templates, observations, 120.0, 640, 0.0)
+    write_outerhmm_case(base / "repeats", notes, pitch_templates, observations, 120.0, 640, 0.05)
+    one_note = np.array([(0.0, 0.0, 1.0, 69)], dtype=dtype)
+    one_chord = pitch_templates[69 - 21].astype(np.float32)
+    one_observations = np.zeros((4, 89), dtype=np.float32)
+    one_observations[0, :88] = one_chord
+    one_observations[2, :88] = one_chord
+    one_observations[:, 88] = [0.0, 0.25, 0.5, 0.0]
+    write_outerhmm_case(base / "one_chord", one_note, pitch_templates, one_observations, 120.0, 640, 0.0)
+
+    from matchmaker.utils.misc import get_tempo_from_score
+
+    _, score_part, _ = load_score_like_matchmaker(DEFAULT_SCORE)
+    note_array = score_part.note_array()
+    score_tempo = get_tempo_from_score(score_part, str(DEFAULT_SCORE))
+    tempo = float(score_tempo) if score_tempo is not None else float(DEFAULT_TEMPO)
+    performance, performance_rate = librosa.load(str(DEFAULT_PERFORMANCE), sr=None)
+    performance = librosa.resample(
+        y=performance, orig_sr=performance_rate, target_sr=16_000, res_type="soxr_hq"
+    ).astype(np.float32)
+    _, rows, _ = stream_cqt_flux(performance, 16_000, 640)
+    write_outerhmm_case(
+        base / "bundled",
+        note_array,
+        pitch_templates,
+        np.asarray(rows, dtype=np.float32),
+        tempo,
+        640,
+        0.0,
+        {
+            "score": DEFAULT_SCORE.name,
+            "performance": DEFAULT_PERFORMANCE.name,
+            "performance_sha256": sha256(DEFAULT_PERFORMANCE),
+            "soundfont_sha256": soundfont_hash,
+        },
+    )
+
+
 
 def generate_tempo_replay_goldens(output: Path) -> None:
     """Record seeded tempo tracking independently of audio synthesis."""
@@ -1408,6 +1549,11 @@ def main() -> None:
         help="generate fixed-template SKF replays (needs FluidSynth and the pinned SoundFont)",
     )
     parser.add_argument(
+        "--outerhmm-only",
+        action="store_true",
+        help="generate fixed-template Audio-OuterHMM replays (needs FluidSynth and the pinned SoundFont)",
+    )
+    parser.add_argument(
         "--codec-fixtures-only",
         action="store_true",
         help="write synthetic WAV/FLAC/MP3/Ogg decoder test assets",
@@ -1517,6 +1663,18 @@ def main() -> None:
                 f"expected pinned asset {SOUNDFONT_SHA256}"
             )
         generate_skf_goldens(args.out.resolve(), soundfont, soundfont_hash)
+        return
+    if args.outerhmm_only:
+        soundfont = args.soundfont.resolve()
+        if not soundfont.is_file():
+            parser.error(f"SoundFont does not exist: {soundfont}")
+        soundfont_hash = sha256(soundfont)
+        if soundfont_hash != SOUNDFONT_SHA256:
+            parser.error(
+                f"unexpected SoundFont SHA-256 {soundfont_hash}; "
+                f"expected pinned asset {SOUNDFONT_SHA256}"
+            )
+        generate_outerhmm_goldens(args.out.resolve(), soundfont, soundfont_hash)
         return
 
     score_path = args.score.resolve()

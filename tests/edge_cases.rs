@@ -18,6 +18,7 @@ use matchmaker_rs::matchmaker::{
 };
 use matchmaker_rs::performance::Performance;
 use matchmaker_rs::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
+use matchmaker_rs::prob::outerhmm_audio::AudioOuterHmmScoreModel;
 use matchmaker_rs::prob::skf::TemplateMode;
 use matchmaker_rs::score::Score;
 use midly::num::{u4, u7, u15, u28};
@@ -309,7 +310,9 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
                 AudioMethod::Dixon => {
                     AudioMatchmaker::new_dixon(score, config, None, true).unwrap()
                 }
-                AudioMethod::Skf => unreachable!("skf has its own edge-case test"),
+                AudioMethod::Skf | AudioMethod::OuterHmm => {
+                    unreachable!("these methods have their own edge-case tests")
+                }
             }
         };
 
@@ -411,6 +414,31 @@ fn skf_reports_template_asset_errors_instead_of_falling_back() {
         Err(Error::AudioRender { .. })
     ));
     assert!(matches!(build(None), Err(Error::AudioConfig { .. })));
+}
+
+#[test]
+fn audio_outerhmm_rejects_bad_templates_and_missing_soundfont() {
+    let score = Score::load(data(SCORE), true).unwrap();
+    let templates = vec![vec![1.0 / 88.0; 88]; 88];
+    assert!(AudioOuterHmmScoreModel::new(&[], templates.clone()).is_err());
+    assert!(AudioOuterHmmScoreModel::new(&score.notes, vec![vec![0.0; 87]; 88]).is_err());
+
+    let mut config = AudioMethodConfig::for_method(AudioMethod::OuterHmm);
+    assert!(matches!(
+        AudioMatchmaker::new_outerhmm(data(SCORE), config.clone(), None, true),
+        Err(Error::AudioConfig { key, .. }) if key == "soundfont_path"
+    ));
+    config.s_j = Some(f64::NAN);
+    assert!(matches!(
+        config.validate(AudioMethod::OuterHmm),
+        Err(Error::AudioConfig { key, .. }) if key == "s_j"
+    ));
+    config = AudioMethodConfig::for_method(AudioMethod::OuterHmm);
+    config.set_processor(AudioProcessorKind::Cqt);
+    assert!(matches!(
+        config.validate(AudioMethod::OuterHmm),
+        Err(Error::AudioConfig { key, .. }) if key == "processor"
+    ));
 }
 
 #[test]

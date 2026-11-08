@@ -24,6 +24,7 @@ use crate::features::{
 use crate::io::audio::AudioStream;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
 use crate::matchmaker::{AudioMatchmaker, AudioMethod, Matchmaker, Method, ProcessorKind};
+use crate::prob::outerhmm_audio::{AudioOuterHmmScoreModel, LEARNED_TEMPLATE_SHA256};
 use crate::prob::skf::SkfScoreModel;
 use crate::utils::eval::EvaluationResult;
 
@@ -329,7 +330,7 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
     let reference = mm.reference();
     let steps = &recording.steps;
 
-    if method != AudioMethod::Skf {
+    if !matches!(method, AudioMethod::Skf | AudioMethod::OuterHmm) {
         f4(
             &dir.join("score/audio/features.npy"),
             &[
@@ -368,6 +369,22 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
                 .map(|path| path.to_string_lossy().into_owned())
         );
         write_skf_model(&dir.join("score/skf"), model)?;
+    }
+    if let Some(model) = mm.outerhmm_model() {
+        score_meta["pitch_template_archive_sha256"] = json!(LEARNED_TEMPLATE_SHA256);
+        score_meta["pitch_template_license"] = json!("Apache-2.0");
+        score_meta["pitch_template_upstream_commit"] =
+            json!("b7955e645e3998e4d4b5deed7370948991766e4e");
+        score_meta["pitch_template_training_corpus"] =
+            json!("not identified in the upstream repository");
+        score_meta["soundfont"] = json!(
+            config
+                .soundfont_path
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned())
+        );
+        score_meta["soundfont_sha256"] = json!(model.soundfont_sha256());
+        write_outerhmm_model(&dir.join("score/outerhmm"), model)?;
     }
     write_json(&dir.join("score/meta.json"), &score_meta)?;
 
@@ -579,6 +596,30 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
             skf_states.iter().map(|state| state.candidates),
         )?;
     }
+    if method == AudioMethod::OuterHmm {
+        let states = mm.score_positions().len();
+        f8(
+            &method_dir.join("state_probabilities.npy"),
+            &[steps.len(), 2 * states],
+            steps
+                .iter()
+                .flat_map(|step| step.debug.probabilities.iter().copied()),
+        )?;
+        f8(
+            &method_dir.join("sound_probabilities.npy"),
+            &[steps.len(), states],
+            steps
+                .iter()
+                .flat_map(|step| step.debug.probabilities.iter().step_by(2).copied()),
+        )?;
+        f8(
+            &method_dir.join("pause_probabilities.npy"),
+            &[steps.len(), states],
+            steps
+                .iter()
+                .flat_map(|step| step.debug.probabilities.iter().skip(1).step_by(2).copied()),
+        )?;
+    }
     let mut method_meta = json!({
         "reference": {"implementation": "matchmaker-rs", "version": env!("CARGO_PKG_VERSION")},
         "generator": "matchmaker-rs audio export",
@@ -594,6 +635,7 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
             "random_seed": config.random_seed,
             "selection_window": config.selection_window,
             "switch_margin": config.switch_margin,
+            "s_j": config.s_j,
         },
     });
     if let Some(mode) = config.template_mode {
@@ -634,6 +676,51 @@ fn write_skf_model(dir: &Path, model: &SkfScoreModel) -> Result<()> {
         &dir.join("onset_beats.npy"),
         &[model.onset_beats.len()],
         model.onset_beats.iter().copied(),
+    )
+}
+
+/// Pitch/chord templates and learned-overlay mask of audio `outerhmm`.
+fn write_outerhmm_model(dir: &Path, model: &AudioOuterHmmScoreModel) -> Result<()> {
+    f8(
+        &dir.join("pitch_templates.npy"),
+        &[88, 88],
+        model.pitch_templates().iter().flatten().copied(),
+    )?;
+    flags(&dir.join("learned_support.npy"), model.learned_support())?;
+    f8(
+        &dir.join("chord_templates.npy"),
+        &[model.chord_templates().len(), 88],
+        model.chord_templates().iter().flatten().copied(),
+    )?;
+    f4(
+        &dir.join("score_positions.npy"),
+        &[model.score_positions().len()],
+        model.score_positions().iter().copied(),
+    )?;
+    let mut offsets = vec![0];
+    let mut pitches = Vec::new();
+    let mut weights = Vec::new();
+    for chord in model.weighted_chords() {
+        for &(pitch, weight) in chord {
+            pitches.push(pitch);
+            weights.push(weight);
+        }
+        offsets.push(pitches.len());
+    }
+    i8s(
+        &dir.join("weighted_pitch.npy"),
+        &[pitches.len()],
+        pitches.into_iter(),
+    )?;
+    i8s(
+        &dir.join("weighted_offsets.npy"),
+        &[offsets.len()],
+        offsets.into_iter(),
+    )?;
+    f8(
+        &dir.join("weighted_value.npy"),
+        &[weights.len()],
+        weights.into_iter(),
     )
 }
 

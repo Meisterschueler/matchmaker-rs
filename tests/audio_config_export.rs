@@ -445,3 +445,35 @@ fn skf_export_records_model_mode_and_hypothesis_state_without_score_audio() {
     assert_eq!(read("audio/meta.json")["n_fft"], 512);
     assert_eq!(read("skf/meta.json")["config"]["template_mode"], "gaussian");
 }
+
+#[test]
+fn outerhmm_export_records_templates_support_and_posterior_without_score_audio() {
+    let mut config = AudioMethodConfig::for_method(AudioMethod::OuterHmm);
+    config.soundfont_path = Some(pinned_soundfont());
+    let matchmaker =
+        AudioMatchmaker::new_outerhmm(data("simple_mozart_k265_var1.musicxml"), config, None, true)
+            .unwrap()
+            .record();
+    let output = std::env::temp_dir().join("matchmaker_audio_outerhmm_export");
+    write_audio_run(&matchmaker, &output).unwrap();
+    let model = output.join("score/outerhmm");
+    assert_eq!(npy(model.join("pitch_templates.npy")).shape, [88, 88]);
+    assert_eq!(npy(model.join("learned_support.npy")).shape, [88]);
+    assert_eq!(npy(model.join("chord_templates.npy")).shape, [54, 88]);
+    assert_eq!(
+        npy(output.join("outerhmm/state_probabilities.npy")).shape,
+        [0, 108]
+    );
+    assert!(!output.join("score/audio/features.npy").exists());
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("score/meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["pitch_template_license"], "Apache-2.0");
+    assert_eq!(
+        meta["soundfont_sha256"],
+        "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F"
+    );
+    assert_eq!(
+        meta["pitch_template_training_corpus"],
+        "not identified in the upstream repository"
+    );
+}

@@ -358,6 +358,88 @@ def compare_skf_case(golden_dir, export_dir, metadata):
     return 0
 
 
+def compare_outerhmm_case(golden_dir, export_dir, metadata):
+    """Check Audio-OuterHMM provenance, learned rows, and exact weighted score chords.
+
+    Unsupported synthesized pitch rows are reported as renderer diagnostics; full-pipeline
+    evaluator limits, not an invented template tolerance, decide their impact.
+    """
+    base = golden_dir.parent
+    score_meta = json.loads((export_dir / "score/meta.json").read_text())
+    template_meta = json.loads((base / "template_meta.json").read_text())
+    for key in ("archive_sha256", "license", "upstream_commit", "training_corpus"):
+        export_key = {
+            "archive_sha256": "pitch_template_archive_sha256",
+            "license": "pitch_template_license",
+            "upstream_commit": "pitch_template_upstream_commit",
+            "training_corpus": "pitch_template_training_corpus",
+        }[key]
+        if score_meta.get(export_key) != template_meta.get(key):
+            print(
+                f"first differing stage: score/meta.json: {export_key}: "
+                f"expected {template_meta.get(key)!r}, actual {score_meta.get(export_key)!r}"
+            )
+            return 1
+    if score_meta.get("soundfont_sha256") != metadata.get("soundfont_sha256"):
+        print(
+            "first differing stage: score/meta.json: soundfont_sha256: "
+            f"expected {metadata.get('soundfont_sha256')!r}, actual {score_meta.get('soundfont_sha256')!r}"
+        )
+        return 1
+
+    model_dir = export_dir / "score/outerhmm"
+    for name in ("score_positions.npy", "weighted_offsets.npy", "weighted_pitch.npy", "weighted_value.npy"):
+        difference = first_difference(
+            name,
+            np.load(golden_dir / name),
+            np.load(model_dir / name),
+            tolerance=(0.0, 0.0),
+        )
+        if difference:
+            print(f"first differing stage: score/outerhmm/{name}: {difference}")
+            return 1
+
+    support = np.load(base / "template_support.npy").astype(bool)
+    actual_support = np.load(model_dir / "learned_support.npy").astype(bool)
+    difference = first_difference("learned_support.npy", support, actual_support, tolerance=(0.0, 0.0))
+    if difference:
+        print(f"first differing stage: score/outerhmm/learned_support.npy: {difference}")
+        return 1
+
+    expected = np.load(base / "pitch_templates.npy").astype(np.float64)
+    actual = np.load(model_dir / "pitch_templates.npy").astype(np.float64)
+    if expected.shape != (88, 88) or actual.shape != expected.shape:
+        print(f"first differing stage: score/outerhmm/pitch_templates.npy: expected (88, 88), actual {actual.shape}")
+        return 1
+    learned = np.load(base / "learned_pitch_templates.npy")
+    for pitch in np.flatnonzero(support):
+        if not np.array_equal(actual[pitch], learned[pitch]):
+            print(f"first differing stage: score/outerhmm/pitch_templates.npy: learned pitch {pitch + 21}")
+            return 1
+
+    tolerances = metadata["tolerances"]
+    difference = first_difference(
+        "chord_templates.npy",
+        np.load(golden_dir / "chord_templates.npy"),
+        np.load(model_dir / "chord_templates.npy"),
+        tolerance=(tolerances["model_rtol"], tolerances["model_atol"]),
+    )
+    if difference:
+        print(f"first differing stage: score/outerhmm/chord_templates.npy: {difference}")
+        return 1
+
+    synthesized = ~support
+    cosine = (expected[synthesized] * actual[synthesized]).sum(axis=1) / (
+        np.linalg.norm(expected[synthesized], axis=1) * np.linalg.norm(actual[synthesized], axis=1)
+    )
+    variation = 0.5 * np.abs(expected[synthesized] - actual[synthesized]).sum(axis=1)
+    print(
+        "EXACT: outerhmm provenance, learned overlay, score positions, and weighted chords; "
+        f"SYNTHESIS_DELTA: min cosine={cosine.min():.5f}, max total variation={variation.max():.4f}"
+    )
+    return 0
+
+
 def compare_audio_ground_truth_case(golden_dir, export_dir):
     """Compare direct TSV identity and evaluator metrics for an audio export."""
     metadata = json.loads((golden_dir / "meta.json").read_text())
@@ -595,6 +677,8 @@ def main(golden_dir, export_dir):
             return compare_cqt_case(golden_dir, export_dir, metadata)
         if metadata.get("method") == "skf":
             return compare_skf_case(golden_dir, export_dir, metadata)
+        if metadata.get("method") == "outerhmm":
+            return compare_outerhmm_case(golden_dir, export_dir, metadata)
 
     compared = 0
     for stage in STAGES:

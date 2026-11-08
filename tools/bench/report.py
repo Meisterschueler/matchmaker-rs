@@ -55,6 +55,17 @@ def renderer_accuracy_parity(actual: dict, expected: dict) -> bool:
     )
 
 
+def p95_parity(actual: float | None, expected: float | None) -> bool:
+    """The audio contract allows at most 0.05 beats of p95 error difference."""
+    return (
+        isinstance(actual, (int, float))
+        and isinstance(expected, (int, float))
+        and math.isfinite(actual)
+        and math.isfinite(expected)
+        and abs(actual - expected) <= 0.05 + 1e-12
+    )
+
+
 def load(paths: list[Path]) -> dict:
     """(records, directory of their paths/) grouped by (method, dataset, piece)."""
     groups: dict = {}
@@ -150,6 +161,7 @@ def main() -> None:
                 "total_s": median(records, "total_processing_s"),
                 "real_time_factor": median(records, "real_time_factor"),
                 "evaluation": records[0]["evaluation"] if records else None,
+                "p95_b": records[0].get("p95_b") if records else None,
                 "has_ground_truth": any(record.get("ground_truth", False) for record in records),
                 "ground_truth_path": records[0].get("ground_truth_path") if records else None,
             }
@@ -177,6 +189,9 @@ def main() -> None:
                 "ground_truth_accuracy_parity": renderer_accuracy_parity(r["evaluation"], p["evaluation"])
                     if r["has_ground_truth"] and p["has_ground_truth"]
                     and r["evaluation"] and p["evaluation"] else None,
+                "p95_b_delta": abs(r["p95_b"] - p["p95_b"])
+                    if method == "outerhmm" and r["p95_b"] is not None and p["p95_b"] is not None else None,
+                "p95_parity": p95_parity(r["p95_b"], p["p95_b"]) if method == "outerhmm" else None,
                 "renderer_accuracy_parity": renderer_accuracy_parity(r["evaluation"], p["evaluation"])
                     if (method == "arzt_tempo" or (method == "arzt_multi_fold" and r["has_ground_truth"] and p["has_ground_truth"]))
                     and r["evaluation"] and p["evaluation"] else None,
@@ -195,8 +210,8 @@ def main() -> None:
         "",
         "Medians over runs. Latency in ms per observation; speed-up = Python / Rust total processing time.",
         "",
-        "| method | processor | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| method | processor | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | p95 Δ | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         r, p, ev = row["rust"], row["python"], row["rust"]["evaluation"] or row["python"]["evaluation"] or {}
@@ -210,7 +225,7 @@ def main() -> None:
             f"| {row['method']} | {row['processor'] or '-'} | {row['dataset']} | {row['piece']} "
             f"| {fmt(r['feature_ms'])} / {fmt(p['feature_ms'])} | {fmt(r['inference_ms'])} / {fmt(p['inference_ms'])} "
             f"| {fmt(row['speed_up'], '.1f')} | {fmt(r['real_time_factor'])} | {fmt(ev.get('mean_b'))} "
-            f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "
+            f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(row['p95_b_delta'])} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "
             f"| {flag(row['ground_truth_accuracy_parity'])} | {flag(row['renderer_accuracy_parity'])} "
             f"| {pos_text} | {regression_text} |"
         )
@@ -226,7 +241,8 @@ def main() -> None:
 
     violations = [row for row in rows if (row["position_parity"] and not row["position_parity"]["ok"])
                   or row["ground_truth_accuracy_parity"] is False
-                  or row["renderer_accuracy_parity"] is False]
+                  or row["renderer_accuracy_parity"] is False
+                  or row["p95_parity"] is False]
     # shields.io endpoint for the README badge: median speed-up over all pieces, red on a parity violation
     speed_ups = [row["speed_up"] for row in rows if row["speed_up"]]
     badge = {

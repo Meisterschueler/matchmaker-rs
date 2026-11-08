@@ -74,3 +74,14 @@ score = "../../tests/data/simple_mozart_k265_var1.musicxml"
 performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
 ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+# Audio-OuterHMM follows the score note array; evaluate against direct note-onset ground truth.
+[[pieces]]
+dataset = "audio-outerhmm"
+piece = "mozart_outerhmm"
+methods = ["outerhmm"]
+input_type = "audio"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"

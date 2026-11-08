@@ -1,0 +1,29 @@
+{
+  "chords": 54,
+  "follower": {
+    "hop_length": 640,
+    "s_j": 0.0,
+    "sample_rate": 16000
+  },
+  "frames": 189,
+  "generator": "tools/golden/generate_audio.py",
+  "method": "outerhmm",
+  "performance": "simple_mozart_k265_var1_sf2.wav",
+  "performance_sha256": "32DD5C2ED10040658DFAA09ABFE314F97DCE35638C62027216CACA7B31EAAA60",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "44A17879953097931B0A3E2CE15CD1F69FCF21EB2D21A23DF0892766CD2805EB",
+    "version": "0.4.0"
+  },
+  "score": "simple_mozart_k265_var1.musicxml",
+  "soundfont_sha256": "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F",
+  "tempo": 120.0,
+  "tolerances": {
+    "model_atol": 1e-09,
+    "model_rtol": 1e-07,
+    "position_atol": 1e-09
+  }
+}
