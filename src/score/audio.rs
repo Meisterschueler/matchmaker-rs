@@ -1,7 +1,28 @@
 //! Score-to-audio rendering and frame-to-beat reference construction.
 //!
-//! Upstream: `matchmaker.utils.misc.generate_score_audio` and
-//! `matchmaker.registry._reference_score_audio`.
+//! Upstream: `matchmaker.utils.misc.generate_score_audio`,
+//! `matchmaker.registry._reference_score_audio` and the peak normalization at the end of
+//! `partitura.utils.fluidsynth.synthesize_fluidsynth`.
+//!
+//! # Reference conventions (the two swap points)
+//!
+//! When the reference turns a score into alignment features it makes two implicit choices. Both
+//! change the *absolute* feature values. Processors that normalize every frame (`chroma`, `lse`)
+//! hide this, unnormalized ones (`raw_spectrum`, later `mel`, `cqt`, ...) and the alignment costs
+//! on top of them do not. Each choice is one private function with a single call site, so a
+//! different convention is a local replacement:
+//!
+//! | Convention | Function | Reference behaviour |
+//! |---|---|---|
+//! | Level | `normalize_level` | the rendered piece is peak-normalized to ±1.0 before it is padded and cropped |
+//! | Framing | `extract_score_features` | one whole-signal `center=False` call: frame `j` covers samples `j·hop .. j·hop + n_fft`; chroma tuning is estimated once for the whole score |
+//!
+//! Both apply to every audio method; neither function sees the method or the follower. To try a
+//! better convention, replace the function body (keep its contract), then re-run
+//! `tests/score_audio.rs`, the audio golden tests and the audio benchmark
+//! (`tools/bench/audio.toml`); the benchmark report's parity against the pinned reference decides.
+//! The rationale and the alternatives that were weighed are in
+//! `specs/004-audio-methods/research.md` (R11).
 //!
 //! ```no_run
 //! use matchmaker_rs::matchmaker::{AudioMethod, AudioMethodConfig};
@@ -26,8 +47,11 @@ use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
 use tracing::debug_span;
 
 use crate::error::{Error, Result};
-use crate::features::{AudioProcessor, Observation, chroma::ChromaProcessor, lse::LseProcessor};
-use crate::io::audio::AudioStream;
+use crate::features::{
+    AudioProcessor, chroma::ChromaProcessor, cqt::CqtProcessor, lse::LseProcessor,
+    raw_spectrum::RawSpectrumProcessor,
+};
+use crate::io::audio::AudioFrame;
 use crate::matchmaker::{AudioMethod, AudioMethodConfig, AudioProcessorKind};
 use crate::score::Score;
 use crate::score::timeline::{TimeMap, Unit};
@@ -35,7 +59,8 @@ use crate::score::timeline::{TimeMap, Unit};
 /// Synthesized score waveform and frame-level alignment reference.
 #[derive(Debug, Clone)]
 pub struct ScoreAudioReference {
-    /// Mono waveform after onset padding and reference-compatible cropping.
+    /// Mono waveform, peak-normalized to ±1.0, after onset padding and reference-compatible
+    /// cropping.
     pub samples: Vec<f32>,
     /// One score feature vector per emitted frame.
     pub features: Vec<Vec<f32>>,
@@ -58,6 +83,9 @@ struct MidiEvent {
 }
 
 /// Render a symbolic score with the explicitly selected SF2 SoundFont.
+///
+/// The waveform is peak-normalized like the reference's (swap point `normalize_level`, see the
+/// module docs), so absolute feature values are comparable with the pinned pymatchmaker.
 pub fn render_score_audio(
     score: &Score,
     soundfont_path: impl AsRef<Path>,
@@ -92,6 +120,7 @@ pub fn render_score_audio(
             path: path.to_path_buf(),
             message: error.to_string(),
         })?;
+    synthesizer.process_midi_message(0, 0xB0, 91, 0);
 
     let seconds_per_quarter = 60.0 / tempo;
     let first_onset = score
@@ -111,7 +140,6 @@ pub fn render_score_audio(
     let last_onset_time =
         last_onset_div / score.part.quarter_duration_at(last_onset_div) * seconds_per_quarter + 0.1;
     let target_samples = (last_onset_time * f64::from(sample_rate)) as usize;
-    let render_samples = target_samples.saturating_sub(padding);
 
     let mut events = Vec::with_capacity(score.notes.len() * 2);
     for note in &score.notes {
@@ -143,28 +171,30 @@ pub fn render_score_audio(
             .then(left.pitch.cmp(&right.pitch))
     });
 
+    // The level reference is the peak of the uncropped piece, so render to the last note-off.
+    let render_samples = events
+        .last()
+        .map_or(0, |event| event.sample)
+        .max(target_samples.saturating_sub(padding));
     let mut rendered = Vec::with_capacity(render_samples);
     let mut cursor = 0usize;
     let mut left = vec![0.0; settings.block_size];
     let mut right = vec![0.0; settings.block_size];
     for event in events {
-        let event_sample = event.sample.min(render_samples);
         render_until(
             &mut synthesizer,
             &mut rendered,
             &mut cursor,
-            event_sample,
+            event.sample,
             &mut left,
             &mut right,
         );
-        if event.sample <= render_samples {
-            let (command, velocity) = if event.is_note_on {
-                (0x90, event.velocity)
-            } else {
-                (0x80, event.velocity)
-            };
-            synthesizer.process_midi_message(0, command, event.pitch, velocity);
-        }
+        let (command, velocity) = if event.is_note_on {
+            (0x90, event.velocity)
+        } else {
+            (0x80, event.velocity)
+        };
+        synthesizer.process_midi_message(0, command, event.pitch, velocity);
     }
     render_until(
         &mut synthesizer,
@@ -174,6 +204,7 @@ pub fn render_score_audio(
         &mut left,
         &mut right,
     );
+    normalize_level(&mut rendered);
 
     let mut output = vec![0.0; padding];
     output.extend(rendered);
@@ -196,38 +227,7 @@ pub fn build_reference(
         .hop_length
         .unwrap_or((config.sample_rate / config.frame_rate) as usize);
     let frame_rate = f64::from(config.sample_rate) / hop_length as f64;
-    let mut processor: Box<dyn AudioProcessor> = match config.processor() {
-        AudioProcessorKind::Chroma => Box::new(ChromaProcessor::new(
-            config.sample_rate,
-            hop_length,
-            config.norm,
-        )),
-        AudioProcessorKind::Lse => Box::new(LseProcessor::new(
-            config.sample_rate,
-            hop_length,
-            config.norm,
-        )),
-    };
-    let cache_size = match config.processor() {
-        AudioProcessorKind::Chroma => hop_length,
-        AudioProcessorKind::Lse => {
-            LseProcessor::new(config.sample_rate, hop_length, config.norm).n_fft() - hop_length
-        }
-    };
-    let mut stream = AudioStream::from_mono_samples(
-        samples.clone(),
-        config.sample_rate,
-        hop_length,
-        cache_size,
-    )?;
-    stream.prime(processor.as_mut());
-    let observations: Vec<Observation> = stream
-        .filter_map(|frame| processor.process(&frame))
-        .collect();
-    let features: Vec<Vec<f32>> = observations
-        .iter()
-        .map(|observation| observation.features.clone())
-        .collect();
+    let features = extract_score_features(&samples, config, hop_length, frame_rate)?;
 
     let beat_map = TimeMap::new(&score.part, Unit::Beat);
     let quarter_to_div = TimeMap::new(&score.part, Unit::Quarter).map(|map| map.inverse());
@@ -255,6 +255,127 @@ pub fn build_reference(
     })
 }
 
+/// Swap point **level**: scale a rendered piece so that its absolute peak is exactly 1.0.
+///
+/// Reference: Partitura's `synthesize_fluidsynth` divides the piece by
+/// `max(signal.max(), abs(signal.min()))` before `generate_score_audio` pads and crops it. The
+/// divisor is therefore the peak of the *uncropped* piece, which is why [`render_score_audio`]
+/// renders to the last note-off before calling this. RustySynth alone returns its raw level
+/// (peak about 0.14), the reference's FluidSynth signal is divided down from integer sample
+/// values; without this step the two scores differ by about 17 dB in every frequency band.
+///
+/// Known deviations from the reference:
+/// - Partitura divides by the peak of the *last* (track, channel) signal, not of their sum. This
+///   port renders one mix, so both agree only for single-track scores (all fixtures); multi-track
+///   scores are unverified.
+/// - A silent piece is left unchanged; the reference would divide by zero and produce NaN.
+///
+/// This fixes the *score* side only. A performance keeps whatever level it was recorded with, so
+/// level-sensitive features (`raw_spectrum`) are as fragile against level changes as in the
+/// reference. A better convention (e.g. matching the performance's level at run time) replaces
+/// this function; callers only rely on "peak is 1.0 unless the piece is silent".
+fn normalize_level(samples: &mut [f32]) {
+    let peak = samples
+        .iter()
+        .fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+    if peak > 0.0 && peak.is_finite() {
+        for sample in samples {
+            *sample /= peak;
+        }
+    }
+}
+
+/// Swap point **framing**: the alignment features of a rendered score, one vector per frame.
+///
+/// Reference (`registry._reference_score_audio`): a single `processor((score_audio, 0.0))` call
+/// over the whole waveform with `center=False`, followed by `processor.reset()`. Reproduced here:
+/// - frame `j` covers samples `j * hop .. j * hop + n_fft` without padding and a trailing partial
+///   window is dropped, i.e. `1 + (len - n_fft) / hop` frames;
+/// - chroma estimates its tuning once from the whole score ([`ChromaProcessor::for_reference`]),
+///   whereas performance frames estimate it per frame;
+/// - stateful processors start without a predecessor (the first LSE frame is its full spectrum);
+/// - `cqt` is centered: the reference transforms the whole waveform in one call and drops the
+///   first and last frame, so row `j` is centered on sample `(j + 1) * hop`.
+///
+/// The performance stream frames differently: a cache of `n_fft - hop` zeros and a primed first
+/// block put frame `i` at `i * hop - (n_fft - 2 * hop)`. Both coincide only for `n_fft == 2 * hop`
+/// (chroma), so the stream framing must not be reused for the score; for `raw_spectrum` (512/128)
+/// it shifts the score by two frames and adds two, which the reference does not have.
+///
+/// Errors with [`Error::AudioConfig`] when the waveform is shorter than one window (the
+/// reference's `librosa.stft` raises there, too).
+fn extract_score_features(
+    samples: &[f32],
+    config: &AudioMethodConfig,
+    hop_length: usize,
+    frame_rate: f64,
+) -> Result<Vec<Vec<f32>>> {
+    let (mut processor, n_fft): (Box<dyn AudioProcessor>, usize) = match config.processor() {
+        AudioProcessorKind::Chroma => (
+            Box::new(ChromaProcessor::for_reference(
+                config.sample_rate,
+                hop_length,
+                config.norm,
+                samples,
+            )?),
+            2 * hop_length,
+        ),
+        AudioProcessorKind::Lse => {
+            let processor = LseProcessor::new(config.sample_rate, hop_length, config.norm);
+            let n_fft = processor.n_fft();
+            (Box::new(processor), n_fft)
+        }
+        AudioProcessorKind::RawSpectrum => {
+            let n_fft = config.n_fft.unwrap_or(512);
+            (
+                Box::new(RawSpectrumProcessor::new(
+                    config.sample_rate,
+                    hop_length,
+                    n_fft,
+                )),
+                n_fft,
+            )
+        }
+        AudioProcessorKind::Cqt => {
+            let rows = CqtProcessor::new(config.sample_rate, hop_length, Some(f64::INFINITY))?
+                .transform(samples)?;
+            if rows.is_empty() {
+                return Err(audio_config(
+                    "hop_length",
+                    "the rendered score is shorter than two hops",
+                ));
+            }
+            return Ok(rows);
+        }
+        AudioProcessorKind::CqtSpectralFlux => {
+            return Err(audio_config(
+                "processor",
+                "cqt_spectral_flux uses the score note array, not score-audio features",
+            ));
+        }
+    };
+    if samples.len() < n_fft {
+        return Err(audio_config(
+            "n_fft",
+            "the rendered score is shorter than one analysis window",
+        ));
+    }
+    Ok(samples
+        .windows(n_fft)
+        .step_by(hop_length)
+        .enumerate()
+        .filter_map(|(index, window)| {
+            processor
+                .process(&AudioFrame {
+                    index,
+                    samples: window.to_vec(),
+                    perf_time: index as f64 / frame_rate,
+                })
+                .map(|observation| observation.features)
+        })
+        .collect())
+}
+
 fn render_until(
     synthesizer: &mut Synthesizer,
     output: &mut Vec<f32>,
@@ -280,5 +401,25 @@ fn audio_config(key: &str, reason: &str) -> Error {
     Error::AudioConfig {
         key: key.into(),
         reason: reason.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_level;
+
+    #[test]
+    fn normalize_level_scales_the_absolute_peak_to_one_and_keeps_the_sign() {
+        let mut samples = [0.25, -0.5, 0.125];
+        normalize_level(&mut samples);
+        assert_eq!(samples, [0.5, -1.0, 0.25]);
+    }
+
+    #[test]
+    fn normalize_level_leaves_silence_unchanged_instead_of_producing_nan() {
+        let mut samples = [0.0f32; 4];
+        normalize_level(&mut samples);
+        assert_eq!(samples, [0.0; 4]);
+        normalize_level(&mut []);
     }
 }

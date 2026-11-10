@@ -9,3 +9,8 @@ The test inputs in tests/data/ (simple_mozart_k265_var1, mozart_k265_var1,
 Bach-fugue_bwv_858: MusicXML, MIDI and .match files) are copied unchanged from
 pymatchmaker v0.4.0 (matchmaker/assets), licensed under the Apache License,
 Version 2.0. The golden data in tests/golden/ is generated from that release.
+
+The learned pitch-template archive in src/prob/assets/pitch_templates_16000_640.npz is
+redistributed from pymatchmaker v0.4.0 under the upstream repository's Apache License 2.0.
+Its source commit and SHA-256 are recorded in specs/004-audio-methods/research.md; the
+upstream release does not identify the archive's training corpus.

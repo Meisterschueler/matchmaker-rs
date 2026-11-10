@@ -1,0 +1,13 @@
+{
+  "archive_sha256": "7448383AA9C7B4B49B3A4A52B8BED2AFF994B0F3266BA0372A28738A3DDE8A03",
+  "license": "Apache-2.0",
+  "shape": [
+    88,
+    88
+  ],
+  "soundfont_sha256": "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F",
+  "support_rows": 77,
+  "training_corpus": "not identified in the upstream repository",
+  "upstream": "pymatchmaker 0.4.0, matchmaker/prob/templates/pitch_templates_16000_640.npz",
+  "upstream_commit": "b7955e645e3998e4d4b5deed7370948991766e4e"
+}

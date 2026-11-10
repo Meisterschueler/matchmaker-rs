@@ -1,0 +1,37 @@
+{
+  "description": "piano, 44.1 kHz, hop 1470",
+  "flux_off_equals_cqt": true,
+  "generator": "tools/golden/generate_audio.py",
+  "hop_length": 1470,
+  "librosa": "1.0.0",
+  "lifecycle": {
+    "after_score_call": {
+      "error": "ValueError",
+      "message": "operands could not be broadcast together with shapes (3,88) (11,88) "
+    },
+    "call_frames": 3,
+    "history_frames": 11,
+    "reset_keeps_history": true
+  },
+  "n_bins": 88,
+  "norm": "inf",
+  "processor": "cqt_spectral_flux",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "44A17879953097931B0A3E2CE15CD1F69FCF21EB2D21A23DF0892766CD2805EB",
+    "version": "0.4.0"
+  },
+  "sample_rate": 44100,
+  "soxr": "0.1.3-14-ga66f3ee",
+  "stream_frames": 14,
+  "tolerances": {
+    "features_atol": 1e-05,
+    "features_frame_max_rtol": 1e-05,
+    "features_rtol": 1e-05
+  },
+  "whole_frames": 9,
+  "whole_samples": 14700
+}

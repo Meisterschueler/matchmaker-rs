@@ -37,6 +37,17 @@ struct Piece {
     input_type: Option<String>,
     soundfont: Option<PathBuf>,
     processor: Option<String>,
+    kwargs: Option<AudioKwargs>,
+    unfold_score: Option<bool>,
+    methods: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct AudioKwargs {
+    sample_rate: Option<u32>,
+    frame_rate: Option<u32>,
+    hop_length: Option<usize>,
+    n_fft: Option<usize>,
 }
 
 type Times = Rc<RefCell<Vec<Duration>>>;
@@ -148,7 +159,7 @@ fn write_gaps(file: &Path, score: &Path, method: Method, messages: &[MidiMessage
 
 /// Run the benchmark and write the records (JSON array) to `out`; the alignment path of run 0
 /// goes to `<out dir>/paths/<dataset>/<piece>/<method>.tsv` (margins in `<method>.gap.tsv`).
-pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) -> Result<()> {
+pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[String]) -> Result<()> {
     let text = std::fs::read_to_string(manifest_path)
         .with_context(|| format!("cannot read {}", manifest_path.display()))?;
     let manifest: Manifest = toml::from_str(&text)
@@ -192,7 +203,8 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[Method]) ->
             }
             None => None,
         };
-        for &method in methods {
+        for method_name in methods {
+            let method: Method = method_name.parse()?;
             let processor = MethodConfig::for_method(method).processor.name();
             for run in 0..runs {
                 let (feature, inference) = (Times::default(), Times::default());
@@ -267,7 +279,7 @@ fn run_audio_piece(
     base: &Path,
     out_dir: &Path,
     runs: usize,
-    methods: &[Method],
+    methods: &[String],
     environment: &Value,
     records: &mut Vec<Value>,
 ) -> Result<()> {
@@ -276,11 +288,20 @@ fn run_audio_piece(
         .as_ref()
         .map(|path| base.join(path))
         .context("audio benchmark piece requires a soundfont path")?;
-    for &method in methods {
+    for method in methods.iter().filter(|method| {
+        piece
+            .methods
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(method))
+    }) {
         let audio_method: AudioMethod = method
-            .name()
             .parse()
-            .with_context(|| format!("{} is not an audio method", method.name()))?;
+            .with_context(|| format!("{method} is not an audio method"))?;
+        anyhow::ensure!(
+            !matches!(audio_method, AudioMethod::Skf | AudioMethod::OuterHmm)
+                || piece.ground_truth.is_some(),
+            "audio skf and outerhmm use score-event models; their benchmark pieces need a ground_truth TSV"
+        );
         let processor = piece.processor.as_deref().unwrap_or_else(|| {
             AudioMethodConfig::for_method(audio_method)
                 .processor()
@@ -289,10 +310,58 @@ fn run_audio_piece(
         for run in 0..runs {
             let mut config = AudioMethodConfig::for_method(audio_method);
             config.set_processor(processor.parse::<AudioProcessorKind>()?);
+            if let Some(kwargs) = &piece.kwargs {
+                if let Some(sample_rate) = kwargs.sample_rate {
+                    config.sample_rate = sample_rate;
+                }
+                if let Some(frame_rate) = kwargs.frame_rate {
+                    config.frame_rate = frame_rate;
+                }
+                if let Some(hop_length) = kwargs.hop_length {
+                    config.hop_length = Some(hop_length);
+                }
+                if let Some(n_fft) = kwargs.n_fft {
+                    config.n_fft = Some(n_fft);
+                }
+            }
             config.soundfont_path = Some(soundfont.clone());
             let mut mm = match audio_method {
-                AudioMethod::Arzt => AudioMatchmaker::new_arzt(score_path, config, None, true)?,
-                AudioMethod::Dixon => AudioMatchmaker::new_dixon(score_path, config, None, true)?,
+                AudioMethod::Arzt => AudioMatchmaker::new_arzt(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
+                AudioMethod::Dixon => AudioMatchmaker::new_dixon(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
+                AudioMethod::ArztTempo => AudioMatchmaker::new_arzt_tempo(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
+                AudioMethod::ArztMultiFold => AudioMatchmaker::new_arzt_multi_fold(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
+                AudioMethod::Skf => AudioMatchmaker::new_skf(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
+                AudioMethod::OuterHmm => AudioMatchmaker::new_outerhmm(
+                    score_path,
+                    config,
+                    None,
+                    piece.unfold_score.unwrap_or(true),
+                )?,
             }
             .record();
             mm.run_file(performance)?;
@@ -313,26 +382,35 @@ fn run_audio_piece(
             });
             let path = mm.alignment_path();
             let reference = mm.reference();
-            let expected_beats = path
-                .perf_time
-                .iter()
-                .map(|&time| {
-                    interpolate_beat(&reference.frame_to_beat, time * reference.frame_rate)
-                })
-                .collect();
-            let evaluation = evaluate_alignment(
-                path,
-                &GroundTruth {
+            let (evaluation, p95_b) = if let Some(ground_truth) = &piece.ground_truth {
+                let ground_truth = GroundTruth::load(base.join(ground_truth), mm.score(), None)?;
+                (
+                    evaluate_alignment(path, &ground_truth),
+                    Some(p95_beat_error(path, &ground_truth)),
+                )
+            } else {
+                let expected_beats = path
+                    .perf_time
+                    .iter()
+                    .map(|&time| {
+                        interpolate_beat(&reference.frame_to_beat, time * reference.frame_rate)
+                    })
+                    .collect();
+                let ground_truth = GroundTruth {
                     perf_sec: path.perf_time.clone(),
                     score_beat: expected_beats,
-                },
-            );
+                };
+                (
+                    evaluate_alignment(path, &ground_truth),
+                    Some(p95_beat_error(path, &ground_truth)),
+                )
+            };
             if run == 0 {
                 let path = out_dir
                     .join("paths")
                     .join(&piece.dataset)
                     .join(&piece.piece)
-                    .join(format!("{}.tsv", method.name()));
+                    .join(format!("{method}.tsv"));
                 crate::write_path_tsv(&path, mm.alignment_path())?;
             }
             records.push(json!({
@@ -341,7 +419,12 @@ fn run_audio_piece(
                 "input_type": "audio",
                 "renderer": "RustySynth",
                 "renderer_version": "1.3.8",
-                "method": method.name(),
+                "method": method,
+                "random_seed": mm.config().random_seed,
+                "unfold_score": piece.unfold_score.unwrap_or(true),
+                "candidate_count": mm.multi_fold_candidates().len(),
+                "selection_window": mm.config().selection_window,
+                "switch_margin": mm.config().switch_margin,
                 "processor": processor,
                 "dataset": piece.dataset,
                 "piece": piece.piece,
@@ -352,6 +435,12 @@ fn run_audio_piece(
                 "total_processing_s": total,
                 "real_time_factor": if duration > 0.0 { total / duration } else { 0.0 },
                 "evaluation": evaluation,
+                "p95_b": p95_b,
+                "ground_truth": piece.ground_truth.is_some(),
+                "ground_truth_path": piece
+                    .ground_truth
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned()),
                 "environment": environment,
             }));
         }
@@ -366,4 +455,39 @@ fn interpolate_beat(frame_to_beat: &[f64], frame: f64) -> f64 {
     let after = position.ceil() as usize;
     let fraction = position - before as f64;
     frame_to_beat[before] + fraction * (frame_to_beat[after] - frame_to_beat[before])
+}
+
+fn p95_beat_error(path: &AlignmentPath, ground_truth: &GroundTruth) -> f64 {
+    let mut errors: Vec<f64> = ground_truth
+        .perf_sec
+        .iter()
+        .zip(&ground_truth.score_beat)
+        .filter(|(time, beat)| time.is_finite() && beat.is_finite())
+        .map(|(&time, &beat)| {
+            (interpolate_beat(&path.score_beat, time_to_frame(path, time)) - beat).abs()
+        })
+        .collect();
+    if errors.is_empty() {
+        return f64::NAN;
+    }
+    errors.sort_by(f64::total_cmp);
+    let index = 0.95 * (errors.len() - 1) as f64;
+    let lower = index.floor() as usize;
+    let upper = index.ceil() as usize;
+    errors[lower] + (errors[upper] - errors[lower]) * (index - lower as f64)
+}
+
+fn time_to_frame(path: &AlignmentPath, time: f64) -> f64 {
+    let upper = path
+        .perf_time
+        .partition_point(|&frame_time| frame_time <= time);
+    if upper == 0 {
+        return 0.0;
+    }
+    if upper == path.perf_time.len() {
+        return (path.perf_time.len() - 1) as f64;
+    }
+    let lower = upper - 1;
+    let span = path.perf_time[upper] - path.perf_time[lower];
+    lower as f64 + (time - path.perf_time[lower]) / span
 }

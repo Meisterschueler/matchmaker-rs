@@ -79,9 +79,9 @@ jobs:
           soundfont=target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2
           echo "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F  $soundfont" | sha256sum --check
           touch tools/golden/.venv/lib/python3.12/site-packages/partitura/assets/MuseScore_General.sf3
-          cargo run --release -p matchmaker-cli -- bench tools/bench/audio.toml --out out/audio/rust/records.json --runs "$RUNS_RUST" --methods arzt,dixon
+          cargo run --release -p matchmaker-cli -- bench tools/bench/audio.toml --out out/audio/rust/records.json --runs "$RUNS_RUST" --methods arzt,dixon,arzt_tempo,arzt_multi_fold,skf,outerhmm
           cd tools/golden
-          python -m uv run ../bench/run_reference.py ../bench/audio.toml --out "$GITHUB_WORKSPACE/out/audio/python/records.json" --runs "$RUNS_PYTHON" --methods arzt,dixon
+          python -m uv run ../bench/run_reference.py ../bench/audio.toml --out "$GITHUB_WORKSPACE/out/audio/python/records.json" --runs "$RUNS_PYTHON" --methods arzt,dixon,arzt_tempo,arzt_multi_fold,skf,outerhmm
       - uses: actions/upload-artifact@v4
         with:
           name: bench-${{ matrix.dataset }}
@@ -103,6 +103,7 @@ jobs:
         id: report
         run: |
           python -m pip install numpy
+          python tools/bench/test_report.py
           curl -fsSL "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/report.json" -o baseline.json || rm -f baseline.json
           set +e
           python tools/bench/report.py --rust out/*/rust/records.json out/*/audio/rust/records.json --python out/*/python/records.json out/*/audio/python/records.json --baseline baseline.json --out site

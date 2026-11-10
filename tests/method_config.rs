@@ -59,6 +59,16 @@ fn audio_defaults_are_separate_from_midi_defaults() {
     dixon_chroma.set_processor(AudioProcessorKind::Chroma);
     assert_eq!(dixon_chroma.norm, Some(f64::INFINITY));
 
+    let outerhmm = AudioMethodConfig::for_method(AudioMethod::OuterHmm);
+    assert_eq!(outerhmm.processor(), AudioProcessorKind::CqtSpectralFlux);
+    assert_eq!((outerhmm.sample_rate, outerhmm.frame_rate), (16_000, 25));
+    assert_eq!(outerhmm.hop_length, None);
+    assert_eq!(outerhmm.s_j, Some(0.0));
+    outerhmm.validate(AudioMethod::OuterHmm).unwrap();
+    let mut invalid_outerhmm = outerhmm.clone();
+    invalid_outerhmm.window_size = 5.0;
+    assert!(invalid_outerhmm.validate(AudioMethod::OuterHmm).is_err());
+
     assert_eq!(
         MethodConfig::for_method(Method::Arzt).processor,
         ProcessorKind::ChordOnset
@@ -69,6 +79,12 @@ fn audio_defaults_are_separate_from_midi_defaults() {
 fn audio_names_and_errors_are_input_specific() {
     assert_eq!("arzt".parse::<AudioMethod>().unwrap(), AudioMethod::Arzt);
     assert_eq!("dixon".parse::<AudioMethod>().unwrap(), AudioMethod::Dixon);
+    assert_eq!("skf".parse::<AudioMethod>().unwrap(), AudioMethod::Skf);
+    assert_eq!(
+        "outerhmm".parse::<AudioMethod>().unwrap(),
+        AudioMethod::OuterHmm
+    );
+    assert_eq!(AudioMethod::Skf.name(), "skf");
     assert_eq!(
         "chroma".parse::<AudioProcessorKind>().unwrap(),
         AudioProcessorKind::Chroma
@@ -77,10 +93,22 @@ fn audio_names_and_errors_are_input_specific() {
         "lse".parse::<AudioProcessorKind>().unwrap(),
         AudioProcessorKind::Lse
     );
-
-    let method_error = "outerhmm".parse::<AudioMethod>().unwrap_err();
-    assert!(matches!(method_error, Error::AudioConfig { .. }));
-    assert!(method_error.to_string().contains("arzt"));
+    assert_eq!(
+        "cqt".parse::<AudioProcessorKind>().unwrap(),
+        AudioProcessorKind::Cqt
+    );
+    assert_eq!(AudioProcessorKind::Cqt.name(), "cqt");
+    assert_eq!(
+        "cqt_spectral_flux".parse::<AudioProcessorKind>().unwrap(),
+        AudioProcessorKind::CqtSpectralFlux
+    );
+    assert!(
+        "mel"
+            .parse::<AudioProcessorKind>()
+            .unwrap_err()
+            .to_string()
+            .contains("cqt")
+    );
 
     let decode_error = Error::AudioDecode {
         path: "performance.ogg".into(),
@@ -97,7 +125,7 @@ fn audio_names_and_errors_are_input_specific() {
 
 #[test]
 fn audio_config_validates_rates_norms_and_method_parameters() {
-    for method in [AudioMethod::Arzt, AudioMethod::Dixon] {
+    for method in [AudioMethod::Arzt, AudioMethod::Dixon, AudioMethod::OuterHmm] {
         AudioMethodConfig::for_method(method)
             .validate(method)
             .unwrap();
@@ -116,6 +144,11 @@ fn audio_config_validates_rates_norms_and_method_parameters() {
     let mut arzt = AudioMethodConfig::for_method(AudioMethod::Arzt);
     arzt.max_run_count = Some(3);
     assert!(arzt.validate(AudioMethod::Arzt).is_err());
+
+    let mut arzt = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    arzt.set_processor(AudioProcessorKind::CqtSpectralFlux);
+    let error = arzt.validate(AudioMethod::Arzt).unwrap_err();
+    assert!(matches!(error, Error::AudioConfig { key, .. } if key == "processor"));
 }
 
 #[test]

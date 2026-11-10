@@ -27,7 +27,10 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/io/audio.rs` | `matchmaker/io/audio.py` | mono decode, resample, frame-hop stream |
 | `src/features/chroma.rs` | `matchmaker/features/audio.py` | `ChromagramProcessor` |
 | `src/features/lse.rs` | `matchmaker/features/audio.py` | `LogSpectralEnergyProcessor` |
-| `src/score/audio.rs` | `matchmaker/utils/misc.py`, `matchmaker/registry.py` | synthesized score reference, frame-to-beat map |
+| `src/features/raw_spectrum.rs` | `matchmaker/features/audio.py` | `RawSpectrumProcessor` |
+| `src/features/cqt.rs` | `matchmaker/features/audio.py`, `librosa/core/constantq.py`, `librosa/core/audio.py` | `CQTProcessor`; librosa's recursive `cqt` (octave kernels, early downsampling, response scaling) with the `soxr_hq` 2:1 decimator as a fitted Kaiser sinc (research R13) |
+| `src/features/cqt_spectral_flux.rs` | `matchmaker/features/audio.py` | `CQTSpectralFluxProcessor` over `src/features/cqt.rs`: previous call's matrix as flux history, inherited no-op `reset` (research R5, C07) |
+| `src/score/audio.rs` | `matchmaker/utils/misc.py`, `matchmaker/registry.py`, `partitura/utils/fluidsynth.py` | peak-normalized synthesized score, whole-signal score features, frame-to-beat map (swap points `normalize_level`, `extract_score_features`; research R11) |
 | `src/features/pitch.rs` | `matchmaker/features/midi.py` | `PitchProcessor` |
 | `src/features/chord_onset.rs` | `matchmaker/features/midi.py` | `ChordOnsetProcessor` |
 | `src/io/stream.rs` | `matchmaker/io/midi.py`, `matchmaker/utils/symbolic.py` | `MidiStream`, `Buffer`, `midi_messages_to_framed_midi` |
@@ -36,14 +39,18 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/prob/hmm.rs` | `matchmaker/prob/hmm.py` | `PitchIOIHMM` |
 | `src/prob/hmm_models.rs` | `matchmaker/prob/hmm.py` | `stable_transition_matrix`, `compute_discrete_pitch_profiles`, `compute_bernoulli_pitch_probabilities` |
 | `src/prob/outerhmm.rs` | `matchmaker/prob/outer_product_hmm.py` | `OuterProductHMM` |
+| `src/prob/outerhmm_audio.rs` | `matchmaker/prob/outer_product_hmm_audio.py` | `AudioOuterProductHMM`, weighted chord/pitch templates, sound/pause posterior |
+| `src/prob/skf.rs` | `matchmaker/prob/skf.py` | `SwitchingKalmanFilterFollower`, `build_chord_sequence`, `build_spectral_templates` (synthesized with RustySynth, Gaussian fallback as an explicit mode) |
 | `src/prob/hidden_markov.rs` | `hiddenmarkov/__init__.py` | `forward_algorithm_step`, `ConstantTransitionModel` |
 | `src/dp/mod.rs` | `matchmaker/dp/direction.py`, SciPy `cdist` | `Direction`; metrics `cosine`, `euclidean` |
 | `src/dp/arzt.rs` | `matchmaker/dp/oltw_arzt.py` | `OnlineTimeWarpingArztEvent` |
 | `src/dp/arzt_frame.rs` | `matchmaker/dp/oltw_arzt.py`, `matchmaker/dp/dtw_loop.pyx` | `OnlineTimeWarpingArztFrame` |
+| `src/dp/arzt_tempo.rs` | `matchmaker/dp/oltw_arzt.py`, `matchmaker/utils/tempo_models.py` | tempo-aware `OnlineTimeWarpingArztFrame` |
+| `src/dp/arzt_multi_fold.rs` | `matchmaker/dp/oltw_arzt_multi_fold.py` | parallel repeat-hypothesis Arzt follower |
 | `src/dp/dixon.rs` | `matchmaker/dp/oltw_dixon.py` | `OnlineTimeWarpingDixonEvent` |
 | `src/dp/dixon_frame.rs` | `matchmaker/dp/oltw_dixon.py` | `OnlineTimeWarpingDixonFrame` |
 | `src/export.rs` | `matchmaker-rs audio pipeline` | recorded MIDI/audio stage exports |
-| `src/utils/tempo_models.rs` | `matchmaker/utils/tempo_models.py` | `KalmanTempoModel` |
+| `src/utils/tempo_models.rs` | `matchmaker/utils/tempo_models.py` | `KalmanTempoModel`, tracker integration of `ArztTempoModel` |
 | `src/utils/eval.rs` | `matchmaker/utils/eval.py` | `evaluate_alignment`, `evaluate_beat_errors`, `compute_sparc` |
 | `src/score/mod.rs` | `matchmaker/matchmaker.py` | `Matchmaker.__init__` score loading |
 | `src/score/mod.rs` (`onset_pianoroll`) | `matchmaker/features/midi.py` | `onset_pianoroll` |
@@ -54,11 +61,11 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/score/unfold.rs` | `partitura/score.py` | `unfold_part_maximal`, `add_segments`, `Path`, `get_paths`, `new_part_from_path` |
 | `src/score/merge.rs` | `partitura/score.py` | `merge_parts` |
 | `src/score/tempo.rs` | `matchmaker/utils/misc.py`, `partitura/utils/music.py` | `get_tempo_from_score`, `to_quarter_tempo` |
-| `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py` | public `Matchmaker` API (MIDI plus audio `arzt`/`dixon`) |
-| `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py` | MIDI/audio CLI surface |
+| `crates/matchmaker-py/src/lib.rs` | `matchmaker/matchmaker.py`, `matchmaker/features/audio.py` | public `Matchmaker` API and `extract_audio_features` |
+| `crates/matchmaker-cli/src/main.rs` | `matchmaker/matchmaker.py`, `matchmaker/features/audio.py` | MIDI/audio CLI, standalone feature extraction |
 | `tools/bench/run_reference.py` | `matchmaker/matchmaker.py`, `matchmaker/utils/eval.py` | pinned MIDI/audio benchmark runner |
 
-Not ported: audio `outerhmm`, `OnlineTimeWarpingArztMultiFold`, `prob/outer_product_hmm_audio.py`, `skf.py`, `particle_filter_korzeniowski.py`, `ArztTempoModel` (`utils/tempo_models.py`), live audio/MIDI devices and thread/queue plumbing, and audio ground-truth CLI evaluation. The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.
+Not ported: `particle_filter_korzeniowski.py`, standalone onset updates of `ArztTempoModel`, and live audio/MIDI devices and thread/queue plumbing. `skf.py` is ported except for its raw-audio input branch (`_extract_features` computing an FFT when a frame is not a spectrum) and its console prints. Audio `outerhmm` ports `prob/outer_product_hmm_audio.py` with the upstream Apache-2.0 pitch-template archive (SHA-256 recorded in C08 evidence); the upstream distribution does not identify its training corpus. Unsupported synthesized rows use RustySynth and their measured FluidSynth difference is reported separately from the fixed-template replay. The reference registry does not forward sample_rate to the follower constructor; the port preserves the fixed 16 kHz follower rate while using the configured hop. The reference chooses `skf` templates by trying FluidSynth with Partitura's bundled MuseScore SoundFont and falling back to Gaussian peaks on any error; this port makes the mode explicit and uses the pinned SF2 for the benchmark reference. Audio ground-truth CLI evaluation accepts direct `perf_sec`/`score_beat` TSV; note-ID `.match` evaluation still requires an explicit MIDI performance. `cqt` does not reproduce `soxr_hq` bit for bit (libsoxr is LGPL C with SIMD paths, so there is no pure-Rust port to reuse): a Kaiser-windowed sinc fitted to its measured response halves the rate, everything is computed in `f64`, and the features meet the reference to the amended per-frame limit of the contract instead of the `float32` per-element one; early downsampling by more than 2 (above about 70 kHz) is rejected instead of ported (research R13). `CQTSpectralFluxProcessor` keeps `fmin`, `n_bins` and `bins_per_octave` at the 88 keys and reports a shape error where NumPy would broadcast a one-frame history. The reference score-audio pipeline remains blocked for `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold` and `skf`: the score's matrix stays as flux history after no-op reset; flux is accepted only by standalone extraction and the note-array-based `outerhmm` (research C07). The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.
 
 ## Procedure: a new upstream release
 
