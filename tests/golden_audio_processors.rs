@@ -10,6 +10,7 @@ use matchmaker_rs::features::{
     cqt::{CqtProcessor, N_BINS, halve_rate},
     cqt_spectral_flux::CqtSpectralFluxProcessor,
     lse::LseProcessor,
+    mel::MelProcessor,
     raw_spectrum::RawSpectrumProcessor,
 };
 use matchmaker_rs::io::audio::AudioFrame;
@@ -89,6 +90,44 @@ fn process_raw_spectrum_samples(
         }
     }
     (features, times)
+}
+
+fn process_mel_samples(
+    processor: &mut MelProcessor,
+    samples: &[f32],
+    sample_rate: u32,
+    hop_length: usize,
+) -> (Vec<Vec<f32>>, Vec<f64>, Vec<Vec<f32>>) {
+    let padded_len = samples.len().div_ceil(hop_length) * hop_length;
+    let mut padded = samples.to_vec();
+    padded.resize(padded_len, 0.0);
+    let mut cache = vec![0.0; hop_length];
+    let mut features = Vec::new();
+    let mut times = Vec::new();
+    let mut powers = Vec::new();
+
+    for (chunk_index, hop) in padded.chunks_exact(hop_length).enumerate() {
+        let mut block = cache.clone();
+        block.extend_from_slice(hop);
+        let perf_time =
+            chunk_index.saturating_sub(1) as f64 * hop_length as f64 / f64::from(sample_rate);
+        let frame = AudioFrame {
+            index: chunk_index.saturating_sub(1),
+            samples: block.clone(),
+            perf_time,
+        };
+        let power = processor
+            .power_spectrum(&block)
+            .expect("mel frame has a power spectrum");
+        let output = processor.process(&frame).expect("mel frame has features");
+        if chunk_index > 0 {
+            features.push(output.features);
+            times.push(output.perf_time);
+            powers.push(power);
+        }
+        cache.copy_from_slice(&block[block.len() - hop_length..]);
+    }
+    (features, times, powers)
 }
 
 #[test]
@@ -205,6 +244,103 @@ fn raw_spectrum_matches_default_override_silent_and_short_reference_cases() {
     };
     assert!(processor.process(&short).is_none());
     assert_eq!(npy(base.join("short/features.npy")).shape, [0, 257]);
+}
+
+#[test]
+fn mel_matches_default_override_bank_power_silence_and_short_reference_cases() {
+    let base = golden("audio/processors/mel");
+    for (name, sample_rate, hop_length, n_mels, norm) in [
+        ("default", 44_100, 1_470, 128, Some(f64::INFINITY)),
+        ("override", 16_000, 512, 128, Some(f64::INFINITY)),
+        ("mel_bank", 44_100, 735, 32, Some(2.0)),
+        ("norm_none", 44_100, 735, 32, None),
+        ("silent", 44_100, 1_470, 128, Some(f64::INFINITY)),
+        ("short", 44_100, 1_470, 128, Some(f64::INFINITY)),
+        ("performance", 44_100, 1_470, 128, Some(f64::INFINITY)),
+    ] {
+        let case = base.join(name);
+        let samples: Vec<f32> = npy(case.join("input_samples.npy"))
+            .values()
+            .into_iter()
+            .map(|value| value as f32)
+            .collect();
+        let mut processor = MelProcessor::new(sample_rate, hop_length, n_mels, norm).unwrap();
+        let (actual_features, actual_times, actual_power) =
+            process_mel_samples(&mut processor, &samples, sample_rate, hop_length);
+        let expected_features = npy(case.join("features.npy"));
+        let expected_times = npy(case.join("times.npy"));
+        let expected_power = npy(case.join("power_spectrum.npy"));
+        let actual_flat: Vec<f64> = actual_features
+            .iter()
+            .flat_map(|frame| frame.iter().map(|&value| f64::from(value)))
+            .collect();
+        let actual_power_flat: Vec<f64> = actual_power
+            .iter()
+            .flat_map(|frame| frame.iter().map(|&value| f64::from(value)))
+            .collect();
+
+        assert_close(
+            &Ctx::new("mel", name, "features.npy"),
+            &expected_features.values(),
+            &actual_flat,
+            1e-5,
+            1e-5,
+        );
+        assert_close(
+            &Ctx::new("mel", name, "power_spectrum.npy"),
+            &expected_power.values(),
+            &actual_power_flat,
+            1e-4,
+            1e-5,
+        );
+        assert_close(
+            &Ctx::new("mel", name, "times.npy"),
+            &expected_times.values(),
+            &actual_times,
+            0.0,
+            0.0,
+        );
+        assert_eq!(expected_features.shape, [actual_features.len(), n_mels]);
+
+        if case.join("mel_bank.npy").is_file() {
+            let expected_bank = npy(case.join("mel_bank.npy"));
+            let actual_bank = processor
+                .mel_bank()
+                .iter()
+                .flatten()
+                .map(|&value| f64::from(value))
+                .collect::<Vec<_>>();
+            assert_close(
+                &Ctx::new("mel", name, "mel_bank.npy"),
+                &expected_bank.values(),
+                &actual_bank,
+                1e-5,
+                1e-5,
+            );
+            assert_eq!(expected_bank.shape, [n_mels, hop_length + 1]);
+        }
+    }
+}
+
+#[test]
+fn mel_reset_is_stateless_and_rejects_short_direct_frames() {
+    let mut processor = MelProcessor::new(44_100, 1_470, 128, Some(f64::INFINITY)).unwrap();
+    let frame = AudioFrame {
+        index: 0,
+        samples: vec![0.25; 2_940],
+        perf_time: 0.0,
+    };
+    let first = processor.process(&frame).unwrap();
+    processor.reset();
+    assert_eq!(processor.process(&frame).unwrap(), first);
+    assert!(
+        processor
+            .process(&AudioFrame {
+                samples: vec![0.0; 2_939],
+                ..frame
+            })
+            .is_none()
+    );
 }
 
 #[test]

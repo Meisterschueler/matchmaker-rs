@@ -42,6 +42,7 @@ PROCESSORS = {
     "RawSpectrumProcessor": "raw_spectrum",
     "CQTProcessor": "cqt",
     "CQTSpectralFluxProcessor": "cqt_spectral_flux",
+    "MelSpectrogramProcessor": "mel",
 }
 
 

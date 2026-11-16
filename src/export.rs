@@ -19,7 +19,7 @@ use crate::base::SkfStepDebug;
 use crate::error::{Error, Result};
 use crate::features::{
     AudioProcessor, Observation, cqt::CqtProcessor, cqt_spectral_flux::CqtSpectralFluxProcessor,
-    raw_spectrum::RawSpectrumProcessor,
+    mel::MelProcessor, raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioStream;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
@@ -117,7 +117,30 @@ fn message_fields(m: &MidiMessage) -> [i32; 7] {
 
 /// `features.npy` / `times.npy` of observations; rows are padded with -1 to the longest one.
 fn observations(dir: &Path, prefix: &str, obs: &[&Observation]) -> Result<()> {
-    let width = obs.iter().map(|o| o.features.len()).max().unwrap_or(0);
+    observations_with_width(dir, prefix, obs, None)
+}
+
+fn observations_with_width(
+    dir: &Path,
+    prefix: &str,
+    obs: &[&Observation],
+    expected_width: Option<usize>,
+) -> Result<()> {
+    let width = expected_width.unwrap_or_else(|| {
+        obs.iter()
+            .map(|observation| observation.features.len())
+            .max()
+            .unwrap_or(0)
+    });
+    if obs
+        .iter()
+        .any(|observation| observation.features.len() > width)
+    {
+        return Err(Error::AudioConfig {
+            key: "export".into(),
+            reason: format!("observation exceeds the expected {width}-feature width"),
+        });
+    }
     let rows = obs.iter().flat_map(|o| {
         let padding = width - o.features.len();
         o.features
@@ -386,19 +409,32 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
         score_meta["soundfont_sha256"] = json!(model.soundfont_sha256());
         write_outerhmm_model(&dir.join("score/outerhmm"), model)?;
     }
+    if config.processor().name() == "mel" {
+        score_meta["n_mels"] = json!(config.n_mels.unwrap_or(128));
+        score_meta["norm"] = norm_json(config.norm);
+    }
     write_json(&dir.join("score/meta.json"), &score_meta)?;
 
+    let hop_length = config
+        .hop_length
+        .unwrap_or(config.sample_rate as usize / config.frame_rate as usize);
     let mut audio_meta = json!({
         "performance": recording.performance_path,
         "source_sample_rate": recording.source_sample_rate,
         "source_channels": recording.source_channels,
         "sample_rate": config.sample_rate,
         "frame_rate": reference.frame_rate,
-        "hop_length": mm.config().hop_length.unwrap_or(mm.config().sample_rate as usize / mm.config().frame_rate as usize),
+        "hop_length": hop_length,
         "frames": recording.frame_times.len(),
     });
     if let Some(n_fft) = config.n_fft {
         audio_meta["n_fft"] = json!(n_fft);
+    }
+    if config.processor().name() == "mel" {
+        audio_meta["processor"] = json!("mel");
+        audio_meta["n_fft"] = json!(2 * hop_length);
+        audio_meta["n_mels"] = json!(config.n_mels.unwrap_or(128));
+        audio_meta["norm"] = norm_json(config.norm);
     }
     write_json(&dir.join("audio/meta.json"), &audio_meta)?;
     f8(
@@ -750,6 +786,7 @@ pub fn write_audio_features(
             cache_size: n_fft - hop_length,
             n_fft: Some(n_fft),
             include_spectral_flux: None,
+            mel: None,
         },
         &mut RawSpectrumProcessor::new(sample_rate, hop_length, n_fft),
     )
@@ -773,6 +810,7 @@ pub fn write_cqt_features(
             cache_size: hop_length,
             n_fft: None,
             include_spectral_flux: None,
+            mel: None,
         },
         &mut processor,
     )
@@ -799,6 +837,34 @@ pub fn write_cqt_spectral_flux_features(
             cache_size: hop_length,
             n_fft: None,
             include_spectral_flux: Some(include_flux),
+            mel: None,
+        },
+        &mut processor,
+    )
+}
+
+/// Decode and export standalone mel power features using the existing audio stream.
+pub fn write_mel_features(
+    performance: impl AsRef<Path>,
+    dir: impl AsRef<Path>,
+    sample_rate: u32,
+    hop_length: usize,
+    n_mels: usize,
+    norm: Option<f64>,
+) -> Result<()> {
+    let mut processor = MelProcessor::new(sample_rate, hop_length, n_mels, norm)?;
+    let n_fft = processor.n_fft();
+    write_features(
+        performance.as_ref(),
+        dir.as_ref(),
+        Extraction {
+            key: "mel",
+            sample_rate,
+            hop_length,
+            cache_size: n_fft - hop_length,
+            n_fft: Some(n_fft),
+            include_spectral_flux: None,
+            mel: Some((n_mels, norm)),
         },
         &mut processor,
     )
@@ -811,6 +877,7 @@ struct Extraction {
     cache_size: usize,
     n_fft: Option<usize>,
     include_spectral_flux: Option<bool>,
+    mel: Option<(usize, Option<f64>)>,
 }
 
 fn write_features(
@@ -826,6 +893,7 @@ fn write_features(
         cache_size,
         n_fft,
         include_spectral_flux,
+        mel,
     } = extraction;
     let mut stream = AudioStream::open(performance, sample_rate, hop_length, cache_size)?;
     let source_sample_rate = stream.source_sample_rate();
@@ -843,7 +911,13 @@ fn write_features(
         );
     }
     let output_refs: Vec<&Observation> = outputs.iter().collect();
-    observations(&dir.join("processor").join(key), "", &output_refs)?;
+    let feature_width = mel.map(|(n_mels, _)| n_mels);
+    observations_with_width(
+        &dir.join("processor").join(key),
+        "",
+        &output_refs,
+        feature_width,
+    )?;
     let frame_times: Vec<f64> = outputs.iter().map(|output| output.perf_time).collect();
     f8(
         &dir.join("audio/frame_times.npy"),
@@ -866,7 +940,19 @@ fn write_features(
     if let Some(include) = include_spectral_flux {
         meta["include_spectral_flux"] = json!(include);
     }
+    if let Some((n_mels, norm)) = mel {
+        meta["n_mels"] = json!(n_mels);
+        meta["norm"] = norm_json(norm);
+    }
     write_json(&dir.join("audio/meta.json"), &meta)
+}
+
+fn norm_json(norm: Option<f64>) -> serde_json::Value {
+    match norm {
+        Some(norm) if norm == f64::INFINITY => json!("inf"),
+        Some(norm) => json!(norm),
+        None => serde_json::Value::Null,
+    }
 }
 
 /// Write audio ground-truth metrics and identify the direct TSV used to compute them.

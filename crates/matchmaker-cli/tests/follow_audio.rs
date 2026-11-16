@@ -184,6 +184,89 @@ fn features_command_exports_cqt_spectral_flux_with_an_optional_flux_column() {
 }
 
 #[test]
+fn features_command_exports_mel_and_accepts_bank_overrides() {
+    let output = std::env::temp_dir().join("matchmaker_cli_mel_features");
+    let _ = std::fs::remove_dir_all(&output);
+    let run = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("features")
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--processor", "mel", "--export"])
+        .arg(&output)
+        .args([
+            "--sample-rate",
+            "44100",
+            "--hop-length",
+            "735",
+            "--n-mels",
+            "32",
+            "--norm",
+            "2",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(output.join("processor/mel/features.npy").is_file());
+    assert!(output.join("processor/mel/times.npy").is_file());
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["n_fft"], 1_470);
+    assert_eq!(meta["n_mels"], 32);
+    assert_eq!(meta["norm"], 2.0);
+
+    let rejected = std::env::temp_dir().join("matchmaker_cli_mel_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    let run = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("features")
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--processor", "mel", "--n-mels", "0", "--export"])
+        .arg(&rejected)
+        .output()
+        .unwrap();
+    assert!(!run.status.success());
+    assert!(String::from_utf8_lossy(&run.stderr).contains("n_mels"));
+    assert!(!rejected.exists());
+}
+
+#[test]
+fn cli_audio_follow_accepts_mel_and_rejects_invalid_dimensions_or_methods() {
+    let valid = follow_audio(
+        "arzt",
+        &["--processor", "mel", "--set", "n_mels=32", "--quiet"],
+    );
+    assert!(
+        valid.status.success(),
+        "{}",
+        String::from_utf8_lossy(&valid.stderr)
+    );
+
+    for (method, extra, message) in [
+        (
+            "arzt",
+            vec!["--processor", "mel", "--set", "n_mels=0"],
+            "n_mels",
+        ),
+        (
+            "arzt",
+            vec!["--processor", "mel", "--set", "n_fft=512"],
+            "n_fft",
+        ),
+        ("outerhmm", vec!["--processor", "mel"], "processor"),
+    ] {
+        let run = follow_audio(method, &extra);
+        assert!(!run.status.success());
+        assert!(
+            String::from_utf8_lossy(&run.stderr).contains(message),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+    }
+}
+
+#[test]
 fn audio_arzt_multi_fold_defaults_and_repeat_mode() {
     let defaults = follow_audio("arzt_multi_fold", &[]);
     assert!(

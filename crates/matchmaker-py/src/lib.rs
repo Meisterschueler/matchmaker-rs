@@ -13,6 +13,7 @@ use matchmaker_rs::features::{
     AudioProcessor,
     cqt::{CqtProcessor, N_BINS},
     cqt_spectral_flux::CqtSpectralFluxProcessor,
+    mel::MelProcessor,
     raw_spectrum::RawSpectrumProcessor,
 };
 use matchmaker_rs::io::audio::AudioStream;
@@ -43,13 +44,14 @@ fn extract_audio_features<'py>(
     processor: &str,
     kwargs: Option<&Bound<'py, PyDict>>,
 ) -> PyResult<ExtractedAudioFeatures<'py>> {
-    let (raw_spectrum, flux) = match processor {
-        "raw_spectrum" => (true, false),
-        "cqt" => (false, false),
-        "cqt_spectral_flux" => (false, true),
+    let (raw_spectrum, flux, mel) = match processor {
+        "raw_spectrum" => (true, false, false),
+        "cqt" => (false, false, false),
+        "cqt_spectral_flux" => (false, true, false),
+        "mel" => (false, false, true),
         _ => {
             return Err(PyValueError::new_err(format!(
-                "unknown audio processor {processor:?}; available: ['raw_spectrum', 'cqt', 'cqt_spectral_flux']"
+                "unknown audio processor {processor:?}; available: ['raw_spectrum', 'cqt', 'cqt_spectral_flux', 'mel']"
             )));
         }
     };
@@ -58,6 +60,8 @@ fn extract_audio_features<'py>(
     } else {
         (44_100, 1_470, 0)
     };
+    let mut n_mels = 128usize;
+    let mut norm = Some(f64::INFINITY);
     let mut include_flux = true;
     if let Some(kwargs) = kwargs {
         for (key, value) in kwargs.iter() {
@@ -82,6 +86,32 @@ fn extract_audio_features<'py>(
                     include_flux = value.extract().map_err(|_| {
                         PyValueError::new_err("include_spectral_flux must be a bool")
                     })?;
+                }
+                "n_mels" if mel => {
+                    n_mels = value
+                        .extract()
+                        .map_err(|_| PyValueError::new_err("n_mels must be a positive integer"))?;
+                }
+                "norm" if mel => {
+                    norm = if value.is_none() {
+                        None
+                    } else if let Ok(value) = value.extract::<f64>() {
+                        Some(value)
+                    } else if let Ok(value) = value.extract::<String>() {
+                        if value.eq_ignore_ascii_case("inf")
+                            || value.eq_ignore_ascii_case("infinity")
+                        {
+                            Some(f64::INFINITY)
+                        } else {
+                            return Err(PyValueError::new_err(
+                                "norm must be a positive number, inf, or None",
+                            ));
+                        }
+                    } else {
+                        return Err(PyValueError::new_err(
+                            "norm must be a positive number, inf, or None",
+                        ));
+                    };
                 }
                 _ => {
                     return Err(PyValueError::new_err(format!(
@@ -110,6 +140,11 @@ fn extract_audio_features<'py>(
                 n_fft - hop_length,
                 n_fft / 2 + 1,
             )
+        } else if mel {
+            let processor =
+                MelProcessor::new(sample_rate, hop_length, n_mels, norm).map_err(to_py_err)?;
+            let cache_size = processor.n_fft() - hop_length;
+            (Box::new(processor), cache_size, n_mels)
         } else if flux {
             (
                 Box::new(
@@ -311,6 +346,12 @@ fn set_audio_config(
         }
         "n_fft" => {
             config.n_fft = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
+        "n_mels" => {
+            config.n_mels = match value {
                 ConfigValue::None => None,
                 _ => Some(integer(&value)?),
             };

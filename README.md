@@ -30,10 +30,10 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `outerhmm` | MIDI | `pitch`, `chord_onset` | outer-product HMM with pitch-error model |
 | `arzt` | MIDI | `chord_onset`, `pitch` | event-level online time warping over the onset pianoroll |
 | `dixon` | MIDI | `chord_onset`, `pitch` | event-level online time warping with sparse path-normalized costs |
-| `arzt` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt` | frame-level online time warping; defaults to `chroma` at 30 fps |
-| `dixon` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt` | frame-level online time warping; defaults to `lse` at 50 fps |
-| `arzt_tempo` | Audio | `chroma`, `lse` | seeded tempo-aware Arzt; defaults to `chroma` at 30 fps |
-| `arzt_multi_fold` | Audio | `chroma`, `lse` | parallel repeat hypotheses; defaults to `chroma` at 30 fps, 50-cost window and 5% switch margin |
+| `arzt` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt`, `mel` | frame-level online time warping; defaults to `chroma` at 30 fps |
+| `dixon` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt`, `mel` | frame-level online time warping; defaults to `lse` at 50 fps |
+| `arzt_tempo` | Audio | `chroma`, `lse`, `mel` | seeded tempo-aware Arzt; defaults to `chroma` at 30 fps |
+| `arzt_multi_fold` | Audio | `chroma`, `lse`, `mel` | parallel repeat hypotheses; defaults to `chroma` at 30 fps, 50-cost window and 5% switch margin |
 | `skf` | Audio | `raw_spectrum` | switching Kalman filter over chords with hidden tempo; 8000 Hz, hop 128, FFT 512 |
 | `outerhmm` | Audio | `cqt_spectral_flux` | two-layer sound/pause HMM with weighted chord and pitch-template model; 16000 Hz, hop 640 |
 
@@ -63,6 +63,11 @@ use one per run. Audio `outerhmm` builds weighted sustained-note chord templates
 note array and overlays the 77 supported pitch rows in the upstream Apache-2.0 archive at its
 default 16000 Hz / hop 640. Exports record the archive hash and provenance; its training corpus
 is not identified by the reference.
+`mel` computes a non-centered, Hann-windowed power spectrum with `n_fft=2*hop_length`, projected
+through 128 Slaney mel bands normalized with `norm=inf`. It is supported by Arzt and Dixon and
+their tempo/repeat variants; `skf` and `outerhmm` retain their fixed feature/model layouts. Set
+`n_mels` or `norm` with `--set` when following, or `--n-mels` and `--norm` for standalone
+extraction.
 Audio files support WAV, FLAC, MP3 and Ogg/Vorbis. For score synthesis, provision the pinned
 CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/README.md), then run:
 
@@ -71,14 +76,16 @@ cargo run --release -p matchmaker-cli -- follow score.musicxml performance.wav -
 ```
 
 Standalone feature extraction does not require a score or SoundFont. `raw_spectrum` defaults to
-8000 Hz, hop 128, and FFT size 512, `cqt` and `cqt_spectral_flux` to 44100 Hz and hop 1470; use
-`--sample-rate`, `--hop-length`, (`raw_spectrum` only) `--n-fft` and (`cqt_spectral_flux` only)
-`--no-spectral-flux` for overrides:
+8000 Hz, hop 128, and FFT size 512; `cqt`, `cqt_spectral_flux`, and `mel` default to 44100 Hz and
+hop 1470. Use `--sample-rate` and `--hop-length`, (`raw_spectrum` only) `--n-fft`,
+(`cqt_spectral_flux` only) `--no-spectral-flux`, or (`mel` only) `--n-mels` and `--norm` for
+overrides:
 
 ```text
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor raw_spectrum --export target/raw-spectrum/
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor cqt --export target/cqt/
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor cqt_spectral_flux --export target/cqt-flux/
+cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor mel --n-mels 64 --norm 2 --export target/mel/
 ```
 
 Audio `--ground-truth` accepts a direct TSV with `perf_sec` and `score_beat` columns and writes
@@ -134,7 +141,7 @@ Standalone feature arrays and their timestamps are available without constructin
 ```python
 from matchmaker_rs import extract_audio_features
 
-features, times = extract_audio_features("performance.wav", "raw_spectrum")  # or "cqt", "cqt_spectral_flux"
+features, times = extract_audio_features("performance.wav", "raw_spectrum")  # or "cqt", "cqt_spectral_flux", "mel"
 # cqt_spectral_flux without the flux column (88 values): kwargs={"include_spectral_flux": False}
 ```
 
@@ -194,7 +201,7 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 ## Roadmap
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
-2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux` (audio outerhmm only).
+2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux`, `mel` (mel supports the frame-level Arzt/Dixon followers; audio outerhmm only uses `cqt_spectral_flux`).
 3. Later: remaining method `pfkorz` and parangonar methods.
 
 ## Benchmark datasets

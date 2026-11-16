@@ -107,7 +107,7 @@ enum Command {
     Features {
         /// Performance audio file.
         performance: PathBuf,
-        /// Audio feature processor: raw_spectrum, cqt or cqt_spectral_flux.
+        /// Audio feature processor: raw_spectrum, cqt, cqt_spectral_flux or mel.
         #[arg(long)]
         processor: String,
         /// Directory for NumPy-readable feature and metadata exports.
@@ -125,6 +125,12 @@ enum Command {
         /// Leave out the flux column: 88 instead of 89 values (cqt_spectral_flux only).
         #[arg(long)]
         no_spectral_flux: bool,
+        /// Mel-band count (mel only, default 128).
+        #[arg(long)]
+        n_mels: Option<usize>,
+        /// Mel filter norm (mel only, default inf; use none to disable).
+        #[arg(long)]
+        norm: Option<String>,
     },
 }
 
@@ -214,7 +220,7 @@ fn audio_config(
                     selected_processor = Some(name.parse::<AudioProcessorKind>()?)
                 }
                 _ => anyhow::bail!(
-                    "--set processor expects chroma, lse, raw_spectrum, cqt, or cqt_spectral_flux"
+                    "--set processor expects chroma, lse, raw_spectrum, cqt, cqt_spectral_flux, or mel"
                 ),
             }
         }
@@ -234,6 +240,7 @@ fn audio_config(
             "frame_rate" => config.frame_rate = audio_u32(key, &value)?,
             "hop_length" => config.hop_length = audio_optional_usize(key, &value)?,
             "n_fft" => config.n_fft = audio_optional_usize(key, &value)?,
+            "n_mels" => config.n_mels = audio_optional_usize(key, &value)?,
             "norm" => {
                 config.norm = match &value {
                     ConfigValue::None => None,
@@ -504,10 +511,16 @@ fn main() -> Result<()> {
             hop_length,
             n_fft,
             no_spectral_flux,
+            n_mels,
+            norm,
         } => {
             anyhow::ensure!(
                 !no_spectral_flux || processor == "cqt_spectral_flux",
                 "--no-spectral-flux is only valid for cqt_spectral_flux"
+            );
+            anyhow::ensure!(
+                processor == "mel" || (n_mels.is_none() && norm.is_none()),
+                "--n-mels and --norm are only valid for mel"
             );
             match processor.as_str() {
                 "raw_spectrum" => matchmaker_rs::export::write_audio_features(
@@ -536,8 +549,39 @@ fn main() -> Result<()> {
                         !no_spectral_flux,
                     )?;
                 }
+                "mel" => {
+                    anyhow::ensure!(n_fft.is_none(), "--n-fft is only valid for raw_spectrum");
+                    let norm = match norm.as_deref() {
+                        None => Some(f64::INFINITY),
+                        Some(value) if value.eq_ignore_ascii_case("none") => None,
+                        Some(value)
+                            if value.eq_ignore_ascii_case("inf")
+                                || value.eq_ignore_ascii_case("infinity") =>
+                        {
+                            Some(f64::INFINITY)
+                        }
+                        Some(value) => {
+                            let parsed = value.parse::<f64>().with_context(
+                                || "--norm expects a positive number, inf, or none",
+                            )?;
+                            anyhow::ensure!(
+                                parsed.is_finite() && parsed > 0.0,
+                                "--norm expects a positive number, inf, or none"
+                            );
+                            Some(parsed)
+                        }
+                    };
+                    matchmaker_rs::export::write_mel_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(1_470),
+                        n_mels.unwrap_or(128),
+                        norm,
+                    )?;
+                }
                 _ => anyhow::bail!(
-                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt, cqt_spectral_flux"
+                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt, cqt_spectral_flux, mel"
                 ),
             }
             Ok(())

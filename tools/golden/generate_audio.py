@@ -31,6 +31,7 @@ from matchmaker.features.audio import (
     CQTProcessor,
     CQTSpectralFluxProcessor,
     LogSpectralEnergyProcessor,
+    MelSpectrogramProcessor,
     RawSpectrumProcessor,
 )
 from matchmaker.dp.oltw_arzt import OnlineTimeWarpingArztFrame
@@ -308,6 +309,118 @@ def generate_raw_spectrum_goldens(output: Path) -> None:
         },
     )
     print("raw_spectrum/short: 0 frames (reference direct call rejects short input)")
+
+
+def generate_mel_goldens(output: Path) -> None:
+    """Generate mel filter-bank, power-spectrum, stream, and silent references."""
+    base = output / "processors/mel"
+
+    def stream(samples: np.ndarray, sample_rate: int, hop: int, n_mels: int, norm):
+        processor = MelSpectrogramProcessor(sample_rate, hop, n_mels, norm)
+        n_fft = 2 * hop
+        padded = np.pad(samples, (0, (-len(samples)) % hop), mode="constant")
+        cache = np.zeros(n_fft - hop, dtype=np.float32)
+        feature_rows, power_rows, times = [], [], []
+        for chunk_index, chunk in enumerate(padded.reshape(-1, hop)):
+            block = np.concatenate((cache, chunk))
+            frame_time = max(0, chunk_index - 1) * hop / sample_rate
+            features, returned_time = processor((block, frame_time))
+            if chunk_index > 0:
+                feature_rows.extend(features)
+                power = np.abs(
+                    librosa.stft(
+                        block,
+                        n_fft=n_fft,
+                        hop_length=hop,
+                        center=False,
+                        dtype=np.complex64,
+                    )
+                ) ** 2
+                power_rows.extend(power.T)
+                times.extend([float(returned_time)] * len(features))
+            cache = block[-len(cache):].copy()
+        return feature_rows, power_rows, times
+
+    signal_cache: dict[int, np.ndarray] = {}
+
+    def tones(sample_rate: int) -> np.ndarray:
+        if sample_rate not in signal_cache:
+            times = np.arange(sample_rate // 2, dtype=np.float64) / sample_rate
+            signal_cache[sample_rate] = (
+                0.35 * np.sin(2 * np.pi * 440.0 * times)
+                + 0.2 * np.sin(2 * np.pi * 659.2551138257398 * times)
+                + 0.1 * np.sin(2 * np.pi * 783.9908719634985 * times)
+            ).astype(np.float32)
+        return signal_cache[sample_rate]
+
+    def write_case(
+        name: str,
+        samples: np.ndarray,
+        sample_rate: int,
+        hop: int,
+        n_mels: int = 128,
+        norm=np.inf,
+        include_bank: bool = False,
+    ) -> None:
+        feature_rows, power_rows, times = stream(samples, sample_rate, hop, n_mels, norm)
+        n_fft = 2 * hop
+        directory = base / name
+        write_array(directory / "input_samples.npy", samples, "<f4")
+        write_array(
+            directory / "features.npy",
+            np.asarray(feature_rows, dtype=np.float32).reshape(-1, n_mels),
+            "<f4",
+        )
+        write_array(
+            directory / "power_spectrum.npy",
+            np.asarray(power_rows, dtype=np.float32).reshape(-1, n_fft // 2 + 1),
+            "<f4",
+        )
+        write_array(directory / "times.npy", times, "<f8")
+        if include_bank:
+            write_array(
+                directory / "mel_bank.npy",
+                librosa.filters.mel(
+                    sr=sample_rate,
+                    n_fft=n_fft,
+                    n_mels=n_mels,
+                    norm=norm,
+                    dtype=np.float32,
+                ),
+                "<f4",
+            )
+        write_json(
+            directory / "meta.json",
+            {
+                "reference": reference_info(),
+                "generator": "tools/golden/generate_audio.py",
+                "processor": "mel",
+                "sample_rate": sample_rate,
+                "hop_length": hop,
+                "n_fft": n_fft,
+                "n_mels": n_mels,
+                "norm": "inf" if norm == np.inf else norm,
+                "window": "hann",
+                "center": False,
+                "power": 2.0,
+                "frames": len(feature_rows),
+                "tolerances": {"features_rtol": 1e-5, "features_atol": 1e-5},
+            },
+        )
+        print(f"mel/{name}: {len(feature_rows)} frames")
+
+    write_case("default", tones(44_100), 44_100, 1_470, include_bank=True)
+    write_case("override", tones(16_000), 16_000, 512)
+    write_case("mel_bank", tones(44_100), 44_100, 735, n_mels=32, norm=2.0, include_bank=True)
+    write_case("norm_none", tones(44_100), 44_100, 735, n_mels=32, norm=None)
+    write_case("silent", np.zeros(4_410, dtype=np.float32), 44_100, 1_470)
+    write_case("short", tones(44_100)[:2 * 1_470 - 1], 44_100, 1_470)
+
+    performance, performance_rate = sf.read(
+        DEFAULT_PERFORMANCE, dtype=np.float32, always_2d=True
+    )
+    performance = performance.mean(axis=1, dtype=np.float32)
+    write_case("performance", performance, performance_rate, 1_470)
 
 
 def stream_cqt(samples: np.ndarray, sample_rate: int, hop: int, norm=np.inf):
@@ -1534,6 +1647,11 @@ def main() -> None:
         help="generate raw-spectrum processor goldens without FluidSynth",
     )
     parser.add_argument(
+        "--mel-only",
+        action="store_true",
+        help="generate mel filter-bank, power-spectrum and stream feature goldens",
+    )
+    parser.add_argument(
         "--cqt-only",
         action="store_true",
         help="generate cqt processor goldens (stream, whole-signal, soxr stages, kernels)",
@@ -1645,6 +1763,9 @@ def main() -> None:
         return
     if args.raw_spectrum_only:
         generate_raw_spectrum_goldens(args.out.resolve())
+        return
+    if args.mel_only:
+        generate_mel_goldens(args.out.resolve())
         return
     if args.cqt_only:
         generate_cqt_goldens(args.out.resolve())

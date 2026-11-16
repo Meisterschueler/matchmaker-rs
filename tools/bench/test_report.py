@@ -11,7 +11,13 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from report import outerhmm_p95_parity, p95_parity, regression_status, renderer_accuracy_parity
+from report import (
+    outerhmm_p95_parity,
+    p95_parity,
+    position_parity,
+    regression_status,
+    renderer_accuracy_parity,
+)
 
 
 class RegressionStatusTests(unittest.TestCase):
@@ -125,6 +131,79 @@ class CqtStageComparisonTests(unittest.TestCase):
             self.assertEqual(status, 1)
             self.assertIn("frame 1, bin 5", message)
             self.assertEqual(run(reference[:1])[0], 1)
+
+
+class MelStageComparisonTests(unittest.TestCase):
+    def test_features_report_first_frame_and_band_and_check_metadata(self):
+        path = Path(__file__).parents[1] / "golden" / "compare.py"
+        spec = importlib.util.spec_from_file_location("mel_stage_comparison", path)
+        comparison = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(comparison)
+        metadata = {
+            "processor": "mel",
+            "sample_rate": 44_100,
+            "hop_length": 1_470,
+            "n_fft": 2_940,
+            "n_mels": 32,
+            "norm": "inf",
+            "frames": 2,
+            "tolerances": {"features_rtol": 1e-5, "features_atol": 1e-5},
+        }
+        reference = np.zeros((2, 32), dtype=np.float32)
+        reference[0, 0] = 100.0
+        times = np.array([0.0, 0.1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            golden, exported = root / "golden", root / "export"
+            golden.mkdir()
+            np.save(golden / "features.npy", reference)
+            np.save(golden / "times.npy", times)
+            (exported / "processor/mel").mkdir(parents=True)
+            (exported / "audio").mkdir()
+            np.save(exported / "processor/mel/times.npy", times)
+            export_meta = {
+                key: value
+                for key, value in metadata.items()
+                if key != "tolerances"
+            }
+            (exported / "audio/meta.json").write_text(json.dumps(export_meta))
+
+            def run(features):
+                np.save(exported / "processor/mel/features.npy", features)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    return comparison.compare_mel_case(golden, exported, metadata), output.getvalue()
+
+            within = reference.copy()
+            within[1, 5] = 9e-6
+            self.assertEqual(run(within)[0], 0)
+            beyond = reference.copy()
+            beyond[1, 5] = 2e-5
+            status, message = run(beyond)
+            self.assertEqual(status, 1)
+            self.assertIn("frame 1, mel band 5", message)
+
+            np.save(exported / "processor/mel/features.npy", reference)
+            export_meta["n_mels"] = 64
+            (exported / "audio/meta.json").write_text(json.dumps(export_meta))
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(comparison.compare_mel_case(golden, exported, metadata), 1)
+            self.assertIn("n_mels", output.getvalue())
+
+    def test_audio_position_gate_is_shared_by_frame_processors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rust, python = root / "rust.tsv", root / "python.tsv"
+            times = np.arange(3, dtype=float) / 30
+            expected = np.column_stack((times, np.zeros(3)))
+            actual = expected.copy()
+            actual[1, 1] = 0.5
+            np.savetxt(rust, actual, delimiter="\t", header="perf_sec\tscore_beat", comments="")
+            np.savetxt(python, expected, delimiter="\t", header="perf_sec\tscore_beat", comments="")
+            result = position_parity("arzt", rust, python, audio=True)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["class"], "WITHIN_TOL")
 
 
 class OuterHmmComparisonTests(unittest.TestCase):

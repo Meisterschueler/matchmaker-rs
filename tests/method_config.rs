@@ -102,13 +102,13 @@ fn audio_names_and_errors_are_input_specific() {
         "cqt_spectral_flux".parse::<AudioProcessorKind>().unwrap(),
         AudioProcessorKind::CqtSpectralFlux
     );
-    assert!(
-        "mel"
-            .parse::<AudioProcessorKind>()
-            .unwrap_err()
-            .to_string()
-            .contains("cqt")
+    assert_eq!(
+        "mel".parse::<AudioProcessorKind>().unwrap(),
+        AudioProcessorKind::Mel
     );
+    assert_eq!(AudioProcessorKind::Mel.name(), "mel");
+    let unknown = "mfcc".parse::<AudioProcessorKind>().unwrap_err();
+    assert!(unknown.to_string().contains("mel"));
 
     let decode_error = Error::AudioDecode {
         path: "performance.ogg".into(),

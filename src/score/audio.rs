@@ -49,7 +49,7 @@ use tracing::debug_span;
 use crate::error::{Error, Result};
 use crate::features::{
     AudioProcessor, chroma::ChromaProcessor, cqt::CqtProcessor, lse::LseProcessor,
-    raw_spectrum::RawSpectrumProcessor,
+    mel::MelProcessor, raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioFrame;
 use crate::matchmaker::{AudioMethod, AudioMethodConfig, AudioProcessorKind};
@@ -335,6 +335,16 @@ fn extract_score_features(
                 )),
                 n_fft,
             )
+        }
+        AudioProcessorKind::Mel => {
+            let processor = MelProcessor::new(
+                config.sample_rate,
+                hop_length,
+                config.n_mels.unwrap_or(128),
+                config.norm,
+            )?;
+            let n_fft = processor.n_fft();
+            (Box::new(processor), n_fft)
         }
         AudioProcessorKind::Cqt => {
             let rows = CqtProcessor::new(config.sample_rate, hop_length, Some(f64::INFINITY))?

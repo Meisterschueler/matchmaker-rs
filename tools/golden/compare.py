@@ -302,6 +302,62 @@ def compare_cqt_case(golden_dir, export_dir, metadata):
     return 0
 
 
+def compare_mel_case(golden_dir, export_dir, metadata):
+    """Compare standalone mel features and report the first differing frame and band."""
+    processor = "mel"
+    feature_path = export_dir / "processor" / processor / "features.npy"
+    time_path = export_dir / "processor" / processor / "times.npy"
+    for path in (feature_path, time_path):
+        if not path.is_file():
+            print(f"first differing stage: processor/{processor}, missing {path}")
+            return 1
+
+    expected = np.load(golden_dir / "features.npy").astype(np.float64)
+    actual = np.load(feature_path).astype(np.float64)
+    if expected.shape != actual.shape:
+        print(
+            f"first differing stage: processor/{processor}/features.npy: "
+            f"shape differs: expected {expected.shape}, actual {actual.shape}"
+        )
+        return 1
+    tolerances = metadata.get("tolerances", {})
+    rtol = tolerances.get("features_rtol", 1e-5)
+    atol = tolerances.get("features_atol", 1e-5)
+    allowed = atol + rtol * np.abs(expected)
+    deviation = np.abs(actual - expected)
+    bad = ~(deviation <= allowed)
+    if bad.any():
+        frame, band = (int(index) for index in np.argwhere(bad)[0])
+        print(
+            f"first differing stage: processor/{processor}/features.npy: frame {frame}, "
+            f"mel band {band}: expected {float(expected[frame, band])!r}, "
+            f"actual {float(actual[frame, band])!r}, allowed {allowed[frame, band]:.3e}"
+        )
+        return 1
+
+    difference = first_difference(
+        "times.npy",
+        np.load(golden_dir / "times.npy"),
+        np.load(time_path),
+        tolerance=(0.0, 0.0),
+    )
+    if difference:
+        print(f"first differing stage: processor/{processor}/times.npy: {difference}")
+        return 1
+
+    actual_metadata = json.loads((export_dir / "audio/meta.json").read_text())
+    for key in ("processor", "sample_rate", "hop_length", "n_fft", "n_mels", "norm", "frames"):
+        if actual_metadata.get(key) != metadata.get(key):
+            print(
+                f"first differing stage: audio/meta.json: {key}: "
+                f"expected {metadata.get(key)!r}, actual {actual_metadata.get(key)!r}"
+            )
+            return 1
+    share = float((deviation / allowed).max()) if expected.size else 0.0
+    print(f"WITHIN_TOL: standalone mel features (worst {share:.4f} of the limit), timestamps, and metadata")
+    return 0
+
+
 # RustySynth against FluidSynth templates (research R12); Gaussian templates are closed-form.
 SKF_TEMPLATE_MIN_COSINE = 0.99
 SKF_TEMPLATE_MAX_VARIATION = 0.06
@@ -673,6 +729,8 @@ def main(golden_dir, export_dir):
             return compare_audio_case(golden_dir, export_dir, metadata)
         if metadata.get("processor") == "raw_spectrum" and "sample_rate" in metadata:
             return compare_raw_spectrum_case(golden_dir, export_dir, metadata)
+        if metadata.get("processor") == "mel" and "sample_rate" in metadata:
+            return compare_mel_case(golden_dir, export_dir, metadata)
         if metadata.get("processor") in ("cqt", "cqt_spectral_flux") and "stream_frames" in metadata:
             return compare_cqt_case(golden_dir, export_dir, metadata)
         if metadata.get("method") == "skf":

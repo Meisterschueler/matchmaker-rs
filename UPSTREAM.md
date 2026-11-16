@@ -28,6 +28,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/features/chroma.rs` | `matchmaker/features/audio.py` | `ChromagramProcessor` |
 | `src/features/lse.rs` | `matchmaker/features/audio.py` | `LogSpectralEnergyProcessor` |
 | `src/features/raw_spectrum.rs` | `matchmaker/features/audio.py` | `RawSpectrumProcessor` |
+| `src/features/mel.rs` | `matchmaker/features/audio.py`, `librosa/feature/spectral.py`, `librosa/filters.py` | `MelSpectrogramProcessor`; non-centered Hann power spectrum and Slaney mel bank |
 | `src/features/cqt.rs` | `matchmaker/features/audio.py`, `librosa/core/constantq.py`, `librosa/core/audio.py` | `CQTProcessor`; librosa's recursive `cqt` (octave kernels, early downsampling, response scaling) with the `soxr_hq` 2:1 decimator as a fitted Kaiser sinc (research R13) |
 | `src/features/cqt_spectral_flux.rs` | `matchmaker/features/audio.py` | `CQTSpectralFluxProcessor` over `src/features/cqt.rs`: previous call's matrix as flux history, inherited no-op `reset` (research R5, C07) |
 | `src/score/audio.rs` | `matchmaker/utils/misc.py`, `matchmaker/registry.py`, `partitura/utils/fluidsynth.py` | peak-normalized synthesized score, whole-signal score features, frame-to-beat map (swap points `normalize_level`, `extract_score_features`; research R11) |

@@ -64,6 +64,17 @@ score = "../../tests/data/simple_mozart_k265_var1.musicxml"
 performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
 
+# mel uses 128 Slaney bands, norm=inf, and n_fft=2*hop_length by default.
+[[pieces]]
+dataset = "audio-mel"
+piece = "mozart_mel"
+methods = ["arzt", "dixon"]
+input_type = "audio"
+processor = "mel"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
 # skf follows chords, not a rendered score, so only a direct ground truth can judge it.
 [[pieces]]
 dataset = "audio-skf"

@@ -6,6 +6,7 @@ use common::{data, npy};
 use matchmaker_rs::Error;
 use matchmaker_rs::export::{
     write_audio_evaluation, write_audio_run, write_cqt_features, write_cqt_spectral_flux_features,
+    write_mel_features,
 };
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind,
@@ -98,6 +99,10 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
         (AudioMethod::Arzt, AudioProcessorKind::RawSpectrum),
         (AudioMethod::Arzt, AudioProcessorKind::Cqt),
         (AudioMethod::Dixon, AudioProcessorKind::Cqt),
+        (AudioMethod::Arzt, AudioProcessorKind::Mel),
+        (AudioMethod::Dixon, AudioProcessorKind::Mel),
+        (AudioMethod::ArztTempo, AudioProcessorKind::Mel),
+        (AudioMethod::ArztMultiFold, AudioProcessorKind::Mel),
     ] {
         let mut config = AudioMethodConfig::for_method(method);
         config.set_processor(processor);
@@ -172,6 +177,32 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
     cqt.norm = None;
     cqt.n_fft = Some(512);
     assert_eq!(key_of(&cqt, AudioMethod::Arzt), "n_fft");
+
+    let mut flux = AudioMethodConfig::for_method(AudioMethod::OuterHmm);
+    flux.set_processor(AudioProcessorKind::CqtSpectralFlux);
+    flux.n_fft = Some(512);
+    assert_eq!(key_of(&flux, AudioMethod::OuterHmm), "n_fft");
+
+    let mut mel = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    mel.set_processor(AudioProcessorKind::Mel);
+    assert_eq!(mel.norm, Some(f64::INFINITY));
+    mel.n_fft = Some(512);
+    assert_eq!(key_of(&mel, AudioMethod::Arzt), "n_fft");
+    mel.n_fft = None;
+    mel.n_mels = Some(0);
+    assert_eq!(key_of(&mel, AudioMethod::Arzt), "n_mels");
+    mel.n_mels = Some(32);
+    mel.norm = Some(0.0);
+    assert_eq!(key_of(&mel, AudioMethod::Arzt), "norm");
+    mel.norm = Some(f64::INFINITY);
+    mel.set_processor(AudioProcessorKind::Lse);
+    mel.n_mels = Some(32);
+    assert_eq!(key_of(&mel, AudioMethod::Arzt), "n_mels");
+    for method in [AudioMethod::Skf, AudioMethod::OuterHmm] {
+        let mut incompatible = AudioMethodConfig::for_method(method);
+        incompatible.set_processor(AudioProcessorKind::Mel);
+        assert_eq!(key_of(&incompatible, method), "processor");
+    }
 }
 
 #[test]
@@ -295,6 +326,85 @@ fn cqt_spectral_flux_extraction_exports_89_or_88_columns_and_rejects_unusable_ra
 }
 
 #[test]
+fn mel_extraction_exports_power_features_and_validates_dimensions_and_norm() {
+    let performance = data("audio/simple_mozart_k265_var1_sf2.wav");
+    for (sample_rate, hop_length, n_mels, norm, columns) in [
+        (44_100, 1_470, 128, Some(f64::INFINITY), 128),
+        (44_100, 735, 32, Some(2.0), 32),
+        (44_100, 735, 32, None, 32),
+    ] {
+        let output = std::env::temp_dir().join(format!(
+            "matchmaker_mel_features_{sample_rate}_{hop_length}_{n_mels}_{columns}"
+        ));
+        let _ = std::fs::remove_dir_all(&output);
+        write_mel_features(&performance, &output, sample_rate, hop_length, n_mels, norm).unwrap();
+        let features = npy(output.join("processor/mel/features.npy"));
+        assert_eq!(features.shape[1], columns);
+        assert!(features.values().iter().all(|value| value.is_finite()));
+        assert_eq!(
+            npy(output.join("processor/mel/times.npy")).shape,
+            [features.shape[0]]
+        );
+        let meta: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap())
+                .unwrap();
+        assert_eq!(meta["processor"], "mel");
+        assert_eq!(meta["n_fft"], 2 * hop_length);
+        assert_eq!(meta["n_mels"], n_mels);
+        assert_eq!(meta["norm"].is_null(), norm.is_none());
+    }
+
+    let rejected = std::env::temp_dir().join("matchmaker_mel_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    for (sample_rate, hop_length, n_mels, norm) in [
+        (0, 1_470, 128, Some(f64::INFINITY)),
+        (44_100, 0, 128, Some(f64::INFINITY)),
+        (44_100, 1_470, 0, Some(f64::INFINITY)),
+        (44_100, 1_470, 128, Some(0.0)),
+    ] {
+        assert!(matches!(
+            write_mel_features(
+                &performance,
+                &rejected,
+                sample_rate,
+                hop_length,
+                n_mels,
+                norm
+            ),
+            Err(Error::AudioConfig { .. })
+        ));
+    }
+    assert!(!rejected.exists());
+}
+
+#[test]
+fn mel_frame_following_exports_processor_and_score_features() {
+    let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    config.set_processor(AudioProcessorKind::Mel);
+    config.soundfont_path = Some(pinned_soundfont());
+    let mut follower =
+        AudioMatchmaker::new_arzt(data("simple_mozart_k265_var1.musicxml"), config, None, true)
+            .unwrap()
+            .record();
+    follower
+        .run_file(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .unwrap();
+
+    let output = std::env::temp_dir().join("matchmaker_audio_mel_export");
+    let _ = std::fs::remove_dir_all(&output);
+    write_audio_run(&follower, &output).unwrap();
+    let performance = npy(output.join("processor/mel/features.npy"));
+    let score = npy(output.join("score/audio/features.npy"));
+    assert_eq!(performance.shape[1], 128);
+    assert_eq!(score.shape[1], 128);
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["processor"], "mel");
+    assert_eq!(meta["n_mels"], 128);
+    assert_eq!(meta["norm"], "inf");
+}
+
+#[test]
 fn raw_spectrum_audio_follow_exports_257_feature_bins() {
     let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
     config.set_processor(AudioProcessorKind::RawSpectrum);
@@ -363,6 +473,11 @@ fn recorded_audio_run_exports_all_stages_as_numpy_arrays() {
     assert_eq!(score_features.shape[0], frame_to_beat.shape[0]);
     assert_eq!(alignment_path.shape[0], 2);
     assert_eq!(npy(output.join("audio/frame_times.npy")).shape, [226]);
+    let audio_meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert!(audio_meta.get("processor").is_none());
+    assert!(audio_meta.get("n_mels").is_none());
+    assert!(audio_meta.get("norm").is_none());
 }
 
 #[test]

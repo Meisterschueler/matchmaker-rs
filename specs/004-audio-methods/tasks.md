@@ -137,12 +137,12 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 **Goal**: Reference mel-power observations for compatible frame followers and extraction.
 **Independent test**: 128 bins, bank/norm/scaling/default hops, silence and reset.
 
-- [ ] T059 [US9] Generate default/override/mel-bank/power reference outputs using tools/golden/generate_audio.py under tests/golden/audio/ and record normalization evidence in specs/004-audio-methods/research.md (FR-009).
-- [ ] T060 [US9] Add failing mel/silence/reset/override goldens in tests/golden_audio_processors.rs and compatible follower/extraction/error tests in tests/audio_config_export.rs, crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py.
-- [ ] T061 [US9] Implement src/features/mel.rs and src/features/mod.rs with installed realfft, exact librosa power/filter-bank normalization and n_fft=2*hop; reuse a spectral helper only if it removes actual duplication.
-- [ ] T062 [US9] Enable mel configuration, compatible consumers and extraction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; retain old processor/default behavior and typed invalid dimensions/norm errors.
-- [ ] T063 [US9] Extend src/export.rs and tools/golden/compare.py for mel metadata/first-bin differences; verify empty/short/reset and legacy schemas in tests/audio_config_export.rs and tests/edge_cases.rs.
-- [ ] T064 [US9] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for compatible mel runs; update examples, README.md and UPSTREAM.md.
+- [X] T059 [US9] Generate default/override/mel-bank/power reference outputs using tools/golden/generate_audio.py under tests/golden/audio/ and record normalization evidence in specs/004-audio-methods/research.md (FR-009).
+- [X] T060 [US9] Add failing mel/silence/reset/override goldens in tests/golden_audio_processors.rs and compatible follower/extraction/error tests in tests/audio_config_export.rs, crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py.
+- [X] T061 [US9] Implement src/features/mel.rs and src/features/mod.rs with installed realfft, exact librosa power/filter-bank normalization and n_fft=2*hop; reuse a spectral helper only if it removes actual duplication.
+- [X] T062 [US9] Enable mel configuration, compatible consumers and extraction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; retain old processor/default behavior and typed invalid dimensions/norm errors.
+- [X] T063 [US9] Extend src/export.rs and tools/golden/compare.py for mel metadata/first-bin differences; verify empty/short/reset and legacy schemas in tests/audio_config_export.rs and tests/edge_cases.rs.
+- [X] T064 [US9] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for compatible mel runs; update examples, README.md and UPSTREAM.md.
 - [ ] T065 [US9] Run all quickstart gates, record evidence in specs/004-audio-methods/research.md, and create only C09 `feat(audio): add mel processor`; stop before MFCC until committed.
 
 ## Phase 12: US10 - mfcc (P3, C10)

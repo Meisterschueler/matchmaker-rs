@@ -273,7 +273,46 @@ def test_cqt_extraction_returns_88_bins_and_rejects_foreign_options():
     with pytest.raises(ValueError, match="sample_rate"):
         matchmaker_rs.extract_audio_features(str(PERFORMANCE), "cqt", {"sample_rate": 8_000})
     with pytest.raises(ValueError, match="unknown audio processor"):
-        matchmaker_rs.extract_audio_features(str(PERFORMANCE), "mel")
+        matchmaker_rs.extract_audio_features(str(PERFORMANCE), "mfcc")
+
+
+def test_mel_extraction_returns_power_features_and_accepts_bank_overrides():
+    features, times = matchmaker_rs.extract_audio_features(str(PERFORMANCE), "mel")
+    expected = np.load(GOLDEN / "processors" / "mel" / "performance" / "features.npy")
+    assert features.dtype == np.float32
+    assert features.shape == (227, 128)
+    np.testing.assert_allclose(features, expected, rtol=1e-5, atol=1e-5)
+    assert times.dtype == np.float64 and times.shape == (227,)
+    assert np.isfinite(features).all()
+
+    overridden, overridden_times = matchmaker_rs.extract_audio_features(
+        str(PERFORMANCE),
+        "mel",
+        {"sample_rate": 44_100, "hop_length": 735, "n_mels": 32, "norm": 2.0},
+    )
+    assert overridden.shape[1] == 32
+    assert overridden_times.shape == (overridden.shape[0],)
+    unnormalized, _ = matchmaker_rs.extract_audio_features(
+        str(PERFORMANCE),
+        "mel",
+        {"hop_length": 735, "n_mels": 32, "norm": None},
+    )
+    assert unnormalized.shape == overridden.shape
+
+    for kwargs in [{"n_mels": 0}, {"norm": 0.0}, {"n_fft": 512}]:
+        with pytest.raises(ValueError, match=next(iter(kwargs))):
+            matchmaker_rs.extract_audio_features(str(PERFORMANCE), "mel", kwargs)
+
+
+def test_mel_audio_following_is_supported_by_frame_followers():
+    for method in ["arzt", "dixon"]:
+        mm = make_audio(method, processor="mel")
+        positions = list(mm.run(verbose=False))
+        assert positions and all(np.isfinite(position) for position in positions)
+        assert mm.score_follower.alignment_path.shape == (2, len(positions))
+
+    with pytest.raises(ValueError, match="n_fft"):
+        make_audio("arzt", processor="mel", n_fft=512)
 
 
 @pytest.mark.parametrize("method,steps", [("arzt", 226), ("dixon", 379)])

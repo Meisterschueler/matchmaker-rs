@@ -28,7 +28,8 @@ use crate::error::{Error, Result};
 use crate::features::{
     AudioProcessor, Observation, Processor, chord_onset::ChordOnsetProcessor,
     chroma::ChromaProcessor, cqt::CqtProcessor, cqt_spectral_flux::CqtSpectralFluxProcessor,
-    lse::LseProcessor, pitch::PitchProcessor, raw_spectrum::RawSpectrumProcessor,
+    lse::LseProcessor, mel::MelProcessor, pitch::PitchProcessor,
+    raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioStream;
 use crate::io::stream::{Frame, MidiMessage};
@@ -238,12 +239,20 @@ pub enum AudioProcessorKind {
     Cqt,
     /// CQT magnitudes plus the reference's cross-call positive spectral flux.
     CqtSpectralFlux,
+    /// Power mel-spectrogram with 128 bands by default.
+    Mel,
 }
 
 impl AudioProcessorKind {
     /// Reference names of the supported audio processors.
-    pub const AVAILABLE: [&'static str; 5] =
-        ["chroma", "lse", "raw_spectrum", "cqt", "cqt_spectral_flux"];
+    pub const AVAILABLE: [&'static str; 6] = [
+        "chroma",
+        "lse",
+        "raw_spectrum",
+        "cqt",
+        "cqt_spectral_flux",
+        "mel",
+    ];
 
     /// Reference name of this processor.
     pub fn name(self) -> &'static str {
@@ -253,6 +262,7 @@ impl AudioProcessorKind {
             AudioProcessorKind::RawSpectrum => "raw_spectrum",
             AudioProcessorKind::Cqt => "cqt",
             AudioProcessorKind::CqtSpectralFlux => "cqt_spectral_flux",
+            AudioProcessorKind::Mel => "mel",
         }
     }
 }
@@ -267,6 +277,7 @@ impl FromStr for AudioProcessorKind {
             "raw_spectrum" => Ok(AudioProcessorKind::RawSpectrum),
             "cqt" => Ok(AudioProcessorKind::Cqt),
             "cqt_spectral_flux" => Ok(AudioProcessorKind::CqtSpectralFlux),
+            "mel" => Ok(AudioProcessorKind::Mel),
             _ => Err(Error::AudioConfig {
                 key: "processor".into(),
                 reason: format!(
@@ -319,6 +330,8 @@ pub struct AudioMethodConfig {
     pub norm: Option<f64>,
     /// Raw-spectrum transform size; defaults to 512 for that processor.
     pub n_fft: Option<usize>,
+    /// Mel-band count; defaults to 128 for the mel processor.
+    pub n_mels: Option<usize>,
     /// Required local SF2 path for runtime score synthesis.
     pub soundfont_path: Option<std::path::PathBuf>,
     /// Search window in seconds.
@@ -380,6 +393,7 @@ impl AudioMethodConfig {
             hop_length: skf.then_some(128),
             norm: processor.default_norm(),
             n_fft: skf.then_some(512),
+            n_mels: None,
             soundfont_path: None,
             window_size: 10.0,
             start_window_size: arzt.then_some(0.1),
@@ -409,6 +423,7 @@ impl AudioMethodConfig {
         self.processor = processor;
         self.norm = processor.default_norm();
         self.n_fft = (processor == AudioProcessorKind::RawSpectrum).then_some(512);
+        self.n_mels = None;
     }
 
     /// Validate shared audio values and method-specific parameter ranges.
@@ -455,11 +470,34 @@ impl AudioMethodConfig {
                         "cqt_spectral_flux is currently supported only by audio outerhmm",
                     ));
                 }
+                if self.n_fft.is_some() {
+                    return Err(invalid("n_fft", "is only valid for raw_spectrum"));
+                }
                 if self.norm.is_some() {
                     return Err(invalid(
                         "norm",
                         "cqt_spectral_flux takes no norm through the facade",
                     ));
+                }
+            }
+            AudioProcessorKind::Mel => {
+                if !matches!(
+                    method,
+                    AudioMethod::Arzt
+                        | AudioMethod::Dixon
+                        | AudioMethod::ArztTempo
+                        | AudioMethod::ArztMultiFold
+                ) {
+                    return Err(invalid(
+                        "processor",
+                        "mel is currently supported by audio arzt, dixon, arzt_tempo and arzt_multi_fold",
+                    ));
+                }
+                if self.n_fft.is_some() {
+                    return Err(invalid("n_fft", "is only valid for raw_spectrum"));
+                }
+                if self.n_mels == Some(0) {
+                    return Err(invalid("n_mels", "must be at least 1 band"));
                 }
             }
             _ if method == AudioMethod::Skf => {
@@ -478,6 +516,9 @@ impl AudioMethodConfig {
                 if self.norm.is_some() {
                     return Err(invalid("norm", "cqt takes no norm through the facade"));
                 }
+            }
+            _ if self.n_mels.is_some() => {
+                return Err(invalid("n_mels", "is only valid for mel"));
             }
             _ => {}
         }
@@ -610,6 +651,7 @@ impl AudioProcessorKind {
             AudioProcessorKind::RawSpectrum
             | AudioProcessorKind::Cqt
             | AudioProcessorKind::CqtSpectralFlux => None,
+            AudioProcessorKind::Mel => Some(f64::INFINITY),
         }
     }
 }
@@ -1572,5 +1614,15 @@ fn make_audio_processor(
             )?),
             hop_length,
         ),
+        AudioProcessorKind::Mel => {
+            let processor = MelProcessor::new(
+                config.sample_rate,
+                hop_length,
+                config.n_mels.unwrap_or(128),
+                config.norm,
+            )?;
+            let cache_size = processor.n_fft().saturating_sub(hop_length);
+            (Box::new(processor), cache_size)
+        }
     })
 }
