@@ -143,7 +143,7 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T062 [US9] Enable mel configuration, compatible consumers and extraction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; retain old processor/default behavior and typed invalid dimensions/norm errors.
 - [X] T063 [US9] Extend src/export.rs and tools/golden/compare.py for mel metadata/first-bin differences; verify empty/short/reset and legacy schemas in tests/audio_config_export.rs and tests/edge_cases.rs.
 - [X] T064 [US9] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for compatible mel runs; update examples, README.md and UPSTREAM.md.
-- [ ] T065 [US9] Run all quickstart gates, record evidence in specs/004-audio-methods/research.md, and create only C09 `feat(audio): add mel processor`; stop before MFCC until committed.
+- [X] T065 [US9] Run all quickstart gates, record evidence in specs/004-audio-methods/research.md, and create only C09 `feat(audio): add mel processor`; stop before MFCC until committed.
 
 ## Phase 12: US10 - mfcc (P3, C10)
 
