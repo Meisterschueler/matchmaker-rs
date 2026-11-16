@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from report import p95_parity, regression_status, renderer_accuracy_parity
+from report import outerhmm_p95_parity, p95_parity, regression_status, renderer_accuracy_parity
 
 
 class RegressionStatusTests(unittest.TestCase):
@@ -37,6 +37,11 @@ class RegressionStatusTests(unittest.TestCase):
         self.assertTrue(p95_parity(0.10, 0.15))
         self.assertFalse(p95_parity(0.10, 0.151))
         self.assertFalse(p95_parity(None, 0.0))
+
+    def test_outerhmm_p95_gate_is_audio_only(self):
+        self.assertIsNone(outerhmm_p95_parity("outerhmm", False, 3.081, 0.0))
+        self.assertFalse(outerhmm_p95_parity("outerhmm", True, 0.10, 0.151))
+        self.assertIsNone(outerhmm_p95_parity("arzt", True, 0.10, 0.151))
 
 
 class TempoStageComparisonTests(unittest.TestCase):

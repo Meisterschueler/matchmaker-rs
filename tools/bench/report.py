@@ -10,10 +10,12 @@ parity flags (contracts/benchmark-report.md):
   Rust's best state leads by less than 1e-9 (relative; ``<method>.gap.tsv``) are numerical ties
   and count as equal
 
-Exits with 1 on a position-parity violation. ``--baseline`` (the previous master report.json)
-flags Rust inference latency above 1.10 x the baseline. The page ends with the sources of the
-datasets in the report (tools/datasets/datasets.toml). Standard library + NumPy only; every
-records file has its own ``paths/`` directory next to it (one directory per shard and side):
+Exits with 1 on a parity violation. The audio OuterHMM p95 gate applies only to audio runs;
+MIDI OuterHMM reports do not use that audio-specific limit. ``--baseline`` (the previous master
+report.json) flags Rust inference latency above 1.10 x the baseline. The page ends with the
+sources of the datasets in the report (tools/datasets/datasets.toml). Standard library + NumPy
+only; every records file has its own ``paths/`` directory next to it (one directory per shard
+and side):
 
     python report.py --rust rust/records.json --python python/records.json --out report
 """
@@ -64,6 +66,12 @@ def p95_parity(actual: float | None, expected: float | None) -> bool:
         and math.isfinite(expected)
         and abs(actual - expected) <= 0.05 + 1e-12
     )
+
+
+def outerhmm_p95_parity(method: str, audio: bool, actual: float | None, expected: float | None) -> bool | None:
+    if method != "outerhmm" or not audio:
+        return None
+    return p95_parity(actual, expected)
 
 
 def load(paths: list[Path]) -> dict:
@@ -166,6 +174,7 @@ def main() -> None:
                 "ground_truth_path": records[0].get("ground_truth_path") if records else None,
             }
         r, p = side["rust"], side["python"]
+        audio = r["input_type"] == "audio" or p["input_type"] == "audio"
         metric_parity = None
         if r["evaluation"] and p["evaluation"]:
             metric_parity = all(same(r["evaluation"].get(k), v) for k, v in p["evaluation"].items())
@@ -173,8 +182,8 @@ def main() -> None:
         previous = baseline.get(key)
         parity = None
         if dirs["rust"] and dirs["python"]:
-            audio = side["rust"]["input_type"] == "audio" or side["python"]["input_type"] == "audio"
             parity = position_parity(method, dirs["rust"] / rel, dirs["python"] / rel, audio)
+        p95 = outerhmm_p95_parity(method, audio, r["p95_b"], p["p95_b"])
         rows.append(
             {
                 "method": method,
@@ -190,8 +199,8 @@ def main() -> None:
                     if r["has_ground_truth"] and p["has_ground_truth"]
                     and r["evaluation"] and p["evaluation"] else None,
                 "p95_b_delta": abs(r["p95_b"] - p["p95_b"])
-                    if method == "outerhmm" and r["p95_b"] is not None and p["p95_b"] is not None else None,
-                "p95_parity": p95_parity(r["p95_b"], p["p95_b"]) if method == "outerhmm" else None,
+                    if p95 is not None and r["p95_b"] is not None and p["p95_b"] is not None else None,
+                "p95_parity": p95,
                 "renderer_accuracy_parity": renderer_accuracy_parity(r["evaluation"], p["evaluation"])
                     if (method == "arzt_tempo" or (method == "arzt_multi_fold" and r["has_ground_truth"] and p["has_ground_truth"]))
                     and r["evaluation"] and p["evaluation"] else None,
@@ -253,7 +262,16 @@ def main() -> None:
     }
     (args.out / "badge.json").write_text(json.dumps(badge) + "\n", encoding="utf-8")
     for row in violations:
-        print(f"position parity violated: {row['method']} {row['dataset']}/{row['piece']}: {row['position_parity']}")
+        reasons = []
+        if row["position_parity"] and not row["position_parity"]["ok"]:
+            reasons.append(f"positions {row['position_parity']}")
+        if row["ground_truth_accuracy_parity"] is False:
+            reasons.append("ground-truth accuracy")
+        if row["renderer_accuracy_parity"] is False:
+            reasons.append("renderer accuracy")
+        if row["p95_parity"] is False:
+            reasons.append(f"p95 delta {row['p95_b_delta']}")
+        print(f"benchmark parity violated: {row['method']} {row['dataset']}/{row['piece']}: {'; '.join(reasons)}")
     raise SystemExit(1 if violations else 0)
 
 
