@@ -130,7 +130,7 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T055 [US8] Add audio outerhmm defaults (16000/640, cqt_spectral_flux, s_j=0.0), validated layouts and verified override semantics in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; enforce descriptive asset/config errors via src/error.rs.
 - [X] T056 [US8] Export pitch/chord templates, support mask, posterior/sound-pause state and provenance in src/export.rs; extend tools/golden/compare.py, tests/audio_config_export.rs and tests/edge_cases.rs for first-difference and one-onset/overrun tests.
 - [X] T057 [US8] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for audio outerhmm replay/full-pipeline quality; update examples, README.md and UPSTREAM.md.
-- [ ] T058 [US8] Run all quickstart gates and fixed-template/renderer comparisons, record provenance/hash/report/platform evidence in specs/004-audio-methods/research.md, and create only C08 `feat(audio): add outerhmm follower`; unverified learned-template rights block delivery.
+- [X] T058 [US8] Run all quickstart gates and fixed-template/renderer comparisons, record provenance/hash/report/platform evidence in specs/004-audio-methods/research.md, and create only C08 `feat(audio): add outerhmm follower`; unverified learned-template rights block delivery.
 
 ## Phase 11: US9 - mel (P3, C09)
 
