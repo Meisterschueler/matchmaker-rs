@@ -269,6 +269,79 @@ fn features_command_exports_mfcc_and_accepts_dct_overrides() {
 }
 
 #[test]
+fn features_command_exports_korzeniowski_structured_components() {
+    let output = std::env::temp_dir().join("matchmaker_cli_korzeniowski_features");
+    let _ = std::fs::remove_dir_all(&output);
+    let run = features("korzeniowski", &[], &output);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    for file in [
+        "processor/korzeniowski/spectrum.npy",
+        "processor/korzeniowski/onset.npy",
+        "processor/korzeniowski/loudness.npy",
+        "processor/korzeniowski/times.npy",
+    ] {
+        assert!(output.join(file).is_file(), "missing {file}");
+    }
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["hop_length"], 512);
+    assert_eq!(meta["win_length"], 2_048);
+    assert_eq!(meta["n_fft"], 4_096);
+    assert!(meta["active_notes"].is_null());
+    assert!(meta["onset_notes"].is_null());
+
+    let facade = std::env::temp_dir().join("matchmaker_cli_korzeniowski_facade");
+    let _ = std::fs::remove_dir_all(&facade);
+    let run = features("korzeniowski", &["--hop-length", "1470"], &facade);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(facade.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["hop_length"], 1_470);
+
+    let rejected = std::env::temp_dir().join("matchmaker_cli_korzeniowski_invalid_window");
+    let _ = std::fs::remove_dir_all(&rejected);
+    let invalid = features(
+        "korzeniowski",
+        &["--n-fft", "1024", "--win-length", "2048"],
+        &rejected,
+    );
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("n_fft"));
+    assert!(!rejected.exists());
+}
+
+#[test]
+fn vector_followers_reject_structured_korzeniowski_observations() {
+    for method in [
+        "arzt",
+        "dixon",
+        "arzt_tempo",
+        "arzt_multi_fold",
+        "skf",
+        "outerhmm",
+    ] {
+        let run = follow_audio(method, &["--processor", "korzeniowski"]);
+        assert!(!run.status.success(), "{method}");
+        assert!(
+            String::from_utf8_lossy(&run.stderr).contains("structured"),
+            "{method}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+    }
+    let invalid_method = follow_audio("korzeniowski", &[]);
+    assert!(!invalid_method.status.success());
+    assert!(String::from_utf8_lossy(&invalid_method.stderr).contains("invalid method"));
+}
+
+#[test]
 fn cli_audio_follow_accepts_mel_and_rejects_invalid_dimensions_or_methods() {
     let valid = follow_audio(
         "arzt",

@@ -9,6 +9,7 @@ use matchmaker_rs::features::{
     chroma::ChromaProcessor,
     cqt::{CqtProcessor, N_BINS, halve_rate},
     cqt_spectral_flux::CqtSpectralFluxProcessor,
+    korzeniowski::KorzeniowskiProcessor,
     lse::LseProcessor,
     mel::MelProcessor,
     mfcc::{MfccNorm, MfccProcessor},
@@ -167,6 +168,47 @@ fn process_mfcc_samples(
         cache.copy_from_slice(&block[block.len() - hop_length..]);
     }
     (features, times, log_power)
+}
+
+fn process_korzeniowski_samples(
+    processor: &mut KorzeniowskiProcessor,
+    samples: &[f32],
+    sample_rate: u32,
+    hop_length: usize,
+    win_length: usize,
+) -> (
+    Vec<matchmaker_rs::features::KorzeniowskiObservation>,
+    Vec<f64>,
+) {
+    let padded_len = samples.len().div_ceil(hop_length) * hop_length;
+    let mut padded = samples.to_vec();
+    padded.resize(padded_len, 0.0);
+    let cache_size = win_length.saturating_sub(hop_length);
+    let mut cache = vec![0.0; cache_size];
+    let mut observations = Vec::new();
+    let mut times = Vec::new();
+
+    for (chunk_index, hop) in padded.chunks_exact(hop_length).enumerate() {
+        let mut block = cache.clone();
+        block.extend_from_slice(hop);
+        let frame = AudioFrame {
+            index: chunk_index.saturating_sub(1),
+            samples: block.clone(),
+            perf_time: chunk_index.saturating_sub(1) as f64 * hop_length as f64
+                / f64::from(sample_rate),
+        };
+        let observation = processor
+            .process(&frame)
+            .expect("Korzeniowski frame has structured observations");
+        if chunk_index > 0 {
+            observations.push(observation);
+            times.push(frame.perf_time);
+        }
+        if cache_size > 0 {
+            cache.copy_from_slice(&block[block.len() - cache_size..]);
+        }
+    }
+    (observations, times)
 }
 
 #[test]
@@ -492,6 +534,116 @@ fn mfcc_streaming_frame_ignores_samples_after_its_first_window() {
         processor.process(&longer_frame).unwrap(),
         processor.process(&first_window).unwrap()
     );
+}
+
+#[test]
+fn korzeniowski_components_match_direct_and_facade_reference_goldens() {
+    let base = golden("audio/processors/korzeniowski");
+    for (name, hop_length) in [("default", 512), ("facade", 1_470), ("silent", 512)] {
+        let case = base.join(name);
+        let samples: Vec<f32> = npy(case.join("input_samples.npy"))
+            .values()
+            .into_iter()
+            .map(|value| value as f32)
+            .collect();
+        let meta = json(case.join("meta.json"));
+        let win_length = meta["win_length"].as_u64().unwrap() as usize;
+        let n_fft = meta["n_fft"].as_u64().unwrap() as usize;
+        let mut processor =
+            KorzeniowskiProcessor::new(SAMPLE_RATE, hop_length, win_length, n_fft).unwrap();
+        let (observations, times) = process_korzeniowski_samples(
+            &mut processor,
+            &samples,
+            SAMPLE_RATE,
+            hop_length,
+            win_length,
+        );
+        let expected_spectrum = npy(case.join("spectrum.npy"));
+        let actual_spectrum: Vec<f64> = observations
+            .iter()
+            .flat_map(|observation| observation.spectrum.iter().copied())
+            .collect();
+        let actual_onset: Vec<f64> = observations
+            .iter()
+            .map(|observation| observation.onset)
+            .collect();
+        let actual_loudness: Vec<f64> = observations
+            .iter()
+            .map(|observation| observation.loudness)
+            .collect();
+        let rtol = meta["tolerances"]["float64_rtol"].as_f64().unwrap();
+        let atol = meta["tolerances"]["float64_atol"].as_f64().unwrap();
+
+        assert_eq!(expected_spectrum.shape, [observations.len(), n_fft / 2 + 1]);
+        assert_close(
+            &Ctx::new("korzeniowski", name, "spectrum.npy"),
+            &expected_spectrum.values(),
+            &actual_spectrum,
+            rtol,
+            atol,
+        );
+        for (file, actual) in [
+            ("onset.npy", actual_onset),
+            ("loudness.npy", actual_loudness),
+            ("times.npy", times),
+        ] {
+            assert_close(
+                &Ctx::new("korzeniowski", name, file),
+                &npy(case.join(file)).values(),
+                &actual,
+                rtol,
+                atol,
+            );
+        }
+        assert!(
+            observations
+                .iter()
+                .all(|observation| observation.active_notes.is_none()
+                    && observation.onset_notes.is_none())
+        );
+    }
+}
+
+#[test]
+fn korzeniowski_reset_silence_short_frames_and_invalid_windows_are_safe() {
+    let mut processor = KorzeniowskiProcessor::new(SAMPLE_RATE, 512, 2_048, 4_096).unwrap();
+    let silent = AudioFrame {
+        index: 0,
+        samples: vec![0.0; 2_048],
+        perf_time: 0.0,
+    };
+    let silence = processor.process(&silent).unwrap();
+    assert_eq!(silence.spectrum, vec![0.0; 2_049]);
+    assert_eq!(silence.onset, 0.0);
+    assert_eq!(silence.loudness, -100.0);
+
+    let tone = AudioFrame {
+        samples: (0..2_048)
+            .map(|index| (std::f32::consts::TAU * 440.0 * index as f32 / 44_100.0).sin())
+            .collect(),
+        ..silent.clone()
+    };
+    let onset = processor.process(&tone).unwrap().onset;
+    assert!(onset > 0.0);
+    processor.reset();
+    assert_eq!(processor.process(&tone).unwrap().onset, 0.0);
+
+    assert!(
+        processor
+            .process(&AudioFrame {
+                samples: vec![0.0; 2_047],
+                ..silent
+            })
+            .is_none()
+    );
+    for (sample_rate, hop, win, n_fft) in [
+        (0, 512, 2_048, 4_096),
+        (44_100, 0, 2_048, 4_096),
+        (44_100, 512, 0, 4_096),
+        (44_100, 512, 4_097, 4_096),
+    ] {
+        assert!(KorzeniowskiProcessor::new(sample_rate, hop, win, n_fft).is_err());
+    }
 }
 
 #[test]

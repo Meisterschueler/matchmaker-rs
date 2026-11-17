@@ -349,6 +349,46 @@ def test_mfcc_extraction_uses_backward_default_and_supports_dct_overrides():
             matchmaker_rs.extract_audio_features(str(PERFORMANCE), "mfcc", kwargs)
 
 
+def test_korzeniowski_extraction_returns_structured_components_and_accepts_hop_override():
+    observations = matchmaker_rs.extract_korzeniowski_features(str(PERFORMANCE))
+    assert set(observations) == {
+        "spectrum",
+        "onset",
+        "loudness",
+        "times",
+        "active_notes",
+        "onset_notes",
+    }
+    spectrum = observations["spectrum"]
+    onset = observations["onset"]
+    loudness = observations["loudness"]
+    times = observations["times"]
+    assert spectrum.dtype == np.float64 and spectrum.shape[1] == 2_049
+    assert onset.dtype == loudness.dtype == times.dtype == np.float64
+    assert onset.shape == loudness.shape == times.shape == (spectrum.shape[0],)
+    assert observations["active_notes"] is None
+    assert observations["onset_notes"] is None
+    assert np.isfinite(spectrum).all()
+    assert np.isfinite(onset).all() and (onset >= 0.0).all()
+    assert np.isfinite(loudness).all() and np.isfinite(times).all()
+    np.testing.assert_allclose(np.diff(times), 512 / 44_100, rtol=0, atol=1e-15)
+
+    facade = matchmaker_rs.extract_korzeniowski_features(
+        str(PERFORMANCE), {"hop_length": 1_470}
+    )
+    np.testing.assert_allclose(np.diff(facade["times"]), 1_470 / 44_100, rtol=0, atol=1e-15)
+
+    for kwargs in [{"win_length": 0}, {"win_length": 4097}, {"n_fft": 1024}]:
+        with pytest.raises(ValueError, match=next(iter(kwargs))):
+            matchmaker_rs.extract_korzeniowski_features(str(PERFORMANCE), kwargs)
+
+
+def test_korzeniowski_is_rejected_by_vector_followers():
+    for method in ["arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf", "outerhmm"]:
+        with pytest.raises(ValueError, match="structured"):
+            make_audio(method, processor="korzeniowski")
+
+
 def test_mfcc_audio_following_is_supported_by_frame_followers():
     for method, steps in [("arzt", 226), ("dixon", 379)]:
         mm = make_audio(method, processor="mfcc")

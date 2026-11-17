@@ -31,6 +31,7 @@ from matchmaker.features.audio import (
     CQTProcessor,
     CQTSpectralFluxProcessor,
     LogSpectralEnergyProcessor,
+    KorzeniowskiAudioProcessor,
     MFCCProcessor,
     MelSpectrogramProcessor,
     RawSpectrumProcessor,
@@ -526,6 +527,75 @@ def generate_mfcc_goldens(output: Path) -> None:
         performance_rate,
         1_470,
     )
+
+
+def generate_korzeniowski_goldens(output: Path) -> None:
+    """Generate structured Korzeniowski observation references."""
+    base = output / "processors/korzeniowski"
+    sample_rate = 44_100
+    win_length = 2_048
+    n_fft = 4_096
+    times = np.arange(sample_rate // 4, dtype=np.float64) / sample_rate
+    tone = (
+        0.25 * np.sin(2 * np.pi * 440.0 * times)
+        + 0.15 * np.sin(2 * np.pi * 659.2551138257398 * times)
+    ).astype(np.float32)
+    samples = np.concatenate((np.zeros(win_length, dtype=np.float32), tone))
+
+    def write_case(name: str, signal: np.ndarray, hop_length: int) -> None:
+        processor = KorzeniowskiAudioProcessor(
+            sample_rate=sample_rate,
+            hop_length=hop_length,
+            win_length=win_length,
+            n_fft=n_fft,
+        )
+        padded = np.pad(signal, (0, (-len(signal)) % hop_length), mode="constant")
+        cache_size = max(0, win_length - hop_length)
+        cache = np.zeros(cache_size, dtype=np.float32)
+        spectra, onsets, loudness, frame_times = [], [], [], []
+        for chunk_index, chunk in enumerate(padded.reshape(-1, hop_length)):
+            block = np.concatenate((cache, chunk))
+            frame_time = max(0, chunk_index - 1) * hop_length / sample_rate
+            observation, returned_time = processor((block, frame_time))
+            if chunk_index > 0:
+                spectra.append(observation.spectrum)
+                onsets.append(observation.onset)
+                loudness.append(observation.loudness)
+                frame_times.append(float(returned_time))
+            if cache_size:
+                cache = block[-cache_size:].copy()
+
+        directory = base / name
+        write_array(directory / "input_samples.npy", signal, "<f4")
+        write_array(directory / "spectrum.npy", np.asarray(spectra, dtype=np.float64), "<f8")
+        write_array(directory / "onset.npy", onsets, "<f8")
+        write_array(directory / "loudness.npy", loudness, "<f8")
+        write_array(directory / "times.npy", frame_times, "<f8")
+        write_json(
+            directory / "meta.json",
+            {
+                "reference": reference_info(),
+                "generator": "tools/golden/generate_audio.py",
+                "processor": "korzeniowski",
+                "sample_rate": sample_rate,
+                "hop_length": hop_length,
+                "win_length": win_length,
+                "n_fft": n_fft,
+                "window": "periodic_hann",
+                "spectrum": "rfft magnitude, zero-padded to n_fft, L2 normalized",
+                "onset": "causal positive spectral flux divided by current magnitude sum + 1e-8",
+                "loudness": "librosa RMS over win_length, amplitude_to_db with ref=1",
+                "frames": len(frame_times),
+                "active_notes": None,
+                "onset_notes": None,
+                "tolerances": {"float64_rtol": 1e-7, "float64_atol": 1e-9},
+            },
+        )
+        print(f"korzeniowski/{name}: {len(frame_times)} frames")
+
+    write_case("default", samples, 512)
+    write_case("facade", samples, sample_rate // 30)
+    write_case("silent", np.zeros(4 * win_length, dtype=np.float32), 512)
 
 
 def stream_cqt(samples: np.ndarray, sample_rate: int, hop: int, norm=np.inf):
@@ -1762,6 +1832,11 @@ def main() -> None:
         help="generate MFCC coefficient and log-power goldens",
     )
     parser.add_argument(
+        "--korzeniowski-only",
+        action="store_true",
+        help="generate structured Korzeniowski processor goldens",
+    )
+    parser.add_argument(
         "--cqt-only",
         action="store_true",
         help="generate cqt processor goldens (stream, whole-signal, soxr stages, kernels)",
@@ -1879,6 +1954,9 @@ def main() -> None:
         return
     if args.mfcc_only:
         generate_mfcc_goldens(args.out.resolve())
+        return
+    if args.korzeniowski_only:
+        generate_korzeniowski_goldens(args.out.resolve())
         return
     if args.cqt_only:
         generate_cqt_goldens(args.out.resolve())

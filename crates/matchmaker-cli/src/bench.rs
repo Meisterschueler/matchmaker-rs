@@ -9,7 +9,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use matchmaker_rs::base::{AlignmentPath, OnlineAlignment, StepDebug};
+use matchmaker_rs::features::korzeniowski::KorzeniowskiProcessor;
 use matchmaker_rs::features::{Observation, Processor};
+use matchmaker_rs::io::audio::AudioStream;
 use matchmaker_rs::io::stream::{Frame, MidiMessage};
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind, Matchmaker, Method,
@@ -31,7 +33,7 @@ struct Manifest {
 struct Piece {
     dataset: String,
     piece: String,
-    score: PathBuf,
+    score: Option<PathBuf>,
     performance: PathBuf,
     ground_truth: Option<PathBuf>,
     input_type: Option<String>,
@@ -48,6 +50,7 @@ struct AudioKwargs {
     frame_rate: Option<u32>,
     hop_length: Option<usize>,
     n_fft: Option<usize>,
+    win_length: Option<usize>,
 }
 
 type Times = Rc<RefCell<Vec<Duration>>>;
@@ -108,6 +111,9 @@ impl OnlineAlignment for TimedFollower {
 /// Latency summary in milliseconds; percentiles interpolate linearly like `np.percentile`.
 fn latency(times: &[Duration]) -> Value {
     let mut ms: Vec<f64> = times.iter().map(|d| d.as_secs_f64() * 1e3).collect();
+    if ms.is_empty() {
+        return json!({"mean": null, "median": null, "p95": null, "max": null});
+    }
     ms.sort_by(f64::total_cmp);
     let percentile = |q: f64| {
         let x = q * (ms.len().max(1) - 1) as f64;
@@ -175,11 +181,12 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[String]) ->
 
     let mut records = Vec::new();
     for p in &manifest.pieces {
-        let (score_path, performance) = (base.join(&p.score), base.join(&p.performance));
+        let performance = base.join(&p.performance);
         if p.input_type.as_deref() == Some("audio") {
+            let score_path = p.score.as_ref().map(|path| base.join(path));
             run_audio_piece(
                 p,
-                &score_path,
+                score_path.as_deref(),
                 &performance,
                 base,
                 out_dir,
@@ -190,6 +197,11 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[String]) ->
             )?;
             continue;
         }
+        let score_path = base.join(
+            p.score
+                .as_ref()
+                .context("MIDI benchmark piece requires a score")?,
+        );
         let messages = Performance::load(&performance)?.messages();
         let duration = messages.last().map_or(0.0, |m| m.time);
         let gt = match &p.ground_truth {
@@ -274,7 +286,7 @@ pub fn run(manifest_path: &Path, out: &Path, runs: usize, methods: &[String]) ->
 #[allow(clippy::too_many_arguments)]
 fn run_audio_piece(
     piece: &Piece,
-    score_path: &Path,
+    score_path: Option<&Path>,
     performance: &Path,
     base: &Path,
     out_dir: &Path,
@@ -283,17 +295,19 @@ fn run_audio_piece(
     environment: &Value,
     records: &mut Vec<Value>,
 ) -> Result<()> {
-    let soundfont = piece
-        .soundfont
-        .as_ref()
-        .map(|path| base.join(path))
-        .context("audio benchmark piece requires a soundfont path")?;
     for method in methods.iter().filter(|method| {
         piece
             .methods
             .as_ref()
             .is_none_or(|allowed| allowed.contains(method))
     }) {
+        if method == "korzeniowski" {
+            if piece.processor.as_deref() != Some("korzeniowski") {
+                continue;
+            }
+            run_korzeniowski_piece(piece, performance, runs, method, environment, records)?;
+            continue;
+        }
         let audio_method: AudioMethod = method
             .parse()
             .with_context(|| format!("{method} is not an audio method"))?;
@@ -302,6 +316,12 @@ fn run_audio_piece(
                 || piece.ground_truth.is_some(),
             "audio skf and outerhmm use score-event models; their benchmark pieces need a ground_truth TSV"
         );
+        let score_path = score_path.context("audio benchmark piece requires a score")?;
+        let soundfont = piece
+            .soundfont
+            .as_ref()
+            .map(|path| base.join(path))
+            .context("audio benchmark piece requires a soundfont path")?;
         let processor = piece.processor.as_deref().unwrap_or_else(|| {
             AudioMethodConfig::for_method(audio_method)
                 .processor()
@@ -444,6 +464,72 @@ fn run_audio_piece(
                 "environment": environment,
             }));
         }
+    }
+    Ok(())
+}
+
+fn run_korzeniowski_piece(
+    piece: &Piece,
+    performance: &Path,
+    runs: usize,
+    selector: &str,
+    environment: &Value,
+    records: &mut Vec<Value>,
+) -> Result<()> {
+    let (sample_rate, hop_length, win_length, n_fft) =
+        piece
+            .kwargs
+            .as_ref()
+            .map_or((44_100, 512, 2_048, 4_096), |kwargs| {
+                (
+                    kwargs.sample_rate.unwrap_or(44_100),
+                    kwargs.hop_length.unwrap_or(512),
+                    kwargs.win_length.unwrap_or(2_048),
+                    kwargs.n_fft.unwrap_or(4_096),
+                )
+            });
+    for run in 0..runs {
+        let mut processor = KorzeniowskiProcessor::new(sample_rate, hop_length, win_length, n_fft)?;
+        let mut stream = AudioStream::open(
+            performance,
+            sample_rate,
+            hop_length,
+            win_length - hop_length,
+        )?;
+        let frame_count = stream.len();
+        stream.prime_with(|frame| {
+            let _ = processor.process(frame);
+        });
+        let mut feature = Vec::with_capacity(frame_count);
+        for frame in stream {
+            let start = Instant::now();
+            processor
+                .process(&frame)
+                .context("Korzeniowski frame is shorter than win_length")?;
+            feature.push(start.elapsed());
+        }
+        let total: f64 = feature.iter().map(Duration::as_secs_f64).sum();
+        let duration = frame_count as f64 * hop_length as f64 / f64::from(sample_rate);
+        records.push(json!({
+            "implementation": "rust",
+            "implementation_version": env!("CARGO_PKG_VERSION"),
+            "input_type": "audio",
+            "method": selector,
+            "processor": "korzeniowski",
+            "dataset": piece.dataset,
+            "piece": piece.piece,
+            "run": run,
+            "n_observations": feature.len(),
+            "performance_duration_s": duration,
+            "latency_ms": {
+                "feature": latency(&feature),
+                "inference": latency(&[]),
+            },
+            "total_processing_s": total,
+            "real_time_factor": if duration > 0.0 { total / duration } else { 0.0 },
+            "evaluation": null,
+            "environment": environment,
+        }));
     }
     Ok(())
 }

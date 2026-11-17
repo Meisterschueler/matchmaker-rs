@@ -21,6 +21,7 @@ use crate::features::{
     AudioProcessor, Observation,
     cqt::CqtProcessor,
     cqt_spectral_flux::CqtSpectralFluxProcessor,
+    korzeniowski::KorzeniowskiProcessor,
     mel::MelProcessor,
     mfcc::{MfccNorm, MfccProcessor},
     raw_spectrum::RawSpectrumProcessor,
@@ -914,6 +915,98 @@ pub fn write_mfcc_features(
             mfcc: Some((n_mfcc, norm)),
         },
         &mut processor,
+    )
+}
+
+/// Decode and export standalone structured Korzeniowski observations.
+pub fn write_korzeniowski_features(
+    performance: impl AsRef<Path>,
+    dir: impl AsRef<Path>,
+    sample_rate: u32,
+    hop_length: usize,
+    win_length: usize,
+    n_fft: usize,
+) -> Result<()> {
+    let mut processor = KorzeniowskiProcessor::new(sample_rate, hop_length, win_length, n_fft)?;
+    let mut stream = AudioStream::open(
+        performance.as_ref(),
+        sample_rate,
+        hop_length,
+        win_length - hop_length,
+    )?;
+    let source_sample_rate = stream.source_sample_rate();
+    let source_channels = stream.source_channels();
+    stream.prime_with(|frame| {
+        let _ = processor.process(frame);
+    });
+    let mut outputs = Vec::new();
+    for frame in stream {
+        outputs.push(
+            processor
+                .process(&frame)
+                .ok_or_else(|| Error::AudioConfig {
+                    key: "win_length".into(),
+                    reason: "failed to process a complete audio frame".into(),
+                })?,
+        );
+    }
+
+    let count = outputs.len();
+    let processor_dir = dir.as_ref().join("processor/korzeniowski");
+    f8(
+        &processor_dir.join("spectrum.npy"),
+        &[count, n_fft / 2 + 1],
+        outputs
+            .iter()
+            .flat_map(|output| output.spectrum.iter().copied()),
+    )?;
+    for (name, values) in [
+        (
+            "onset.npy",
+            outputs
+                .iter()
+                .map(|output| output.onset)
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "loudness.npy",
+            outputs
+                .iter()
+                .map(|output| output.loudness)
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "times.npy",
+            outputs
+                .iter()
+                .map(|output| output.perf_time)
+                .collect::<Vec<_>>(),
+        ),
+    ] {
+        f8(&processor_dir.join(name), &[count], values.into_iter())?;
+    }
+    let times: Vec<f64> = outputs.iter().map(|output| output.perf_time).collect();
+    f8(
+        &dir.as_ref().join("audio/frame_times.npy"),
+        &[count],
+        times.into_iter(),
+    )?;
+    write_json(
+        &dir.as_ref().join("audio/meta.json"),
+        &json!({
+            "generator": "matchmaker-rs feature export",
+            "performance": performance.as_ref().to_string_lossy(),
+            "processor": "korzeniowski",
+            "source_sample_rate": source_sample_rate,
+            "source_channels": source_channels,
+            "sample_rate": sample_rate,
+            "hop_length": hop_length,
+            "win_length": win_length,
+            "n_fft": n_fft,
+            "frames": count,
+            "active_notes": null,
+            "onset_notes": null,
+        }),
     )
 }
 

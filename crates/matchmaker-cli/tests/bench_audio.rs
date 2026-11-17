@@ -177,6 +177,47 @@ fn bench_accepts_mfcc_with_default_coefficient_configuration() {
 }
 
 #[test]
+fn bench_times_korzeniowski_extraction_without_a_vector_follower() {
+    let output = std::env::temp_dir().join("matchmaker_cli_bench_korzeniowski");
+    let _ = std::fs::remove_dir_all(&output);
+    std::fs::create_dir_all(&output).unwrap();
+    let root_dir = root();
+    let manifest = output.join("audio.toml");
+    std::fs::write(
+        &manifest,
+        format!(
+            "[[pieces]]\ndataset = \"audio-bundled\"\npiece = \"korzeniowski\"\n\
+             methods = [\"korzeniowski\"]\ninput_type = \"audio\"\nprocessor = \"korzeniowski\"\n\
+             kwargs = {{ sample_rate = 44100, hop_length = 512, win_length = 2048, n_fft = 4096 }}\n\
+             performance = \"{root_dir}/tests/data/audio/simple_mozart_k265_var1_sf2.wav\"\n"
+        ),
+    )
+    .unwrap();
+    let records_path = output.join("records.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("bench")
+        .arg(&manifest)
+        .arg("--out")
+        .arg(&records_path)
+        .args(["--runs", "1", "--methods", "korzeniowski"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(records_path).unwrap()).unwrap();
+    let record = &records.as_array().unwrap()[0];
+    assert_eq!(record["method"], "korzeniowski");
+    assert_eq!(record["processor"], "korzeniowski");
+    assert!(record["n_observations"].as_u64().unwrap() > 0);
+    assert!(record["latency_ms"]["feature"]["median"].as_f64().unwrap() > 0.0);
+    assert!(record["evaluation"].is_null());
+}
+
+#[test]
 fn bench_accepts_tempo_arzt_and_records_seeded_audio_metrics() {
     let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_tempo");
     std::fs::create_dir_all(&output).unwrap();

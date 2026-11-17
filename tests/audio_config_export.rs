@@ -6,7 +6,7 @@ use common::{data, npy};
 use matchmaker_rs::Error;
 use matchmaker_rs::export::{
     write_audio_evaluation, write_audio_run, write_cqt_features, write_cqt_spectral_flux_features,
-    write_mel_features, write_mfcc_features,
+    write_korzeniowski_features, write_mel_features, write_mfcc_features,
 };
 use matchmaker_rs::features::mfcc::MfccNorm;
 use matchmaker_rs::matchmaker::{
@@ -220,6 +220,21 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
         let mut incompatible = AudioMethodConfig::for_method(method);
         incompatible.set_processor(AudioProcessorKind::Mel);
         assert_eq!(key_of(&incompatible, method), "processor");
+    }
+    for method in AudioMethod::AVAILABLE
+        .iter()
+        .map(|name| name.parse::<AudioMethod>().unwrap())
+    {
+        let mut structured = AudioMethodConfig::for_method(method);
+        structured.set_processor(AudioProcessorKind::Korzeniowski);
+        assert_eq!(key_of(&structured, method), "processor");
+        assert!(
+            structured
+                .validate(method)
+                .unwrap_err()
+                .to_string()
+                .contains("structured Korzeniowski")
+        );
     }
 }
 
@@ -449,6 +464,54 @@ fn mfcc_extraction_exports_coefficients_and_validates_configuration() {
                 n_mfcc,
                 Some(MfccNorm::Backward)
             ),
+            Err(Error::AudioConfig { .. })
+        ));
+    }
+
+    assert!(!rejected.exists());
+}
+
+#[test]
+fn korzeniowski_extraction_exports_structured_fields_and_validates_dimensions() {
+    let performance = data("audio/simple_mozart_k265_var1_sf2.wav");
+    let output = std::env::temp_dir().join("matchmaker_korzeniowski_features");
+    let _ = std::fs::remove_dir_all(&output);
+    write_korzeniowski_features(&performance, &output, 44_100, 512, 2_048, 4_096).unwrap();
+    let spectrum = npy(output.join("processor/korzeniowski/spectrum.npy"));
+    let onset = npy(output.join("processor/korzeniowski/onset.npy"));
+    let loudness = npy(output.join("processor/korzeniowski/loudness.npy"));
+    let times = npy(output.join("processor/korzeniowski/times.npy"));
+    assert_eq!(spectrum.shape[1], 2_049);
+    assert_eq!(onset.shape, [spectrum.shape[0]]);
+    assert_eq!(loudness.shape, [spectrum.shape[0]]);
+    assert_eq!(times.shape, [spectrum.shape[0]]);
+    assert!(spectrum.values().iter().all(|value| value.is_finite()));
+    assert!(
+        onset
+            .values()
+            .iter()
+            .all(|value| value.is_finite() && *value >= 0.0)
+    );
+    assert!(loudness.values().iter().all(|value| value.is_finite()));
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["processor"], "korzeniowski");
+    assert_eq!(meta["hop_length"], 512);
+    assert_eq!(meta["win_length"], 2_048);
+    assert_eq!(meta["n_fft"], 4_096);
+    assert!(meta["active_notes"].is_null());
+    assert!(meta["onset_notes"].is_null());
+
+    let rejected = std::env::temp_dir().join("matchmaker_korzeniowski_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    for (sample_rate, hop, win, n_fft) in [
+        (0, 512, 2_048, 4_096),
+        (44_100, 0, 2_048, 4_096),
+        (44_100, 2_049, 2_048, 4_096),
+        (44_100, 512, 2_048, 1_024),
+    ] {
+        assert!(matches!(
+            write_korzeniowski_features(&performance, &rejected, sample_rate, hop, win, n_fft),
             Err(Error::AudioConfig { .. })
         ));
     }

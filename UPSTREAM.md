@@ -32,6 +32,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/features/cqt.rs` | `matchmaker/features/audio.py`, `librosa/core/constantq.py`, `librosa/core/audio.py` | `CQTProcessor`; librosa's recursive `cqt` (octave kernels, early downsampling, response scaling) with the `soxr_hq` 2:1 decimator as a fitted Kaiser sinc (research R13) |
 | `src/features/cqt_spectral_flux.rs` | `matchmaker/features/audio.py` | `CQTSpectralFluxProcessor` over `src/features/cqt.rs`: previous call's matrix as flux history, inherited no-op `reset` (research R5, C07) |
 | `src/features/mfcc.rs` | `matchmaker/features/audio.py`, `librosa/feature/spectral.py`, `scipy/fft` | `MFCCProcessor`; Slaney log-power mel features and DCT-II coefficients |
+| `src/features/korzeniowski.rs` | `matchmaker/features/audio.py` | `KorzeniowskiAudioProcessor`; structured normalized spectrum, causal onset flux and RMS loudness |
 | `src/score/audio.rs` | `matchmaker/utils/misc.py`, `matchmaker/registry.py`, `partitura/utils/fluidsynth.py` | peak-normalized synthesized score, whole-signal score features, frame-to-beat map (swap points `normalize_level`, `extract_score_features`; research R11) |
 | `src/features/pitch.rs` | `matchmaker/features/midi.py` | `PitchProcessor` |
 | `src/features/chord_onset.rs` | `matchmaker/features/midi.py` | `ChordOnsetProcessor` |

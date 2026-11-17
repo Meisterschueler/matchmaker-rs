@@ -91,8 +91,15 @@ impl AudioStream {
 
     /// Process the first cache-priming block without yielding it as an alignment observation.
     pub fn prime(&mut self, processor: &mut dyn AudioProcessor) {
+        self.prime_with(|frame| {
+            let _ = processor.process(frame);
+        });
+    }
+
+    /// Process the first cache-priming block with a dedicated structured processor.
+    pub fn prime_with(&mut self, mut process: impl FnMut(&AudioFrame)) {
         if let Some(frame) = self.priming_frame.take() {
-            let _ = processor.process(&frame);
+            process(&frame);
         }
     }
 

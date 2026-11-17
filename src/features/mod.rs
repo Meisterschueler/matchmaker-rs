@@ -17,6 +17,7 @@ pub mod chord_onset;
 pub mod chroma;
 pub mod cqt;
 pub mod cqt_spectral_flux;
+pub mod korzeniowski;
 pub mod lse;
 pub mod mel;
 pub mod mfcc;
@@ -31,6 +32,23 @@ pub struct Observation {
     /// Processor feature vector (MIDI pitches or audio chroma/LSE values).
     pub features: Vec<f32>,
     /// Performance time in seconds the observation refers to.
+    pub perf_time: f64,
+}
+
+/// Structured audio output from the Korzeniowski processor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KorzeniowskiObservation {
+    /// L2-normalized magnitude spectrum.
+    pub spectrum: Vec<f64>,
+    /// Active MIDI pitches, absent for audio observations.
+    pub active_notes: Option<Vec<usize>>,
+    /// Causal positive spectral flux.
+    pub onset: f64,
+    /// Newly active MIDI pitches, absent for audio observations.
+    pub onset_notes: Option<Vec<usize>>,
+    /// RMS loudness in dBFS.
+    pub loudness: f64,
+    /// Performance time in seconds.
     pub perf_time: f64,
 }
 

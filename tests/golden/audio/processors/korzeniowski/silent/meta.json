@@ -1,0 +1,27 @@
+{
+  "active_notes": null,
+  "frames": 15,
+  "generator": "tools/golden/generate_audio.py",
+  "hop_length": 512,
+  "loudness": "librosa RMS over win_length, amplitude_to_db with ref=1",
+  "n_fft": 4096,
+  "onset": "causal positive spectral flux divided by current magnitude sum + 1e-8",
+  "onset_notes": null,
+  "processor": "korzeniowski",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "E508E943A6AD6882CF277F9F0B6F3ABA988123ACDA590371134A95DBBDC6C7F7",
+    "version": "0.4.0"
+  },
+  "sample_rate": 44100,
+  "spectrum": "rfft magnitude, zero-padded to n_fft, L2 normalized",
+  "tolerances": {
+    "float64_atol": 1e-09,
+    "float64_rtol": 1e-07
+  },
+  "win_length": 2048,
+  "window": "periodic_hann"
+}

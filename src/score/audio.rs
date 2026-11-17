@@ -378,6 +378,12 @@ fn extract_score_features(
                 "cqt_spectral_flux uses the score note array, not score-audio features",
             ));
         }
+        AudioProcessorKind::Korzeniowski => {
+            return Err(audio_config(
+                "processor",
+                "structured Korzeniowski observations are not vector score features",
+            ));
+        }
     };
     if samples.len() < n_fft {
         return Err(audio_config(

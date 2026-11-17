@@ -72,6 +72,9 @@ extraction.
 returning 13 coefficients by default with `norm=backward`. It is supported by Arzt, Dixon and
 their tempo/repeat variants; override `n_mfcc` and the DCT `norm` (`backward`, `ortho`, or `none`)
 with `--set` when following, or `--n-mfcc` and `--norm` for standalone extraction.
+`korzeniowski` returns structured spectrum, onset, loudness, and timestamp arrays instead of a
+feature vector. It is intentionally rejected by vector-only followers; extract it directly until
+the Korzeniowski particle filter is available.
 Audio files support WAV, FLAC, MP3 and Ogg/Vorbis. For score synthesis, provision the pinned
 CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/README.md), then run:
 
@@ -81,9 +84,10 @@ cargo run --release -p matchmaker-cli -- follow score.musicxml performance.wav -
 
 Standalone feature extraction does not require a score or SoundFont. `raw_spectrum` defaults to
 8000 Hz, hop 128, and FFT size 512; `cqt`, `cqt_spectral_flux`, `mel` and `mfcc` default to 44100 Hz and
-hop 1470. Use `--sample-rate` and `--hop-length`, (`raw_spectrum` only) `--n-fft`,
+hop 1470; `korzeniowski` defaults to 44100 Hz, hop 512, window 2048, and FFT size 4096. Use
+`--sample-rate` and `--hop-length`, (`raw_spectrum` and `korzeniowski`) `--n-fft`,
 (`cqt_spectral_flux` only) `--no-spectral-flux`, (`mel` only) `--n-mels` and `--norm`, or
-(`mfcc` only) `--n-mfcc` and `--norm` for overrides:
+(`mfcc` only) `--n-mfcc` and `--norm`, or (`korzeniowski` only) `--win-length` for overrides:
 
 ```text
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor raw_spectrum --export target/raw-spectrum/
@@ -91,6 +95,7 @@ cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor cqt_spectral_flux --export target/cqt-flux/
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor mel --n-mels 64 --norm 2 --export target/mel/
 cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor mfcc --n-mfcc 20 --norm ortho --export target/mfcc/
+cargo run --release -p matchmaker-cli -- features tests/data/audio/simple_mozart_k265_var1_sf2.wav --processor korzeniowski --export target/korzeniowski/
 ```
 
 Audio `--ground-truth` accepts a direct TSV with `perf_sec` and `score_beat` columns and writes
@@ -148,6 +153,10 @@ from matchmaker_rs import extract_audio_features
 
 features, times = extract_audio_features("performance.wav", "raw_spectrum")  # or "cqt", "cqt_spectral_flux", "mel", "mfcc"
 # cqt_spectral_flux without the flux column (88 values): kwargs={"include_spectral_flux": False}
+
+from matchmaker_rs import extract_korzeniowski_features
+observations = extract_korzeniowski_features("performance.wav")
+# spectrum, onset, loudness, times; active_notes and onset_notes are None for audio
 ```
 
 ## Parity and accuracy
@@ -206,7 +215,7 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 ## Roadmap
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
-2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux`, `mel`, `mfcc` (mel and MFCC support the frame-level Arzt/Dixon followers; audio outerhmm only uses `cqt_spectral_flux`).
+2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux`, `mel`, `mfcc` (mel and MFCC support the frame-level Arzt/Dixon followers; audio outerhmm only uses `cqt_spectral_flux`). Structured `korzeniowski` extraction is available separately and is not accepted by vector followers.
 3. Later: remaining method `pfkorz` and parangonar methods.
 
 ## Benchmark datasets

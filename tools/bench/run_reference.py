@@ -29,6 +29,7 @@ import soundfile as sf
 
 import matchmaker
 from matchmaker import Matchmaker
+from matchmaker.features.audio import KorzeniowskiAudioProcessor
 from matchmaker.utils.eval import evaluate_alignment, resolve_gt
 from matchmaker.utils.symbolic import midi_messages_from_performance
 
@@ -44,6 +45,7 @@ PROCESSORS = {
     "CQTSpectralFluxProcessor": "cqt_spectral_flux",
     "MelSpectrogramProcessor": "mel",
     "MFCCProcessor": "mfcc",
+    "KorzeniowskiAudioProcessor": "korzeniowski",
 }
 
 
@@ -95,6 +97,16 @@ def latency(times: list) -> dict:
 
 
 def run_audio_piece(piece, base, out_dir, methods, runs, environment):
+    if piece.get("processor") == "korzeniowski":
+        selected = [
+            method
+            for method in methods
+            if not piece.get("methods") or method in piece["methods"]
+        ]
+        if any(method != "korzeniowski" for method in selected):
+            raise ValueError("standalone Korzeniowski extraction cannot use a vector follower")
+        return run_korzeniowski_piece(piece, base, selected, runs, environment)
+
     score = base / piece["score"]
     performance = base / piece["performance"]
     soundfont = base / piece["soundfont"]
@@ -185,6 +197,67 @@ def run_audio_piece(piece, base, out_dir, methods, runs, environment):
                 "environment": environment,
             })
             print(f"{piece['piece']} {method} run {run}: {len(inference)} observations, {total:.4f} s")
+    return records
+
+
+def run_korzeniowski_piece(piece, base, methods, runs, environment):
+    performance = base / piece["performance"]
+    kwargs = dict(piece.get("kwargs", {}))
+    sample_rate = kwargs.get("sample_rate", 44_100)
+    hop_length = kwargs.get("hop_length", 512)
+    win_length = kwargs.get("win_length", 2_048)
+    n_fft = kwargs.get("n_fft", 4_096)
+    samples, source_rate = sf.read(performance, dtype=np.float32, always_2d=True)
+    if source_rate != sample_rate:
+        raise ValueError(
+            f"standalone Korzeniowski benchmark expects {sample_rate} Hz audio, got {source_rate}"
+        )
+    samples = samples.mean(axis=1, dtype=np.float32)
+    padded = np.pad(samples, (0, (-len(samples)) % hop_length), mode="constant")
+    duration = float(sf.info(performance).duration)
+    records = []
+
+    for method in methods:
+        for run in range(runs):
+            processor = KorzeniowskiAudioProcessor(
+                sample_rate=sample_rate,
+                hop_length=hop_length,
+                win_length=win_length,
+                n_fft=n_fft,
+            )
+            cache_size = max(0, win_length - hop_length)
+            cache = np.zeros(cache_size, dtype=np.float32)
+            feature = []
+            for chunk_index, chunk in enumerate(padded.reshape(-1, hop_length)):
+                block = np.concatenate((cache, chunk))
+                frame_time = max(0, chunk_index - 1) * hop_length / sample_rate
+                start = time.perf_counter()
+                processor((block, frame_time))
+                elapsed = time.perf_counter() - start
+                if chunk_index > 0:
+                    feature.append(elapsed)
+                if cache_size:
+                    cache = block[-cache_size:].copy()
+            total = sum(feature)
+            records.append({
+                "implementation": "python",
+                "implementation_version": matchmaker.__version__,
+                "input_type": "audio",
+                "method": method,
+                "processor": "korzeniowski",
+                "dataset": piece["dataset"],
+                "piece": piece["piece"],
+                "run": run,
+                "n_observations": len(feature),
+                "performance_duration_s": duration,
+                "latency_ms": {"feature": latency(feature), "inference": latency([])},
+                "total_processing_s": total,
+                "real_time_factor": total / duration if duration else None,
+                "evaluation": None,
+                "ground_truth": False,
+                "environment": environment,
+            })
+            print(f"{piece['piece']} {method} run {run}: {len(feature)} structured observations, {total:.4f} s")
     return records
 
 

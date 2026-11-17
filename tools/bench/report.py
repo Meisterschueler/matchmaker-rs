@@ -11,7 +11,8 @@ parity flags (contracts/benchmark-report.md):
   and count as equal
 
 Exits with 1 on a parity violation. Frame processors such as audio mel and MFCC use the shared
-audio position gate; the OuterHMM p95 gate also applies only to audio runs, never MIDI OuterHMM.
+audio position gate; standalone Korzeniowski extraction reports feature timing without a follower
+or position-parity check. The OuterHMM p95 gate also applies only to audio runs, never MIDI OuterHMM.
 ``--baseline`` (the previous master report.json) flags Rust inference latency above 1.10 x the baseline. The page ends with the
 sources of the datasets in the report (tools/datasets/datasets.toml). Standard library + NumPy
 only; every records file has its own ``paths/`` directory next to it (one directory per shard
@@ -100,6 +101,8 @@ def same(a, b) -> bool:
 
 
 def position_parity(method: str, rust: Path, python: Path, audio: bool = False) -> dict | None:
+    if method == "korzeniowski":
+        return None
     if not rust.exists() or not python.exists():
         return None
     r = np.loadtxt(rust, delimiter="\t", skiprows=1, ndmin=2)

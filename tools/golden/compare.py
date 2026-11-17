@@ -415,6 +415,61 @@ def compare_mfcc_case(golden_dir, export_dir, metadata):
     return 0
 
 
+def compare_korzeniowski_case(golden_dir, export_dir, metadata):
+    """Compare structured spectrum/onset/loudness fields with the reference float64 limit."""
+    processor = "korzeniowski"
+    component_paths = {
+        "spectrum.npy": export_dir / "processor" / processor / "spectrum.npy",
+        "onset.npy": export_dir / "processor" / processor / "onset.npy",
+        "loudness.npy": export_dir / "processor" / processor / "loudness.npy",
+        "times.npy": export_dir / "processor" / processor / "times.npy",
+    }
+    tolerances = metadata["tolerances"]
+    rtol = tolerances["float64_rtol"]
+    atol = tolerances["float64_atol"]
+    worst = 0.0
+    for name, actual_path in component_paths.items():
+        if not actual_path.is_file():
+            print(f"first differing stage: processor/{processor}, missing {actual_path}")
+            return 1
+        expected = np.load(golden_dir / name).astype(np.float64)
+        actual = np.load(actual_path).astype(np.float64)
+        if expected.shape != actual.shape:
+            print(
+                f"first differing stage: processor/{processor}/{name}: "
+                f"shape differs: expected {expected.shape}, actual {actual.shape}"
+            )
+            return 1
+        allowed = atol + rtol * np.abs(expected)
+        deviation = np.abs(actual - expected)
+        bad = ~(deviation <= allowed)
+        if bad.any():
+            index = tuple(int(value) for value in np.argwhere(bad)[0])
+            print(
+                f"first differing stage: processor/{processor}/{name}: index {index}: "
+                f"expected {float(expected[index])!r}, actual {float(actual[index])!r}, "
+                f"allowed {float(allowed[index]):.3e}"
+            )
+            return 1
+        if expected.size:
+            worst = max(worst, float((deviation / allowed).max()))
+
+    actual_metadata = json.loads((export_dir / "audio/meta.json").read_text())
+    for key in ("processor", "sample_rate", "hop_length", "win_length", "n_fft", "frames"):
+        if actual_metadata.get(key) != metadata.get(key):
+            print(
+                f"first differing stage: audio/meta.json: {key}: "
+                f"expected {metadata.get(key)!r}, actual {actual_metadata.get(key)!r}"
+            )
+            return 1
+    for key in ("active_notes", "onset_notes"):
+        if key not in actual_metadata or actual_metadata[key] is not None:
+            print(f"first differing stage: audio/meta.json: {key}: expected absent, actual {actual_metadata.get(key)!r}")
+            return 1
+    print(f"WITHIN_TOL: structured Korzeniowski fields (worst {worst:.4f} of limit), timestamps, and metadata")
+    return 0
+
+
 # RustySynth against FluidSynth templates (research R12); Gaussian templates are closed-form.
 SKF_TEMPLATE_MIN_COSINE = 0.99
 SKF_TEMPLATE_MAX_VARIATION = 0.06
@@ -790,6 +845,8 @@ def main(golden_dir, export_dir):
             return compare_mel_case(golden_dir, export_dir, metadata)
         if metadata.get("processor") == "mfcc" and "sample_rate" in metadata:
             return compare_mfcc_case(golden_dir, export_dir, metadata)
+        if metadata.get("processor") == "korzeniowski" and "sample_rate" in metadata:
+            return compare_korzeniowski_case(golden_dir, export_dir, metadata)
         if metadata.get("processor") in ("cqt", "cqt_spectral_flux") and "stream_frames" in metadata:
             return compare_cqt_case(golden_dir, export_dir, metadata)
         if metadata.get("method") == "skf":

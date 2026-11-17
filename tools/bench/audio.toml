@@ -87,6 +87,16 @@ performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
 ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
 
+# Standalone structured extraction; not passed through a vector-only follower.
+[[pieces]]
+dataset = "audio-bundled"
+piece = "mozart_korzeniowski"
+methods = ["korzeniowski"]
+input_type = "audio"
+processor = "korzeniowski"
+kwargs = { sample_rate = 44100, hop_length = 512, win_length = 2048, n_fft = 4096 }
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+
 # skf follows chords, not a rendered score, so only a direct ground truth can judge it.
 [[pieces]]
 dataset = "audio-skf"

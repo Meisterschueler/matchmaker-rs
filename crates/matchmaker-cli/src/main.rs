@@ -99,15 +99,15 @@ enum Command {
         /// Runs per method and piece
         #[arg(long, default_value_t = 5)]
         runs: usize,
-        /// Comma-separated methods (default: all available)
-        #[arg(long, value_delimiter = ',', value_parser = parse_method_name)]
+        /// Comma-separated methods or standalone benchmark processors (default: all available)
+        #[arg(long, value_delimiter = ',', value_parser = parse_bench_method_name)]
         methods: Vec<String>,
     },
     /// Extract standalone features from a prerecorded audio performance.
     Features {
         /// Performance audio file.
         performance: PathBuf,
-        /// Audio feature processor: raw_spectrum, cqt, cqt_spectral_flux, mel or mfcc.
+        /// Audio feature processor: raw_spectrum, cqt, cqt_spectral_flux, mel, mfcc or korzeniowski.
         #[arg(long)]
         processor: String,
         /// Directory for NumPy-readable feature and metadata exports.
@@ -116,10 +116,10 @@ enum Command {
         /// Target sample rate in hertz (default: raw_spectrum 8000, the others 44100).
         #[arg(long)]
         sample_rate: Option<u32>,
-        /// Hop length in samples (default: raw_spectrum 128, the others 1470).
+        /// Hop length in samples (default: raw_spectrum 128, korzeniowski 512, the others 1470).
         #[arg(long)]
         hop_length: Option<usize>,
-        /// FFT size in samples (raw_spectrum only, default 512).
+        /// FFT size in samples (raw_spectrum default 512, korzeniowski default 4096).
         #[arg(long)]
         n_fft: Option<usize>,
         /// Leave out the flux column: 88 instead of 89 values (cqt_spectral_flux only).
@@ -131,6 +131,9 @@ enum Command {
         /// MFCC coefficient count (mfcc only, default 13).
         #[arg(long)]
         n_mfcc: Option<usize>,
+        /// Analysis window length (korzeniowski only, default 2048).
+        #[arg(long)]
+        win_length: Option<usize>,
         /// Mel filter norm (mel) or DCT norm (mfcc); processor defaults apply.
         #[arg(long)]
         norm: Option<String>,
@@ -152,6 +155,14 @@ fn parse_method_name(name: &str) -> Result<String, String> {
             Method::AVAILABLE,
             AudioMethod::AVAILABLE,
         ))
+    }
+}
+
+fn parse_bench_method_name(name: &str) -> Result<String, String> {
+    if name == "korzeniowski" {
+        Ok(name.to_string())
+    } else {
+        parse_method_name(name)
     }
 }
 
@@ -532,6 +543,7 @@ fn main() -> Result<()> {
             no_spectral_flux,
             n_mels,
             n_mfcc,
+            win_length,
             norm,
         } => {
             anyhow::ensure!(
@@ -545,6 +557,10 @@ fn main() -> Result<()> {
             anyhow::ensure!(
                 processor == "mfcc" || n_mfcc.is_none(),
                 "--n-mfcc is only valid for mfcc"
+            );
+            anyhow::ensure!(
+                processor == "korzeniowski" || win_length.is_none(),
+                "--win-length is only valid for korzeniowski"
             );
             anyhow::ensure!(
                 processor == "mel" || processor == "mfcc" || norm.is_none(),
@@ -630,8 +646,18 @@ fn main() -> Result<()> {
                         norm,
                     )?;
                 }
+                "korzeniowski" => {
+                    matchmaker_rs::export::write_korzeniowski_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(512),
+                        win_length.unwrap_or(2_048),
+                        n_fft.unwrap_or(4_096),
+                    )?;
+                }
                 _ => anyhow::bail!(
-                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt, cqt_spectral_flux, mel, mfcc"
+                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt, cqt_spectral_flux, mel, mfcc, korzeniowski"
                 ),
             }
             Ok(())

@@ -243,11 +243,13 @@ pub enum AudioProcessorKind {
     Mel,
     /// Log-power mel spectrogram transformed to cepstral coefficients.
     Mfcc,
+    /// Structured spectrum/onset/loudness output (not a vector follower input).
+    Korzeniowski,
 }
 
 impl AudioProcessorKind {
     /// Reference names of the supported audio processors.
-    pub const AVAILABLE: [&'static str; 7] = [
+    pub const AVAILABLE: [&'static str; 8] = [
         "chroma",
         "lse",
         "raw_spectrum",
@@ -255,6 +257,7 @@ impl AudioProcessorKind {
         "cqt_spectral_flux",
         "mel",
         "mfcc",
+        "korzeniowski",
     ];
 
     /// Reference name of this processor.
@@ -267,6 +270,7 @@ impl AudioProcessorKind {
             AudioProcessorKind::CqtSpectralFlux => "cqt_spectral_flux",
             AudioProcessorKind::Mel => "mel",
             AudioProcessorKind::Mfcc => "mfcc",
+            AudioProcessorKind::Korzeniowski => "korzeniowski",
         }
     }
 }
@@ -283,6 +287,7 @@ impl FromStr for AudioProcessorKind {
             "cqt_spectral_flux" => Ok(AudioProcessorKind::CqtSpectralFlux),
             "mel" => Ok(AudioProcessorKind::Mel),
             "mfcc" => Ok(AudioProcessorKind::Mfcc),
+            "korzeniowski" => Ok(AudioProcessorKind::Korzeniowski),
             _ => Err(Error::AudioConfig {
                 key: "processor".into(),
                 reason: format!(
@@ -546,6 +551,12 @@ impl AudioMethodConfig {
                     return Err(invalid("n_mfcc", "must be between 1 and 128"));
                 }
             }
+            AudioProcessorKind::Korzeniowski => {
+                return Err(invalid(
+                    "processor",
+                    "structured Korzeniowski observations must not be fed to vector-only followers",
+                ));
+            }
             _ if method == AudioMethod::Skf => {
                 return Err(invalid("processor", "skf needs the raw_spectrum processor"));
             }
@@ -704,7 +715,7 @@ impl AudioProcessorKind {
             | AudioProcessorKind::Cqt
             | AudioProcessorKind::CqtSpectralFlux => None,
             AudioProcessorKind::Mel => Some(f64::INFINITY),
-            AudioProcessorKind::Mfcc => None,
+            AudioProcessorKind::Mfcc | AudioProcessorKind::Korzeniowski => None,
         }
     }
 }
@@ -1686,6 +1697,14 @@ fn make_audio_processor(
             )?;
             let cache_size = processor.n_fft().saturating_sub(hop_length);
             (Box::new(processor), cache_size)
+        }
+        AudioProcessorKind::Korzeniowski => {
+            return Err(Error::AudioConfig {
+                key: "processor".into(),
+                reason:
+                    "structured Korzeniowski observations must not be fed to vector-only followers"
+                        .into(),
+            });
         }
     })
 }

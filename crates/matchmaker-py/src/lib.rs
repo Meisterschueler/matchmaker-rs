@@ -13,6 +13,7 @@ use matchmaker_rs::features::{
     AudioProcessor,
     cqt::{CqtProcessor, N_BINS},
     cqt_spectral_flux::CqtSpectralFluxProcessor,
+    korzeniowski::KorzeniowskiProcessor,
     mel::MelProcessor,
     mfcc::{MfccNorm, MfccProcessor},
     raw_spectrum::RawSpectrumProcessor,
@@ -217,6 +218,98 @@ fn extract_audio_features<'py>(
         .expect("every processor produces one fixed-width vector per frame")
         .into_pyarray(py);
     Ok((features, times.into_pyarray(py)))
+}
+
+#[pyfunction(signature = (performance_path, kwargs=None))]
+fn extract_korzeniowski_features<'py>(
+    py: Python<'py>,
+    performance_path: PathBuf,
+    kwargs: Option<&Bound<'py, PyDict>>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let (mut sample_rate, mut hop_length, mut win_length, mut n_fft) =
+        (44_100u32, 512usize, 2_048usize, 4_096usize);
+    if let Some(kwargs) = kwargs {
+        for (key, value) in kwargs.iter() {
+            let key = key.extract::<String>()?;
+            match key.as_str() {
+                "sample_rate" => {
+                    sample_rate = value.extract().map_err(|_| {
+                        PyValueError::new_err("sample_rate must be a positive integer")
+                    })?;
+                }
+                "hop_length" => {
+                    hop_length = value.extract().map_err(|_| {
+                        PyValueError::new_err("hop_length must be a positive integer")
+                    })?;
+                }
+                "win_length" => {
+                    win_length = value.extract().map_err(|_| {
+                        PyValueError::new_err("win_length must be a positive integer")
+                    })?;
+                }
+                "n_fft" => {
+                    n_fft = value
+                        .extract()
+                        .map_err(|_| PyValueError::new_err("n_fft must be a positive integer"))?;
+                }
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown korzeniowski option {key:?}"
+                    )));
+                }
+            }
+        }
+    }
+
+    let mut processor = KorzeniowskiProcessor::new(sample_rate, hop_length, win_length, n_fft)
+        .map_err(to_py_err)?;
+    let mut stream = AudioStream::open(
+        &performance_path,
+        sample_rate,
+        hop_length,
+        win_length - hop_length,
+    )
+    .map_err(to_py_err)?;
+    stream.prime_with(|frame| {
+        let _ = processor.process(frame);
+    });
+    let mut observations = Vec::new();
+    for frame in stream {
+        observations.push(
+            processor.process(&frame).ok_or_else(|| {
+                PyRuntimeError::new_err("failed to process a complete audio frame")
+            })?,
+        );
+    }
+
+    let count = observations.len();
+    let spectrum = observations
+        .iter()
+        .flat_map(|observation| observation.spectrum.iter().copied())
+        .collect();
+    let spectrum = Array2::from_shape_vec((count, n_fft / 2 + 1), spectrum)
+        .expect("every Korzeniowski observation has a fixed-width spectrum")
+        .into_pyarray(py);
+    let onset: Vec<f64> = observations
+        .iter()
+        .map(|observation| observation.onset)
+        .collect();
+    let loudness: Vec<f64> = observations
+        .iter()
+        .map(|observation| observation.loudness)
+        .collect();
+    let times: Vec<f64> = observations
+        .iter()
+        .map(|observation| observation.perf_time)
+        .collect();
+    let output = PyDict::new(py);
+    output.set_item("spectrum", spectrum)?;
+    output.set_item("onset", onset.into_pyarray(py))?;
+    output.set_item("loudness", loudness.into_pyarray(py))?;
+    output.set_item("times", times.into_pyarray(py))?;
+    output.set_item("active_notes", py.None())?;
+    output.set_item("onset_notes", py.None())?;
+    Ok(output)
 }
 
 /// `AVAILABLE_METHODS["midi"]` formatted like a Python list.
@@ -1112,6 +1205,7 @@ fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     m.add_class::<PyMatchmaker>()?;
     m.add_function(wrap_pyfunction!(extract_audio_features, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_korzeniowski_features, m)?)?;
 
     let methods = PyDict::new(py);
     methods.set_item("midi", Method::AVAILABLE.to_vec())?;

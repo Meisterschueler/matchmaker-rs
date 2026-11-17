@@ -11,7 +11,8 @@ use common::{data, npy};
 use matchmaker_rs::Error;
 use matchmaker_rs::base::OnlineAlignment;
 use matchmaker_rs::export::{
-    write_audio_features, write_cqt_spectral_flux_features, write_mel_features, write_mfcc_features,
+    write_audio_features, write_cqt_spectral_flux_features, write_korzeniowski_features,
+    write_mel_features, write_mfcc_features,
 };
 use matchmaker_rs::features::Observation;
 use matchmaker_rs::features::mfcc::MfccNorm;
@@ -542,6 +543,40 @@ fn cqt_spectral_flux_extraction_handles_short_silent_empty_and_long_performances
         "an onset every 15 frames"
     );
     assert_eq!(features.values(), extract(&melody, "melody_again").values());
+}
+
+#[test]
+fn korzeniowski_extraction_handles_short_empty_silent_and_repeat_runs() {
+    let extract = |performance: &PathBuf, name: &str| {
+        let output = std::env::temp_dir().join(format!("matchmaker_edge_korzeniowski_{name}"));
+        let _ = std::fs::remove_dir_all(&output);
+        write_korzeniowski_features(performance, &output, 44_100, 512, 2_048, 4_096).unwrap();
+        (
+            npy(output.join("processor/korzeniowski/spectrum.npy")),
+            npy(output.join("processor/korzeniowski/onset.npy")),
+            npy(output.join("processor/korzeniowski/loudness.npy")),
+        )
+    };
+    for (name, performance) in [
+        ("short", audio_wav("korzeniowski_short", 1, &[0; 100])),
+        ("empty", audio_wav("korzeniowski_empty", 1, &[])),
+    ] {
+        let (spectrum, onset, loudness) = extract(&performance, name);
+        assert_eq!(spectrum.shape, [0, 2_049], "{name}");
+        assert_eq!(onset.shape, [0], "{name}");
+        assert_eq!(loudness.shape, [0], "{name}");
+    }
+
+    let silent = audio_wav("korzeniowski_silent", 1, &vec![0; 44_100]);
+    let (spectrum, onset, loudness) = extract(&silent, "silent");
+    assert!(spectrum.shape[0] > 0);
+    assert!(spectrum.values().iter().all(|value| *value == 0.0));
+    assert!(onset.values().iter().all(|value| *value == 0.0));
+    assert!(loudness.values().iter().all(|value| *value == -100.0));
+    let repeated = extract(&silent, "silent_again");
+    assert_eq!(spectrum.values(), repeated.0.values());
+    assert_eq!(onset.values(), repeated.1.values());
+    assert_eq!(loudness.values(), repeated.2.values());
 }
 
 #[test]
