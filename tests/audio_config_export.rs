@@ -6,8 +6,9 @@ use common::{data, npy};
 use matchmaker_rs::Error;
 use matchmaker_rs::export::{
     write_audio_evaluation, write_audio_run, write_cqt_features, write_cqt_spectral_flux_features,
-    write_mel_features,
+    write_mel_features, write_mfcc_features,
 };
+use matchmaker_rs::features::mfcc::MfccNorm;
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind,
 };
@@ -103,6 +104,10 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
         (AudioMethod::Dixon, AudioProcessorKind::Mel),
         (AudioMethod::ArztTempo, AudioProcessorKind::Mel),
         (AudioMethod::ArztMultiFold, AudioProcessorKind::Mel),
+        (AudioMethod::Arzt, AudioProcessorKind::Mfcc),
+        (AudioMethod::Dixon, AudioProcessorKind::Mfcc),
+        (AudioMethod::ArztTempo, AudioProcessorKind::Mfcc),
+        (AudioMethod::ArztMultiFold, AudioProcessorKind::Mfcc),
     ] {
         let mut config = AudioMethodConfig::for_method(method);
         config.set_processor(processor);
@@ -198,6 +203,19 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
     mel.set_processor(AudioProcessorKind::Lse);
     mel.n_mels = Some(32);
     assert_eq!(key_of(&mel, AudioMethod::Arzt), "n_mels");
+    let mut mfcc = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    mfcc.set_processor(AudioProcessorKind::Mfcc);
+    assert_eq!(mfcc.dct_norm, Some(MfccNorm::Backward));
+    mfcc.n_mfcc = Some(0);
+    assert_eq!(key_of(&mfcc, AudioMethod::Arzt), "n_mfcc");
+    mfcc.n_mfcc = Some(8);
+    mfcc.dct_norm = None;
+    mfcc.validate(AudioMethod::Arzt).unwrap();
+    mfcc.n_mels = Some(32);
+    assert_eq!(key_of(&mfcc, AudioMethod::Arzt), "n_mels");
+    mfcc.n_mels = None;
+    mfcc.norm = Some(2.0);
+    assert_eq!(key_of(&mfcc, AudioMethod::Arzt), "norm");
     for method in [AudioMethod::Skf, AudioMethod::OuterHmm] {
         let mut incompatible = AudioMethodConfig::for_method(method);
         incompatible.set_processor(AudioProcessorKind::Mel);
@@ -378,6 +396,66 @@ fn mel_extraction_exports_power_features_and_validates_dimensions_and_norm() {
 }
 
 #[test]
+fn mfcc_extraction_exports_coefficients_and_validates_configuration() {
+    let performance = data("audio/simple_mozart_k265_var1_sf2.wav");
+    let output = std::env::temp_dir().join("matchmaker_mfcc_features");
+    let _ = std::fs::remove_dir_all(&output);
+    write_mfcc_features(
+        &performance,
+        &output,
+        44_100,
+        1_470,
+        13,
+        Some(MfccNorm::Backward),
+    )
+    .unwrap();
+    let features = npy(output.join("processor/mfcc/features.npy"));
+    let times = npy(output.join("processor/mfcc/times.npy"));
+    assert_eq!(features.shape, [227, 13]);
+    assert_eq!(times.shape, [227]);
+    assert!(features.values().iter().all(|value| value.is_finite()));
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["processor"], "mfcc");
+    assert_eq!(meta["n_fft"], 2_940);
+    assert_eq!(meta["n_mfcc"], 13);
+    assert_eq!(meta["norm"], "backward");
+
+    let overridden = std::env::temp_dir().join("matchmaker_mfcc_features_override");
+    let _ = std::fs::remove_dir_all(&overridden);
+    write_mfcc_features(
+        &performance,
+        &overridden,
+        44_100,
+        735,
+        8,
+        Some(MfccNorm::Ortho),
+    )
+    .unwrap();
+    assert_eq!(
+        npy(overridden.join("processor/mfcc/features.npy")).shape[1],
+        8
+    );
+
+    let rejected = std::env::temp_dir().join("matchmaker_mfcc_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    for (sample_rate, hop_length, n_mfcc) in [(0, 1_470, 13), (44_100, 0, 13), (44_100, 1_470, 0)] {
+        assert!(matches!(
+            write_mfcc_features(
+                &performance,
+                &rejected,
+                sample_rate,
+                hop_length,
+                n_mfcc,
+                Some(MfccNorm::Backward)
+            ),
+            Err(Error::AudioConfig { .. })
+        ));
+    }
+    assert!(!rejected.exists());
+}
+
+#[test]
 fn mel_frame_following_exports_processor_and_score_features() {
     let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
     config.set_processor(AudioProcessorKind::Mel);
@@ -402,6 +480,39 @@ fn mel_frame_following_exports_processor_and_score_features() {
     assert_eq!(meta["processor"], "mel");
     assert_eq!(meta["n_mels"], 128);
     assert_eq!(meta["norm"], "inf");
+}
+
+#[test]
+fn mfcc_frame_following_exports_coefficients_and_metadata() {
+    let mut config = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    config.set_processor(AudioProcessorKind::Mfcc);
+    config.soundfont_path = Some(pinned_soundfont());
+    let mut follower =
+        AudioMatchmaker::new_arzt(data("simple_mozart_k265_var1.musicxml"), config, None, true)
+            .unwrap()
+            .record();
+    follower
+        .run_file(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .unwrap();
+
+    let output = std::env::temp_dir().join("matchmaker_audio_mfcc_export");
+    let _ = std::fs::remove_dir_all(&output);
+    write_audio_run(&follower, &output).unwrap();
+    let performance = npy(output.join("processor/mfcc/features.npy"));
+    let score = npy(output.join("score/audio/features.npy"));
+    assert_eq!(performance.shape, [226, 13]);
+    assert_eq!(score.shape[1], 13);
+    let audio_meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(audio_meta["processor"], "mfcc");
+    assert_eq!(audio_meta["n_fft"], 2_940);
+    assert_eq!(audio_meta["n_mfcc"], 13);
+    assert_eq!(audio_meta["norm"], "backward");
+    let score_meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("score/meta.json")).unwrap()).unwrap();
+    assert_eq!(score_meta["n_fft"], 2_940);
+    assert_eq!(score_meta["n_mfcc"], 13);
+    assert_eq!(score_meta["norm"], "backward");
 }
 
 #[test]

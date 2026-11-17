@@ -130,12 +130,10 @@ fn make_mel_bank(
     n_mels: usize,
     norm: Option<f64>,
 ) -> Vec<Vec<f32>> {
-    let max_mel = hz_to_mel(f64::from(sample_rate) / 2.0);
-    let mel_frequencies: Vec<f64> = (0..n_mels + 2)
-        .map(|index| mel_to_hz(max_mel * index as f64 / (n_mels + 1) as f64))
-        .collect();
+    let mel_frequencies = mel_frequencies(sample_rate, n_mels);
+    let fft_bin_width = f64::from(sample_rate) / n_fft as f64;
     let fft_frequencies: Vec<f64> = (0..=n_fft / 2)
-        .map(|index| index as f64 * f64::from(sample_rate) / n_fft as f64)
+        .map(|index| index as f64 * fft_bin_width)
         .collect();
 
     mel_frequencies
@@ -168,6 +166,26 @@ fn make_mel_bank(
             }
             filter
         })
+        .collect()
+}
+
+pub(crate) fn make_slaney_mel_bank(sample_rate: u32, n_fft: usize, n_mels: usize) -> Vec<Vec<f32>> {
+    let mel_frequencies = mel_frequencies(sample_rate, n_mels);
+    let mut bank = make_mel_bank(sample_rate, n_fft, n_mels, None);
+    for (filter, edges) in bank.iter_mut().zip(mel_frequencies.windows(3)) {
+        let slaney_scale = 2.0 / (edges[2] - edges[0]);
+        for value in filter {
+            *value = (f64::from(*value) * slaney_scale) as f32;
+        }
+    }
+    bank
+}
+
+fn mel_frequencies(sample_rate: u32, n_mels: usize) -> Vec<f64> {
+    let max_mel = hz_to_mel(f64::from(sample_rate) / 2.0);
+    let step = max_mel / (n_mels + 1) as f64;
+    (0..n_mels + 2)
+        .map(|index| mel_to_hz(step * index as f64))
         .collect()
 }
 

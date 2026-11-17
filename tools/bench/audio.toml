@@ -75,6 +75,18 @@ score = "../../tests/data/simple_mozart_k265_var1.musicxml"
 performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
 
+# mfcc uses 13 coefficients, backward DCT normalization, and n_fft=2*hop_length by default.
+[[pieces]]
+dataset = "audio-mfcc"
+piece = "mozart_mfcc"
+methods = ["arzt", "dixon"]
+input_type = "audio"
+processor = "mfcc"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
 # skf follows chords, not a rendered score, so only a direct ground truth can judge it.
 [[pieces]]
 dataset = "audio-skf"

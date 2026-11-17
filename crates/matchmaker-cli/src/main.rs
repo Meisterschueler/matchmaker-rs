@@ -107,7 +107,7 @@ enum Command {
     Features {
         /// Performance audio file.
         performance: PathBuf,
-        /// Audio feature processor: raw_spectrum, cqt, cqt_spectral_flux or mel.
+        /// Audio feature processor: raw_spectrum, cqt, cqt_spectral_flux, mel or mfcc.
         #[arg(long)]
         processor: String,
         /// Directory for NumPy-readable feature and metadata exports.
@@ -128,7 +128,10 @@ enum Command {
         /// Mel-band count (mel only, default 128).
         #[arg(long)]
         n_mels: Option<usize>,
-        /// Mel filter norm (mel only, default inf; use none to disable).
+        /// MFCC coefficient count (mfcc only, default 13).
+        #[arg(long)]
+        n_mfcc: Option<usize>,
+        /// Mel filter norm (mel) or DCT norm (mfcc); processor defaults apply.
         #[arg(long)]
         norm: Option<String>,
     },
@@ -219,9 +222,7 @@ fn audio_config(
                 ConfigValue::Str(name) => {
                     selected_processor = Some(name.parse::<AudioProcessorKind>()?)
                 }
-                _ => anyhow::bail!(
-                    "--set processor expects chroma, lse, raw_spectrum, cqt, cqt_spectral_flux, or mel"
-                ),
+                _ => anyhow::bail!("--set processor expects a valid audio processor name"),
             }
         }
     }
@@ -241,18 +242,23 @@ fn audio_config(
             "hop_length" => config.hop_length = audio_optional_usize(key, &value)?,
             "n_fft" => config.n_fft = audio_optional_usize(key, &value)?,
             "n_mels" => config.n_mels = audio_optional_usize(key, &value)?,
+            "n_mfcc" => config.n_mfcc = audio_optional_usize(key, &value)?,
             "norm" => {
-                config.norm = match &value {
-                    ConfigValue::None => None,
-                    ConfigValue::Str(value)
-                        if value.eq_ignore_ascii_case("inf")
-                            || value.eq_ignore_ascii_case("infinity") =>
-                    {
-                        Some(f64::INFINITY)
+                if config.processor() == AudioProcessorKind::Mfcc {
+                    config.dct_norm = parse_mfcc_norm(&value)?;
+                } else {
+                    config.norm = match &value {
+                        ConfigValue::None => None,
+                        ConfigValue::Str(value)
+                            if value.eq_ignore_ascii_case("inf")
+                                || value.eq_ignore_ascii_case("infinity") =>
+                        {
+                            Some(f64::INFINITY)
+                        }
+                        ConfigValue::Int(value) => Some(*value as f64),
+                        ConfigValue::Float(value) => Some(*value),
+                        _ => anyhow::bail!("--set norm expects a positive number or none"),
                     }
-                    ConfigValue::Int(value) => Some(*value as f64),
-                    ConfigValue::Float(value) => Some(*value),
-                    _ => anyhow::bail!("--set norm expects a positive number or none"),
                 }
             }
             "window_size" | "distance_func" if method == AudioMethod::Skf => {
@@ -283,6 +289,19 @@ fn audio_config(
     }
     config.validate(method)?;
     Ok(config)
+}
+
+fn parse_mfcc_norm(value: &ConfigValue) -> Result<Option<matchmaker_rs::features::mfcc::MfccNorm>> {
+    use matchmaker_rs::features::mfcc::MfccNorm;
+
+    match value {
+        ConfigValue::None => Ok(None),
+        ConfigValue::Str(value) if value.eq_ignore_ascii_case("backward") => {
+            Ok(Some(MfccNorm::Backward))
+        }
+        ConfigValue::Str(value) if value.eq_ignore_ascii_case("ortho") => Ok(Some(MfccNorm::Ortho)),
+        _ => anyhow::bail!("--set norm for mfcc expects backward, ortho, or none"),
+    }
 }
 
 fn audio_u32(key: &str, value: &ConfigValue) -> Result<u32> {
@@ -512,6 +531,7 @@ fn main() -> Result<()> {
             n_fft,
             no_spectral_flux,
             n_mels,
+            n_mfcc,
             norm,
         } => {
             anyhow::ensure!(
@@ -519,8 +539,16 @@ fn main() -> Result<()> {
                 "--no-spectral-flux is only valid for cqt_spectral_flux"
             );
             anyhow::ensure!(
-                processor == "mel" || (n_mels.is_none() && norm.is_none()),
-                "--n-mels and --norm are only valid for mel"
+                processor == "mel" || n_mels.is_none(),
+                "--n-mels is only valid for mel"
+            );
+            anyhow::ensure!(
+                processor == "mfcc" || n_mfcc.is_none(),
+                "--n-mfcc is only valid for mfcc"
+            );
+            anyhow::ensure!(
+                processor == "mel" || processor == "mfcc" || norm.is_none(),
+                "--norm is only valid for mel or mfcc"
             );
             match processor.as_str() {
                 "raw_spectrum" => matchmaker_rs::export::write_audio_features(
@@ -580,8 +608,30 @@ fn main() -> Result<()> {
                         norm,
                     )?;
                 }
+                "mfcc" => {
+                    anyhow::ensure!(n_fft.is_none(), "--n-fft is only valid for raw_spectrum");
+                    let norm = match norm.as_deref() {
+                        None => Some(matchmaker_rs::features::mfcc::MfccNorm::Backward),
+                        Some(value) if value.eq_ignore_ascii_case("backward") => {
+                            Some(matchmaker_rs::features::mfcc::MfccNorm::Backward)
+                        }
+                        Some(value) if value.eq_ignore_ascii_case("ortho") => {
+                            Some(matchmaker_rs::features::mfcc::MfccNorm::Ortho)
+                        }
+                        Some(value) if value.eq_ignore_ascii_case("none") => None,
+                        _ => anyhow::bail!("--norm for mfcc expects backward, ortho, or none"),
+                    };
+                    matchmaker_rs::export::write_mfcc_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(1_470),
+                        n_mfcc.unwrap_or(13),
+                        norm,
+                    )?;
+                }
                 _ => anyhow::bail!(
-                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt, cqt_spectral_flux, mel"
+                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt, cqt_spectral_flux, mel, mfcc"
                 ),
             }
             Ok(())

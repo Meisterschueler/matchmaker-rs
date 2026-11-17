@@ -1,0 +1,27 @@
+{
+  "center": false,
+  "dct_type": 2,
+  "frames": 21,
+  "generator": "tools/golden/generate_audio.py",
+  "hop_length": 512,
+  "mel_norm": "slaney",
+  "n_fft": 1024,
+  "n_mfcc": 8,
+  "norm": "ortho",
+  "power": 2.0,
+  "processor": "mfcc",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "E508E943A6AD6882CF277F9F0B6F3ABA988123ACDA590371134A95DBBDC6C7F7",
+    "version": "0.4.0"
+  },
+  "sample_rate": 22050,
+  "tolerances": {
+    "features_atol": 0.0002,
+    "features_rtol": 1e-05
+  },
+  "whole_signal_frames": 20
+}

@@ -273,7 +273,7 @@ def test_cqt_extraction_returns_88_bins_and_rejects_foreign_options():
     with pytest.raises(ValueError, match="sample_rate"):
         matchmaker_rs.extract_audio_features(str(PERFORMANCE), "cqt", {"sample_rate": 8_000})
     with pytest.raises(ValueError, match="unknown audio processor"):
-        matchmaker_rs.extract_audio_features(str(PERFORMANCE), "mfcc")
+        matchmaker_rs.extract_audio_features(str(PERFORMANCE), "unknown")
 
 
 def test_mel_extraction_returns_power_features_and_accepts_bank_overrides():
@@ -313,6 +313,49 @@ def test_mel_audio_following_is_supported_by_frame_followers():
 
     with pytest.raises(ValueError, match="n_fft"):
         make_audio("arzt", processor="mel", n_fft=512)
+
+def test_mfcc_extraction_uses_backward_default_and_supports_dct_overrides():
+    features, times = matchmaker_rs.extract_audio_features(str(PERFORMANCE), "mfcc")
+    golden_case = GOLDEN / "processors" / "mfcc" / "performance"
+    expected = np.load(golden_case / "features.npy")
+    metadata = json.loads((golden_case / "meta.json").read_text())
+    assert features.dtype == np.float32
+    assert features.shape == (227, 13)
+    np.testing.assert_allclose(
+        features,
+        expected,
+        rtol=metadata["tolerances"]["features_rtol"],
+        atol=metadata["tolerances"]["features_atol"],
+    )
+    assert times.dtype == np.float64 and times.shape == (227,)
+    assert np.isfinite(features).all()
+
+    overridden, overridden_times = matchmaker_rs.extract_audio_features(
+        str(PERFORMANCE),
+        "mfcc",
+        {"sample_rate": 44_100, "hop_length": 735, "n_mfcc": 8, "norm": "ortho"},
+    )
+    assert overridden.shape == (len(overridden_times), 8)
+    assert np.isfinite(overridden).all()
+    unnormalized, _ = matchmaker_rs.extract_audio_features(
+        str(PERFORMANCE),
+        "mfcc",
+        {"hop_length": 735, "n_mfcc": 8, "norm": None},
+    )
+    assert unnormalized.shape[1] == 8
+
+    for kwargs in [{"n_mfcc": 0}, {"n_mfcc": 129}, {"norm": "invalid"}]:
+        with pytest.raises(ValueError, match=next(iter(kwargs))):
+            matchmaker_rs.extract_audio_features(str(PERFORMANCE), "mfcc", kwargs)
+
+
+def test_mfcc_audio_following_is_supported_by_frame_followers():
+    for method, steps in [("arzt", 226), ("dixon", 379)]:
+        mm = make_audio(method, processor="mfcc")
+        positions = list(mm.run(verbose=False))
+        assert len(positions) == steps
+        assert all(np.isfinite(position) for position in positions)
+        assert mm.score_follower.alignment_path.shape == (2, steps)
 
 
 @pytest.mark.parametrize("method,steps", [("arzt", 226), ("dixon", 379)])

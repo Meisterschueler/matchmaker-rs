@@ -150,12 +150,12 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 **Goal**: Reference MFCC observations without silently correcting the released norm default.
 **Independent test**: 13 coefficients, DCT/log-power scaling, default/override behavior and compatible runs.
 
-- [ ] T066 [US10] Verify locked librosa accepts the released norm="backward" default and generate coefficient/log-power goldens with tools/golden/generate_audio.py under tests/golden/audio/; document any reference blocker and DCT library evaluation in specs/004-audio-methods/research.md before implementing (FR-010).
-- [ ] T067 [US10] Add failing mfcc coefficient/scaling/norm/silent/reset tests in tests/golden_audio_processors.rs and compatible follower/extraction/error tests in tests/audio_config_export.rs, crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py.
-- [ ] T068 [US10] Implement src/features/mfcc.rs and src/features/mod.rs, reuse validated src/features/mel.rs internals where correct, and match log-power/DCT precision and scaling; change Cargo.toml/deny.toml only for an audited complexity-reducing DCT dependency.
-- [ ] T069 [US10] Enable current MFCC config, compatible consumers and extraction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; preserve reference default/errors instead of replacing backward norm with ortho.
-- [ ] T070 [US10] Extend src/export.rs, tools/golden/compare.py, tests/audio_config_export.rs and tests/edge_cases.rs for coefficient metadata, first-difference diagnostics, reset and zero-energy behavior.
-- [ ] T071 [US10] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for compatible MFCC runs; update examples, README.md and UPSTREAM.md.
+- [X] T066 [US10] Verify locked librosa accepts the released norm="backward" default and generate coefficient/log-power goldens with tools/golden/generate_audio.py under tests/golden/audio/; document any reference blocker and DCT library evaluation in specs/004-audio-methods/research.md before implementing (FR-010).
+- [X] T067 [US10] Add failing mfcc coefficient/scaling/norm/silent/reset tests in tests/golden_audio_processors.rs and compatible follower/extraction/error tests in tests/audio_config_export.rs, crates/matchmaker-cli/tests/follow_audio.rs and crates/matchmaker-py/tests/test_audio.py.
+- [X] T068 [US10] Implement src/features/mfcc.rs and src/features/mod.rs, reuse validated src/features/mel.rs internals where correct, and match log-power/DCT precision and scaling; change Cargo.toml/deny.toml only for an audited complexity-reducing DCT dependency.
+- [X] T069 [US10] Enable current MFCC config, compatible consumers and extraction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; preserve reference default/errors instead of replacing backward norm with ortho.
+- [X] T070 [US10] Extend src/export.rs, tools/golden/compare.py, tests/audio_config_export.rs and tests/edge_cases.rs for coefficient metadata, first-difference diagnostics, reset and zero-energy behavior.
+- [X] T071 [US10] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for compatible MFCC runs; update examples, README.md and UPSTREAM.md.
 - [ ] T072 [US10] Run all quickstart gates, record norm/numeric/report/platform evidence in specs/004-audio-methods/research.md, and create only C10 `feat(audio): add mfcc processor`; pause if the pinned reference cannot run the requested default.
 
 ## Phase 13: US11 - korzeniowski audio processor (P3, C11)

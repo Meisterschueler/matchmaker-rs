@@ -206,6 +206,64 @@ class MelStageComparisonTests(unittest.TestCase):
             self.assertEqual(result["class"], "WITHIN_TOL")
 
 
+class MfccStageComparisonTests(unittest.TestCase):
+    def test_feature_limit_first_difference_and_metadata(self):
+        path = Path(__file__).parents[1] / "golden" / "compare.py"
+        spec = importlib.util.spec_from_file_location("mfcc_stage_comparison", path)
+        comparison = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(comparison)
+        metadata = {
+            "processor": "mfcc",
+            "sample_rate": 44_100,
+            "hop_length": 735,
+            "n_fft": 1_470,
+            "n_mfcc": 8,
+            "norm": "ortho",
+            "frames": 2,
+            "tolerances": {"features_rtol": 1e-5, "features_atol": 2e-4},
+        }
+        reference = np.zeros((2, 8), dtype=np.float32)
+        times = np.array([0.0, 0.1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            golden, exported = root / "golden", root / "export"
+            golden.mkdir()
+            np.save(golden / "features.npy", reference)
+            np.save(golden / "times.npy", times)
+            (exported / "processor/mfcc").mkdir(parents=True)
+            (exported / "audio").mkdir()
+            export_meta = {
+                key: value
+                for key, value in metadata.items()
+                if key != "tolerances"
+            }
+            (exported / "audio/meta.json").write_text(json.dumps(export_meta))
+            np.save(exported / "processor/mfcc/times.npy", times)
+
+            def run(features):
+                np.save(exported / "processor/mfcc/features.npy", features)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    return comparison.compare_mfcc_case(golden, exported, metadata), output.getvalue()
+
+            within = reference.copy()
+            within[1, 5] = 1e-4
+            self.assertEqual(run(within)[0], 0)
+            beyond = reference.copy()
+            beyond[1, 5] = 3e-4
+            status, message = run(beyond)
+            self.assertEqual(status, 1)
+            self.assertIn("frame 1, MFCC coefficient 5", message)
+
+            np.save(exported / "processor/mfcc/features.npy", reference)
+            export_meta["n_mfcc"] = 13
+            (exported / "audio/meta.json").write_text(json.dumps(export_meta))
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(comparison.compare_mfcc_case(golden, exported, metadata), 1)
+            self.assertIn("n_mfcc", output.getvalue())
+
+
 class OuterHmmComparisonTests(unittest.TestCase):
     def test_weighted_score_arrays_must_match_exactly(self):
         path = Path(__file__).parents[1] / "golden" / "compare.py"

@@ -31,6 +31,7 @@ from matchmaker.features.audio import (
     CQTProcessor,
     CQTSpectralFluxProcessor,
     LogSpectralEnergyProcessor,
+    MFCCProcessor,
     MelSpectrogramProcessor,
     RawSpectrumProcessor,
 )
@@ -421,6 +422,110 @@ def generate_mel_goldens(output: Path) -> None:
     )
     performance = performance.mean(axis=1, dtype=np.float32)
     write_case("performance", performance, performance_rate, 1_470)
+
+
+def generate_mfcc_goldens(output: Path) -> None:
+    """Generate MFCC coefficients and their log-power mel inputs."""
+    base = output / "processors/mfcc"
+
+    def write_case(
+        name: str,
+        samples: np.ndarray,
+        sample_rate: int,
+        hop: int,
+        n_mfcc: int = 13,
+        norm: str | None = "backward",
+    ) -> None:
+        processor = MFCCProcessor(sample_rate, hop, n_mfcc, norm)
+        n_fft = 2 * hop
+
+        def log_power(signal: np.ndarray) -> np.ndarray:
+            mel_power = librosa.feature.melspectrogram(
+                y=signal,
+                sr=sample_rate,
+                n_fft=n_fft,
+                hop_length=hop,
+                n_mels=128,
+                center=False,
+                dtype=np.float32,
+            )
+            return librosa.power_to_db(mel_power).T.astype(np.float32)
+
+        whole_features, _ = processor((samples, 0.0))
+        whole_log_power = log_power(samples)
+        padded = np.pad(samples, (0, (-len(samples)) % hop), mode="constant")
+        cache = np.zeros(n_fft - hop, dtype=np.float32)
+        stream_features, stream_log_power, times = [], [], []
+        for chunk_index, chunk in enumerate(padded.reshape(-1, hop)):
+            block = np.concatenate((cache, chunk))
+            frame_time = max(0, chunk_index - 1) * hop / sample_rate
+            features, returned_time = processor((block, frame_time))
+            if chunk_index > 0:
+                stream_features.extend(features)
+                stream_log_power.extend(log_power(block))
+                times.extend([float(returned_time)] * len(features))
+            cache = block[-len(cache):].copy()
+
+        directory = base / name
+        write_array(directory / "input_samples.npy", samples, "<f4")
+        write_array(
+            directory / "features.npy",
+            np.asarray(stream_features, dtype=np.float32).reshape(-1, n_mfcc),
+            "<f4",
+        )
+        write_array(
+            directory / "log_power.npy",
+            np.asarray(stream_log_power, dtype=np.float32).reshape(-1, 128),
+            "<f4",
+        )
+        write_array(directory / "times.npy", times, "<f8")
+        write_array(
+            directory / "whole_features.npy",
+            np.asarray(whole_features, dtype=np.float32).reshape(-1, n_mfcc),
+            "<f4",
+        )
+        write_array(directory / "whole_log_power.npy", whole_log_power, "<f4")
+        write_json(
+            directory / "meta.json",
+            {
+                "reference": reference_info(),
+                "generator": "tools/golden/generate_audio.py",
+                "processor": "mfcc",
+                "sample_rate": sample_rate,
+                "hop_length": hop,
+                "n_fft": n_fft,
+                "n_mfcc": n_mfcc,
+                "norm": norm,
+                "dct_type": 2,
+                "mel_norm": "slaney",
+                "power": 2.0,
+                "center": False,
+                "frames": len(stream_features),
+                "whole_signal_frames": len(whole_features),
+                "tolerances": {"features_rtol": 1e-5, "features_atol": 2e-4},
+            },
+        )
+        print(f"mfcc/{name}: {len(stream_features)} stream frames, {len(whole_features)} whole frames")
+
+    times = np.arange(44_100 // 2, dtype=np.float64) / 44_100
+    tones = (
+        0.35 * np.sin(2 * np.pi * 440.0 * times)
+        + 0.2 * np.sin(2 * np.pi * 659.2551138257398 * times)
+        + 0.1 * np.sin(2 * np.pi * 783.9908719634985 * times)
+    ).astype(np.float32)
+    write_case("default", tones, 44_100, 1_470)
+    write_case("override", tones[::2].copy(), 22_050, 512, n_mfcc=8, norm="ortho")
+    write_case("norm_none", tones, 44_100, 735, norm=None)
+    write_case("silent", np.zeros_like(tones), 44_100, 1_470)
+    performance, performance_rate = sf.read(
+        DEFAULT_PERFORMANCE, dtype=np.float32, always_2d=True
+    )
+    write_case(
+        "performance",
+        performance.mean(axis=1, dtype=np.float32),
+        performance_rate,
+        1_470,
+    )
 
 
 def stream_cqt(samples: np.ndarray, sample_rate: int, hop: int, norm=np.inf):
@@ -1652,6 +1757,11 @@ def main() -> None:
         help="generate mel filter-bank, power-spectrum and stream feature goldens",
     )
     parser.add_argument(
+        "--mfcc-only",
+        action="store_true",
+        help="generate MFCC coefficient and log-power goldens",
+    )
+    parser.add_argument(
         "--cqt-only",
         action="store_true",
         help="generate cqt processor goldens (stream, whole-signal, soxr stages, kernels)",
@@ -1766,6 +1876,9 @@ def main() -> None:
         return
     if args.mel_only:
         generate_mel_goldens(args.out.resolve())
+        return
+    if args.mfcc_only:
+        generate_mfcc_goldens(args.out.resolve())
         return
     if args.cqt_only:
         generate_cqt_goldens(args.out.resolve())

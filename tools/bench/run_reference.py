@@ -43,6 +43,7 @@ PROCESSORS = {
     "CQTProcessor": "cqt",
     "CQTSpectralFluxProcessor": "cqt_spectral_flux",
     "MelSpectrogramProcessor": "mel",
+    "MFCCProcessor": "mfcc",
 }
 
 

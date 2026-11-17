@@ -11,6 +11,7 @@ use matchmaker_rs::features::{
     cqt_spectral_flux::CqtSpectralFluxProcessor,
     lse::LseProcessor,
     mel::MelProcessor,
+    mfcc::{MfccNorm, MfccProcessor},
     raw_spectrum::RawSpectrumProcessor,
 };
 use matchmaker_rs::io::audio::AudioFrame;
@@ -128,6 +129,44 @@ fn process_mel_samples(
         cache.copy_from_slice(&block[block.len() - hop_length..]);
     }
     (features, times, powers)
+}
+
+fn process_mfcc_samples(
+    processor: &mut MfccProcessor,
+    samples: &[f32],
+    sample_rate: u32,
+    hop_length: usize,
+) -> (Vec<Vec<f32>>, Vec<f64>, Vec<Vec<f32>>) {
+    let padded_len = samples.len().div_ceil(hop_length) * hop_length;
+    let mut padded = samples.to_vec();
+    padded.resize(padded_len, 0.0);
+    let mut cache = vec![0.0; hop_length];
+    let mut features = Vec::new();
+    let mut times = Vec::new();
+    let mut log_power = Vec::new();
+
+    for (chunk_index, hop) in padded.chunks_exact(hop_length).enumerate() {
+        let mut block = cache.clone();
+        block.extend_from_slice(hop);
+        let perf_time =
+            chunk_index.saturating_sub(1) as f64 * hop_length as f64 / f64::from(sample_rate);
+        let frame = AudioFrame {
+            index: chunk_index.saturating_sub(1),
+            samples: block.clone(),
+            perf_time,
+        };
+        let db = processor
+            .log_power_spectrogram(&block)
+            .expect("MFCC frame has log-power features");
+        let output = processor.process(&frame).expect("MFCC frame has features");
+        if chunk_index > 0 {
+            features.push(output.features);
+            times.push(output.perf_time);
+            log_power.extend(db);
+        }
+        cache.copy_from_slice(&block[block.len() - hop_length..]);
+    }
+    (features, times, log_power)
 }
 
 #[test]
@@ -340,6 +379,118 @@ fn mel_reset_is_stateless_and_rejects_short_direct_frames() {
                 ..frame
             })
             .is_none()
+    );
+}
+
+#[test]
+fn mfcc_matches_default_override_log_power_silence_and_performance_goldens() {
+    let base = golden("audio/processors/mfcc");
+    for (name, sample_rate, hop_length, n_mfcc, norm) in [
+        ("default", 44_100, 1_470, 13, Some(MfccNorm::Backward)),
+        ("override", 22_050, 512, 8, Some(MfccNorm::Ortho)),
+        ("norm_none", 44_100, 735, 13, None),
+        ("silent", 44_100, 1_470, 13, Some(MfccNorm::Backward)),
+        ("performance", 44_100, 1_470, 13, Some(MfccNorm::Backward)),
+    ] {
+        let case = base.join(name);
+        let samples: Vec<f32> = npy(case.join("input_samples.npy"))
+            .values()
+            .into_iter()
+            .map(|value| value as f32)
+            .collect();
+        let mut processor = MfccProcessor::new(sample_rate, hop_length, n_mfcc, norm).unwrap();
+        let (actual_features, actual_times, actual_log_power) =
+            process_mfcc_samples(&mut processor, &samples, sample_rate, hop_length);
+        let expected_features = npy(case.join("features.npy"));
+        let expected_times = npy(case.join("times.npy"));
+        let expected_log_power = npy(case.join("log_power.npy"));
+        let tolerances = json(case.join("meta.json"));
+        let features_rtol = tolerances["tolerances"]["features_rtol"].as_f64().unwrap();
+        let features_atol = tolerances["tolerances"]["features_atol"].as_f64().unwrap();
+        let actual_flat = widen(actual_features.iter().flatten().copied());
+        let actual_log_power_flat = widen(actual_log_power.iter().flatten().copied());
+        assert_close(
+            &Ctx::new("mfcc", name, "log_power.npy"),
+            &expected_log_power.values(),
+            &actual_log_power_flat,
+            1e-5,
+            1e-5,
+        );
+        assert_close(
+            &Ctx::new("mfcc", name, "features.npy"),
+            &expected_features.values(),
+            &actual_flat,
+            features_rtol,
+            features_atol,
+        );
+        assert_close(
+            &Ctx::new("mfcc", name, "times.npy"),
+            &expected_times.values(),
+            &actual_times,
+            0.0,
+            0.0,
+        );
+        assert_eq!(expected_features.shape, [actual_features.len(), n_mfcc]);
+
+        let expected_whole = npy(case.join("whole_features.npy"));
+        let actual_whole = processor.transform(&samples).unwrap();
+        assert_close(
+            &Ctx::new("mfcc", name, "whole_features.npy"),
+            &expected_whole.values(),
+            &widen(actual_whole.iter().flatten().copied()),
+            features_rtol,
+            features_atol,
+        );
+        let expected_whole_log = npy(case.join("whole_log_power.npy"));
+        let actual_whole_log = processor.log_power_spectrogram(&samples).unwrap();
+        assert_close(
+            &Ctx::new("mfcc", name, "whole_log_power.npy"),
+            &expected_whole_log.values(),
+            &widen(actual_whole_log.iter().flatten().copied()),
+            1e-5,
+            1e-5,
+        );
+    }
+}
+
+#[test]
+fn mfcc_backward_silence_reset_and_short_frame_behavior_match_reference() {
+    let frame = AudioFrame {
+        index: 0,
+        samples: vec![0.0; 2_940],
+        perf_time: 0.25,
+    };
+    let mut processor = MfccProcessor::new(44_100, 1_470, 13, Some(MfccNorm::Backward)).unwrap();
+    let first = processor.process(&frame).unwrap();
+    assert_eq!(first.features[0], -25_600.0);
+    assert!(first.features[1..].iter().all(|&value| value == 0.0));
+    processor.reset();
+    assert_eq!(processor.process(&frame).unwrap(), first);
+    assert_eq!(processor.transform(&[]).unwrap(), Vec::<Vec<f32>>::new());
+    assert!(
+        processor
+            .process(&AudioFrame {
+                samples: vec![0.0; 2_939],
+                ..frame
+            })
+            .is_none()
+    );
+}
+
+#[test]
+fn mfcc_streaming_frame_ignores_samples_after_its_first_window() {
+    let first_window = AudioFrame {
+        index: 0,
+        samples: vec![0.0; 2_940],
+        perf_time: 0.25,
+    };
+    let mut longer_frame = first_window.clone();
+    longer_frame.samples.extend(vec![1.0; 2_940]);
+
+    let mut processor = MfccProcessor::new(44_100, 1_470, 13, Some(MfccNorm::Backward)).unwrap();
+    assert_eq!(
+        processor.process(&longer_frame).unwrap(),
+        processor.process(&first_window).unwrap()
     );
 }
 

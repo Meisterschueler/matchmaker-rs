@@ -26,6 +26,17 @@ fn follow_audio(method: &str, extra: &[&str]) -> Output {
     )
 }
 
+fn features(processor: &str, extra: &[&str], output: &std::path::Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("features")
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--processor", processor, "--export"])
+        .arg(output)
+        .args(extra)
+        .output()
+        .unwrap()
+}
+
 fn follow_audio_files(
     score: &std::path::Path,
     performance: &std::path::Path,
@@ -232,6 +243,32 @@ fn features_command_exports_mel_and_accepts_bank_overrides() {
 }
 
 #[test]
+fn features_command_exports_mfcc_and_accepts_dct_overrides() {
+    let output = std::env::temp_dir().join("matchmaker_cli_mfcc_features");
+    let _ = std::fs::remove_dir_all(&output);
+    let run = features("mfcc", &["--n-mfcc", "8", "--norm", "ortho"], &output);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(output.join("processor/mfcc/features.npy").is_file());
+    assert!(output.join("processor/mfcc/times.npy").is_file());
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["n_fft"], 2_940);
+    assert_eq!(meta["n_mfcc"], 8);
+    assert_eq!(meta["norm"], "ortho");
+
+    let rejected = std::env::temp_dir().join("matchmaker_cli_mfcc_features_rejected");
+    let _ = std::fs::remove_dir_all(&rejected);
+    let invalid = features("mfcc", &["--n-mfcc", "0"], &rejected);
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("n_mfcc"));
+    assert!(!rejected.exists());
+}
+
+#[test]
 fn cli_audio_follow_accepts_mel_and_rejects_invalid_dimensions_or_methods() {
     let valid = follow_audio(
         "arzt",
@@ -261,6 +298,40 @@ fn cli_audio_follow_accepts_mel_and_rejects_invalid_dimensions_or_methods() {
         assert!(
             String::from_utf8_lossy(&run.stderr).contains(message),
             "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+    }
+}
+
+#[test]
+fn cli_audio_follow_accepts_mfcc_and_rejects_invalid_dct_config() {
+    let valid = follow_audio(
+        "arzt",
+        &[
+            "--processor",
+            "mfcc",
+            "--set",
+            "n_mfcc=8",
+            "--set",
+            "norm=ortho",
+            "--quiet",
+        ],
+    );
+    assert!(
+        valid.status.success(),
+        "{}",
+        String::from_utf8_lossy(&valid.stderr)
+    );
+
+    for (extra, expected) in [
+        (vec!["--processor", "mfcc", "--set", "n_mfcc=0"], "n_mfcc"),
+        (vec!["--processor", "mfcc", "--set", "norm=invalid"], "norm"),
+    ] {
+        let run = follow_audio("arzt", &extra);
+        assert!(!run.status.success());
+        assert!(
+            String::from_utf8_lossy(&run.stderr).contains(expected),
+            "{extra:?}: {}",
             String::from_utf8_lossy(&run.stderr)
         );
     }

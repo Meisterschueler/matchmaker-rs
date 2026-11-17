@@ -18,8 +18,12 @@ use serde_json::json;
 use crate::base::SkfStepDebug;
 use crate::error::{Error, Result};
 use crate::features::{
-    AudioProcessor, Observation, cqt::CqtProcessor, cqt_spectral_flux::CqtSpectralFluxProcessor,
-    mel::MelProcessor, raw_spectrum::RawSpectrumProcessor,
+    AudioProcessor, Observation,
+    cqt::CqtProcessor,
+    cqt_spectral_flux::CqtSpectralFluxProcessor,
+    mel::MelProcessor,
+    mfcc::{MfccNorm, MfccProcessor},
+    raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioStream;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
@@ -376,6 +380,9 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
         &[reference.score_positions.len()],
         reference.score_positions.iter().copied(),
     )?;
+    let hop_length = config
+        .hop_length
+        .unwrap_or(config.sample_rate as usize / config.frame_rate as usize);
     let mut score_meta = json!({
         "score_tempo": mm.score().tempo,
         "tempo": mm.tempo(),
@@ -413,11 +420,13 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
         score_meta["n_mels"] = json!(config.n_mels.unwrap_or(128));
         score_meta["norm"] = norm_json(config.norm);
     }
+    if config.processor().name() == "mfcc" {
+        score_meta["n_mfcc"] = json!(config.n_mfcc.unwrap_or(13));
+        score_meta["n_fft"] = json!(2 * hop_length);
+        score_meta["norm"] = mfcc_norm_json(config.dct_norm);
+    }
     write_json(&dir.join("score/meta.json"), &score_meta)?;
 
-    let hop_length = config
-        .hop_length
-        .unwrap_or(config.sample_rate as usize / config.frame_rate as usize);
     let mut audio_meta = json!({
         "performance": recording.performance_path,
         "source_sample_rate": recording.source_sample_rate,
@@ -435,6 +444,12 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
         audio_meta["n_fft"] = json!(2 * hop_length);
         audio_meta["n_mels"] = json!(config.n_mels.unwrap_or(128));
         audio_meta["norm"] = norm_json(config.norm);
+    }
+    if config.processor().name() == "mfcc" {
+        audio_meta["processor"] = json!("mfcc");
+        audio_meta["n_fft"] = json!(2 * hop_length);
+        audio_meta["n_mfcc"] = json!(config.n_mfcc.unwrap_or(13));
+        audio_meta["norm"] = mfcc_norm_json(config.dct_norm);
     }
     write_json(&dir.join("audio/meta.json"), &audio_meta)?;
     f8(
@@ -787,6 +802,7 @@ pub fn write_audio_features(
             n_fft: Some(n_fft),
             include_spectral_flux: None,
             mel: None,
+            mfcc: None,
         },
         &mut RawSpectrumProcessor::new(sample_rate, hop_length, n_fft),
     )
@@ -811,6 +827,7 @@ pub fn write_cqt_features(
             n_fft: None,
             include_spectral_flux: None,
             mel: None,
+            mfcc: None,
         },
         &mut processor,
     )
@@ -838,6 +855,7 @@ pub fn write_cqt_spectral_flux_features(
             n_fft: None,
             include_spectral_flux: Some(include_flux),
             mel: None,
+            mfcc: None,
         },
         &mut processor,
     )
@@ -865,6 +883,35 @@ pub fn write_mel_features(
             n_fft: Some(n_fft),
             include_spectral_flux: None,
             mel: Some((n_mels, norm)),
+            mfcc: None,
+        },
+        &mut processor,
+    )
+}
+
+/// Decode and export standalone MFCC features using the existing audio stream.
+pub fn write_mfcc_features(
+    performance: impl AsRef<Path>,
+    dir: impl AsRef<Path>,
+    sample_rate: u32,
+    hop_length: usize,
+    n_mfcc: usize,
+    norm: Option<MfccNorm>,
+) -> Result<()> {
+    let mut processor = MfccProcessor::new(sample_rate, hop_length, n_mfcc, norm)?;
+    let n_fft = processor.n_fft();
+    write_features(
+        performance.as_ref(),
+        dir.as_ref(),
+        Extraction {
+            key: "mfcc",
+            sample_rate,
+            hop_length,
+            cache_size: n_fft - hop_length,
+            n_fft: Some(n_fft),
+            include_spectral_flux: None,
+            mel: None,
+            mfcc: Some((n_mfcc, norm)),
         },
         &mut processor,
     )
@@ -878,6 +925,7 @@ struct Extraction {
     n_fft: Option<usize>,
     include_spectral_flux: Option<bool>,
     mel: Option<(usize, Option<f64>)>,
+    mfcc: Option<(usize, Option<MfccNorm>)>,
 }
 
 fn write_features(
@@ -894,6 +942,7 @@ fn write_features(
         n_fft,
         include_spectral_flux,
         mel,
+        mfcc,
     } = extraction;
     let mut stream = AudioStream::open(performance, sample_rate, hop_length, cache_size)?;
     let source_sample_rate = stream.source_sample_rate();
@@ -911,7 +960,9 @@ fn write_features(
         );
     }
     let output_refs: Vec<&Observation> = outputs.iter().collect();
-    let feature_width = mel.map(|(n_mels, _)| n_mels);
+    let feature_width = mel
+        .map(|(n_mels, _)| n_mels)
+        .or(mfcc.map(|(n_mfcc, _)| n_mfcc));
     observations_with_width(
         &dir.join("processor").join(key),
         "",
@@ -944,6 +995,10 @@ fn write_features(
         meta["n_mels"] = json!(n_mels);
         meta["norm"] = norm_json(norm);
     }
+    if let Some((n_mfcc, norm)) = mfcc {
+        meta["n_mfcc"] = json!(n_mfcc);
+        meta["norm"] = mfcc_norm_json(norm);
+    }
     write_json(&dir.join("audio/meta.json"), &meta)
 }
 
@@ -951,6 +1006,14 @@ fn norm_json(norm: Option<f64>) -> serde_json::Value {
     match norm {
         Some(norm) if norm == f64::INFINITY => json!("inf"),
         Some(norm) => json!(norm),
+        None => serde_json::Value::Null,
+    }
+}
+
+fn mfcc_norm_json(norm: Option<MfccNorm>) -> serde_json::Value {
+    match norm {
+        Some(MfccNorm::Backward) => json!("backward"),
+        Some(MfccNorm::Ortho) => json!("ortho"),
         None => serde_json::Value::Null,
     }
 }

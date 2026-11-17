@@ -49,7 +49,7 @@ use tracing::debug_span;
 use crate::error::{Error, Result};
 use crate::features::{
     AudioProcessor, chroma::ChromaProcessor, cqt::CqtProcessor, lse::LseProcessor,
-    mel::MelProcessor, raw_spectrum::RawSpectrumProcessor,
+    mel::MelProcessor, mfcc::MfccProcessor, raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioFrame;
 use crate::matchmaker::{AudioMethod, AudioMethodConfig, AudioProcessorKind};
@@ -345,6 +345,21 @@ fn extract_score_features(
             )?;
             let n_fft = processor.n_fft();
             (Box::new(processor), n_fft)
+        }
+        AudioProcessorKind::Mfcc => {
+            let processor = MfccProcessor::new(
+                config.sample_rate,
+                hop_length,
+                config.n_mfcc.unwrap_or(13),
+                config.dct_norm,
+            )?;
+            if samples.len() < processor.n_fft() {
+                return Err(audio_config(
+                    "n_fft",
+                    "the rendered score is shorter than one analysis window",
+                ));
+            }
+            return processor.transform(samples);
         }
         AudioProcessorKind::Cqt => {
             let rows = CqtProcessor::new(config.sample_rate, hop_length, Some(f64::INFINITY))?

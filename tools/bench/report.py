@@ -10,8 +10,8 @@ parity flags (contracts/benchmark-report.md):
   Rust's best state leads by less than 1e-9 (relative; ``<method>.gap.tsv``) are numerical ties
   and count as equal
 
-Exits with 1 on a parity violation. Frame processors such as audio mel use the shared audio
-position gate; the OuterHMM p95 gate also applies only to audio runs, never MIDI OuterHMM.
+Exits with 1 on a parity violation. Frame processors such as audio mel and MFCC use the shared
+audio position gate; the OuterHMM p95 gate also applies only to audio runs, never MIDI OuterHMM.
 ``--baseline`` (the previous master report.json) flags Rust inference latency above 1.10 x the baseline. The page ends with the
 sources of the datasets in the report (tools/datasets/datasets.toml). Standard library + NumPy
 only; every records file has its own ``paths/`` directory next to it (one directory per shard

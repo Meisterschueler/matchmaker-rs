@@ -107,8 +107,11 @@ fn audio_names_and_errors_are_input_specific() {
         AudioProcessorKind::Mel
     );
     assert_eq!(AudioProcessorKind::Mel.name(), "mel");
-    let unknown = "mfcc".parse::<AudioProcessorKind>().unwrap_err();
-    assert!(unknown.to_string().contains("mel"));
+    assert_eq!(
+        "mfcc".parse::<AudioProcessorKind>().unwrap(),
+        AudioProcessorKind::Mfcc
+    );
+    assert_eq!(AudioProcessorKind::Mfcc.name(), "mfcc");
 
     let decode_error = Error::AudioDecode {
         path: "performance.ogg".into(),

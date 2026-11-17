@@ -28,7 +28,7 @@ use crate::error::{Error, Result};
 use crate::features::{
     AudioProcessor, Observation, Processor, chord_onset::ChordOnsetProcessor,
     chroma::ChromaProcessor, cqt::CqtProcessor, cqt_spectral_flux::CqtSpectralFluxProcessor,
-    lse::LseProcessor, mel::MelProcessor, pitch::PitchProcessor,
+    lse::LseProcessor, mel::MelProcessor, mfcc::MfccProcessor, pitch::PitchProcessor,
     raw_spectrum::RawSpectrumProcessor,
 };
 use crate::io::audio::AudioStream;
@@ -241,17 +241,20 @@ pub enum AudioProcessorKind {
     CqtSpectralFlux,
     /// Power mel-spectrogram with 128 bands by default.
     Mel,
+    /// Log-power mel spectrogram transformed to cepstral coefficients.
+    Mfcc,
 }
 
 impl AudioProcessorKind {
     /// Reference names of the supported audio processors.
-    pub const AVAILABLE: [&'static str; 6] = [
+    pub const AVAILABLE: [&'static str; 7] = [
         "chroma",
         "lse",
         "raw_spectrum",
         "cqt",
         "cqt_spectral_flux",
         "mel",
+        "mfcc",
     ];
 
     /// Reference name of this processor.
@@ -263,6 +266,7 @@ impl AudioProcessorKind {
             AudioProcessorKind::Cqt => "cqt",
             AudioProcessorKind::CqtSpectralFlux => "cqt_spectral_flux",
             AudioProcessorKind::Mel => "mel",
+            AudioProcessorKind::Mfcc => "mfcc",
         }
     }
 }
@@ -278,6 +282,7 @@ impl FromStr for AudioProcessorKind {
             "cqt" => Ok(AudioProcessorKind::Cqt),
             "cqt_spectral_flux" => Ok(AudioProcessorKind::CqtSpectralFlux),
             "mel" => Ok(AudioProcessorKind::Mel),
+            "mfcc" => Ok(AudioProcessorKind::Mfcc),
             _ => Err(Error::AudioConfig {
                 key: "processor".into(),
                 reason: format!(
@@ -332,6 +337,10 @@ pub struct AudioMethodConfig {
     pub n_fft: Option<usize>,
     /// Mel-band count; defaults to 128 for the mel processor.
     pub n_mels: Option<usize>,
+    /// MFCC coefficient count; defaults to 13.
+    pub n_mfcc: Option<usize>,
+    /// MFCC DCT normalization; defaults to the reference's backward norm.
+    pub dct_norm: Option<crate::features::mfcc::MfccNorm>,
     /// Required local SF2 path for runtime score synthesis.
     pub soundfont_path: Option<std::path::PathBuf>,
     /// Search window in seconds.
@@ -394,6 +403,8 @@ impl AudioMethodConfig {
             norm: processor.default_norm(),
             n_fft: skf.then_some(512),
             n_mels: None,
+            n_mfcc: None,
+            dct_norm: None,
             soundfont_path: None,
             window_size: 10.0,
             start_window_size: arzt.then_some(0.1),
@@ -424,6 +435,9 @@ impl AudioMethodConfig {
         self.norm = processor.default_norm();
         self.n_fft = (processor == AudioProcessorKind::RawSpectrum).then_some(512);
         self.n_mels = None;
+        self.n_mfcc = None;
+        self.dct_norm = (processor == AudioProcessorKind::Mfcc)
+            .then_some(crate::features::mfcc::MfccNorm::Backward);
     }
 
     /// Validate shared audio values and method-specific parameter ranges.
@@ -473,6 +487,9 @@ impl AudioMethodConfig {
                 if self.n_fft.is_some() {
                     return Err(invalid("n_fft", "is only valid for raw_spectrum"));
                 }
+                if self.n_mels.is_some() {
+                    return Err(invalid("n_mels", "is only valid for mel"));
+                }
                 if self.norm.is_some() {
                     return Err(invalid(
                         "norm",
@@ -500,6 +517,35 @@ impl AudioMethodConfig {
                     return Err(invalid("n_mels", "must be at least 1 band"));
                 }
             }
+            AudioProcessorKind::Mfcc => {
+                if !matches!(
+                    method,
+                    AudioMethod::Arzt
+                        | AudioMethod::Dixon
+                        | AudioMethod::ArztTempo
+                        | AudioMethod::ArztMultiFold
+                ) {
+                    return Err(invalid(
+                        "processor",
+                        "mfcc is currently supported by audio arzt, dixon, arzt_tempo and arzt_multi_fold",
+                    ));
+                }
+                if self.n_fft.is_some() {
+                    return Err(invalid("n_fft", "is only valid for raw_spectrum"));
+                }
+                if self.n_mels.is_some() {
+                    return Err(invalid("n_mels", "is only valid for mel"));
+                }
+                if self.norm.is_some() {
+                    return Err(invalid("norm", "mfcc uses its DCT normalization"));
+                }
+                if self
+                    .n_mfcc
+                    .is_some_and(|n_mfcc| n_mfcc == 0 || n_mfcc > 128)
+                {
+                    return Err(invalid("n_mfcc", "must be between 1 and 128"));
+                }
+            }
             _ if method == AudioMethod::Skf => {
                 return Err(invalid("processor", "skf needs the raw_spectrum processor"));
             }
@@ -519,6 +565,12 @@ impl AudioMethodConfig {
             }
             _ if self.n_mels.is_some() => {
                 return Err(invalid("n_mels", "is only valid for mel"));
+            }
+            _ if self.n_mfcc.is_some() => {
+                return Err(invalid("n_mfcc", "is only valid for mfcc"));
+            }
+            _ if self.dct_norm.is_some() => {
+                return Err(invalid("norm", "DCT normalization is only valid for mfcc"));
             }
             _ => {}
         }
@@ -652,6 +704,7 @@ impl AudioProcessorKind {
             | AudioProcessorKind::Cqt
             | AudioProcessorKind::CqtSpectralFlux => None,
             AudioProcessorKind::Mel => Some(f64::INFINITY),
+            AudioProcessorKind::Mfcc => None,
         }
     }
 }
@@ -1620,6 +1673,16 @@ fn make_audio_processor(
                 hop_length,
                 config.n_mels.unwrap_or(128),
                 config.norm,
+            )?;
+            let cache_size = processor.n_fft().saturating_sub(hop_length);
+            (Box::new(processor), cache_size)
+        }
+        AudioProcessorKind::Mfcc => {
+            let processor = MfccProcessor::new(
+                config.sample_rate,
+                hop_length,
+                config.n_mfcc.unwrap_or(13),
+                config.dct_norm,
             )?;
             let cache_size = processor.n_fft().saturating_sub(hop_length);
             (Box::new(processor), cache_size)

@@ -11,9 +11,10 @@ use common::{data, npy};
 use matchmaker_rs::Error;
 use matchmaker_rs::base::OnlineAlignment;
 use matchmaker_rs::export::{
-    write_audio_features, write_cqt_spectral_flux_features, write_mel_features,
+    write_audio_features, write_cqt_spectral_flux_features, write_mel_features, write_mfcc_features,
 };
 use matchmaker_rs::features::Observation;
+use matchmaker_rs::features::mfcc::MfccNorm;
 use matchmaker_rs::io::stream::MidiMessageKind;
 use matchmaker_rs::matchmaker::{
     AudioMatchmaker, AudioMethod, AudioMethodConfig, AudioProcessorKind, Matchmaker, Method,
@@ -600,6 +601,79 @@ fn invalid_mel_export_preserves_existing_output() {
                 hop_length,
                 n_mels,
                 norm
+            ),
+            Err(Error::AudioConfig { .. })
+        ));
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve");
+    }
+    assert!(!output.join("audio/meta.json").exists());
+}
+
+#[test]
+fn mfcc_extraction_handles_short_silent_empty_and_repeat_runs() {
+    let extract = |performance: &PathBuf, name: &str| {
+        let output = std::env::temp_dir().join(format!("matchmaker_edge_mfcc_{name}"));
+        let _ = std::fs::remove_dir_all(&output);
+        write_mfcc_features(
+            performance,
+            &output,
+            44_100,
+            1_470,
+            13,
+            Some(MfccNorm::Backward),
+        )
+        .unwrap();
+        npy(output.join("processor/mfcc/features.npy"))
+    };
+    for (name, performance) in [
+        ("short", audio_wav("mfcc_short", 1, &[0; 100])),
+        ("empty", audio_wav("mfcc_empty", 1, &[])),
+    ] {
+        assert_eq!(extract(&performance, name).shape, [0, 13], "{name}");
+    }
+
+    let silent = extract(&audio_wav("mfcc_silent", 1, &vec![0; 44_100]), "silent");
+    assert_eq!(silent.shape, [29, 13]);
+    assert!(silent.values().iter().all(|value| value.is_finite()));
+    assert!(silent.values().chunks(13).all(|row| row[0] == -25_600.0));
+    assert!(
+        silent
+            .values()
+            .chunks(13)
+            .all(|row| row[1..].iter().all(|&value| value == 0.0))
+    );
+
+    let melody = audio_melody_wav("mfcc_melody", 3);
+    let first = extract(&melody, "melody");
+    let repeated = extract(&melody, "melody_again");
+    assert_eq!(first.shape[1], 13);
+    assert!(first.shape[0] > 0);
+    assert!(first.values().iter().all(|value| value.is_finite()));
+    assert_eq!(first.values(), repeated.values());
+}
+
+#[test]
+fn invalid_mfcc_export_preserves_existing_output() {
+    let output = std::env::temp_dir().join("matchmaker_invalid_mfcc_export");
+    let _ = std::fs::remove_dir_all(&output);
+    std::fs::create_dir_all(&output).unwrap();
+    let sentinel = output.join("sentinel.txt");
+    std::fs::write(&sentinel, b"preserve").unwrap();
+
+    for (sample_rate, hop_length, n_mfcc) in [
+        (0, 1_470, 13),
+        (44_100, 0, 13),
+        (44_100, 1_470, 0),
+        (44_100, 1_470, 129),
+    ] {
+        assert!(matches!(
+            write_mfcc_features(
+                data("audio/simple_mozart_k265_var1_sf2.wav"),
+                &output,
+                sample_rate,
+                hop_length,
+                n_mfcc,
+                Some(MfccNorm::Backward)
             ),
             Err(Error::AudioConfig { .. })
         ));

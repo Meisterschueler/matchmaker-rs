@@ -14,6 +14,7 @@ use matchmaker_rs::features::{
     cqt::{CqtProcessor, N_BINS},
     cqt_spectral_flux::CqtSpectralFluxProcessor,
     mel::MelProcessor,
+    mfcc::{MfccNorm, MfccProcessor},
     raw_spectrum::RawSpectrumProcessor,
 };
 use matchmaker_rs::io::audio::AudioStream;
@@ -44,14 +45,15 @@ fn extract_audio_features<'py>(
     processor: &str,
     kwargs: Option<&Bound<'py, PyDict>>,
 ) -> PyResult<ExtractedAudioFeatures<'py>> {
-    let (raw_spectrum, flux, mel) = match processor {
-        "raw_spectrum" => (true, false, false),
-        "cqt" => (false, false, false),
-        "cqt_spectral_flux" => (false, true, false),
-        "mel" => (false, false, true),
+    let (raw_spectrum, flux, mel, mfcc) = match processor {
+        "raw_spectrum" => (true, false, false, false),
+        "cqt" => (false, false, false, false),
+        "cqt_spectral_flux" => (false, true, false, false),
+        "mel" => (false, false, true, false),
+        "mfcc" => (false, false, false, true),
         _ => {
             return Err(PyValueError::new_err(format!(
-                "unknown audio processor {processor:?}; available: ['raw_spectrum', 'cqt', 'cqt_spectral_flux', 'mel']"
+                "unknown audio processor {processor:?}; available: ['raw_spectrum', 'cqt', 'cqt_spectral_flux', 'mel', 'mfcc']"
             )));
         }
     };
@@ -61,7 +63,9 @@ fn extract_audio_features<'py>(
         (44_100, 1_470, 0)
     };
     let mut n_mels = 128usize;
+    let mut n_mfcc = 13usize;
     let mut norm = Some(f64::INFINITY);
+    let mut dct_norm = Some(MfccNorm::Backward);
     let mut include_flux = true;
     if let Some(kwargs) = kwargs {
         for (key, value) in kwargs.iter() {
@@ -92,6 +96,11 @@ fn extract_audio_features<'py>(
                         .extract()
                         .map_err(|_| PyValueError::new_err("n_mels must be a positive integer"))?;
                 }
+                "n_mfcc" if mfcc => {
+                    n_mfcc = value
+                        .extract()
+                        .map_err(|_| PyValueError::new_err("n_mfcc must be a positive integer"))?;
+                }
                 "norm" if mel => {
                     norm = if value.is_none() {
                         None
@@ -111,6 +120,24 @@ fn extract_audio_features<'py>(
                         return Err(PyValueError::new_err(
                             "norm must be a positive number, inf, or None",
                         ));
+                    };
+                }
+                "norm" if mfcc => {
+                    dct_norm = if value.is_none() {
+                        None
+                    } else {
+                        let norm = value.extract::<String>().map_err(|_| {
+                            PyValueError::new_err("norm must be 'backward', 'ortho', or None")
+                        })?;
+                        if norm.eq_ignore_ascii_case("backward") {
+                            Some(MfccNorm::Backward)
+                        } else if norm.eq_ignore_ascii_case("ortho") {
+                            Some(MfccNorm::Ortho)
+                        } else {
+                            return Err(PyValueError::new_err(
+                                "norm must be 'backward', 'ortho', or None",
+                            ));
+                        }
                     };
                 }
                 _ => {
@@ -145,6 +172,11 @@ fn extract_audio_features<'py>(
                 MelProcessor::new(sample_rate, hop_length, n_mels, norm).map_err(to_py_err)?;
             let cache_size = processor.n_fft() - hop_length;
             (Box::new(processor), cache_size, n_mels)
+        } else if mfcc {
+            let processor =
+                MfccProcessor::new(sample_rate, hop_length, n_mfcc, dct_norm).map_err(to_py_err)?;
+            let cache_size = processor.n_fft() - hop_length;
+            (Box::new(processor), cache_size, n_mfcc)
         } else if flux {
             (
                 Box::new(
@@ -356,17 +388,40 @@ fn set_audio_config(
                 _ => Some(integer(&value)?),
             };
         }
-        "norm" => {
-            config.norm = match value {
+        "n_mfcc" => {
+            config.n_mfcc = match value {
                 ConfigValue::None => None,
-                ConfigValue::Str(ref value)
-                    if value.eq_ignore_ascii_case("inf")
-                        || value.eq_ignore_ascii_case("infinity") =>
-                {
-                    Some(f64::INFINITY)
-                }
-                _ => Some(number(&value)?),
+                _ => Some(integer(&value)?),
             };
+        }
+        "norm" => {
+            if config.processor() == AudioProcessorKind::Mfcc {
+                config.dct_norm = match value {
+                    ConfigValue::None => None,
+                    ConfigValue::Str(ref value) if value.eq_ignore_ascii_case("backward") => {
+                        Some(MfccNorm::Backward)
+                    }
+                    ConfigValue::Str(ref value) if value.eq_ignore_ascii_case("ortho") => {
+                        Some(MfccNorm::Ortho)
+                    }
+                    _ => {
+                        return Err(PyValueError::new_err(
+                            "Invalid audio parameter norm: expected backward, ortho, or None",
+                        ));
+                    }
+                };
+            } else {
+                config.norm = match value {
+                    ConfigValue::None => None,
+                    ConfigValue::Str(ref value)
+                        if value.eq_ignore_ascii_case("inf")
+                            || value.eq_ignore_ascii_case("infinity") =>
+                    {
+                        Some(f64::INFINITY)
+                    }
+                    _ => Some(number(&value)?),
+                };
+            }
         }
         "window_size" | "distance_func" if method == AudioMethod::Skf => {
             return Err(PyValueError::new_err(format!(
