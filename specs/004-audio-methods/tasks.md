@@ -169,7 +169,7 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T076 [US11] Extend extraction/config in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs for structured fields; enforce "Structured Korzeniowski observations must not be fed to vector-only followers" and keep PF unregistered until US12.
 - [X] T077 [US11] Export spectrum/onset/loudness separately with explicit absent note metadata in src/export.rs and tools/golden/compare.py; cover state reset/short input/invalid window and old vector exports in tests/audio_config_export.rs and tests/edge_cases.rs.
 - [X] T078 [US11] Benchmark standalone structured extraction using tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs; do not force it through a vector follower; document module/field examples, README.md and UPSTREAM.md.
-- [ ] T079 [US11] Run all quickstart gates, record component/timing/platform evidence in specs/004-audio-methods/research.md, and create only C11 `feat(audio): add korzeniowski processor`; stop before PF until committed.
+- [X] T079 [US11] Run all quickstart gates, record component/timing/platform evidence in specs/004-audio-methods/research.md, and create only C11 `feat(audio): add korzeniowski processor`; stop before PF until committed.
 
 ## Phase 14: US12 - pfkorz (P3, C12)
 
