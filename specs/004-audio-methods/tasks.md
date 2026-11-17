@@ -156,7 +156,7 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T069 [US10] Enable current MFCC config, compatible consumers and extraction in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; preserve reference default/errors instead of replacing backward norm with ortho.
 - [X] T070 [US10] Extend src/export.rs, tools/golden/compare.py, tests/audio_config_export.rs and tests/edge_cases.rs for coefficient metadata, first-difference diagnostics, reset and zero-energy behavior.
 - [X] T071 [US10] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for compatible MFCC runs; update examples, README.md and UPSTREAM.md.
-- [ ] T072 [US10] Run all quickstart gates, record norm/numeric/report/platform evidence in specs/004-audio-methods/research.md, and create only C10 `feat(audio): add mfcc processor`; pause if the pinned reference cannot run the requested default.
+- [X] T072 [US10] Run all quickstart gates, record norm/numeric/report/platform evidence in specs/004-audio-methods/research.md, and create only C10 `feat(audio): add mfcc processor`; pause if the pinned reference cannot run the requested default.
 
 ## Phase 13: US11 - korzeniowski audio processor (P3, C11)
 
