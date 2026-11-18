@@ -252,6 +252,8 @@ fn audio_config(
             "frame_rate" => config.frame_rate = audio_u32(key, &value)?,
             "hop_length" => config.hop_length = audio_optional_usize(key, &value)?,
             "n_fft" => config.n_fft = audio_optional_usize(key, &value)?,
+            "win_length" => config.win_length = audio_optional_usize(key, &value)?,
+            "num_particles" => config.num_particles = audio_optional_usize(key, &value)?,
             "n_mels" => config.n_mels = audio_optional_usize(key, &value)?,
             "n_mfcc" => config.n_mfcc = audio_optional_usize(key, &value)?,
             "norm" => {
@@ -445,6 +447,9 @@ fn main() -> Result<()> {
                     }
                     AudioMethod::OuterHmm => {
                         AudioMatchmaker::new_outerhmm(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::PfKorz => {
+                        AudioMatchmaker::new_pfkorz(&score, config, tempo, !no_unfold)?
                     }
                 };
                 let ground_truth_path = ground_truth;

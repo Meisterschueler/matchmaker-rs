@@ -470,6 +470,187 @@ def compare_korzeniowski_case(golden_dir, export_dir, metadata):
     return 0
 
 
+def compare_pfkorz_case(golden_dir, export_dir, metadata):
+    """Compare deterministic PF inputs/model and validate bounded, inspectable state."""
+    processor_dir = export_dir / "processor/korzeniowski"
+    model_dir = export_dir / "score/pfkorz"
+    method_dir = export_dir / "pfkorz"
+    tolerances = metadata["tolerances"]
+    input_tolerance = (tolerances["float64_rtol"], tolerances["float64_atol"])
+    model_tolerance = (tolerances["model_rtol"], tolerances["model_atol"])
+
+    for expected_name, actual_name in (
+        ("performance_spectrum.npy", "spectrum.npy"),
+        ("performance_onset.npy", "onset.npy"),
+        ("performance_loudness.npy", "loudness.npy"),
+        ("performance_times.npy", "times.npy"),
+    ):
+        actual_path = processor_dir / actual_name
+        if not actual_path.is_file():
+            print(f"first differing stage: processor/korzeniowski, missing {actual_path}")
+            return 1
+        difference = first_difference(
+            actual_name,
+            np.load(golden_dir / expected_name),
+            np.load(actual_path),
+            tolerance=(0.0, tolerances["time_atol"])
+            if actual_name == "times.npy"
+            else input_tolerance,
+        )
+        if difference:
+            print(f"first differing stage: processor/korzeniowski/{actual_name}: {difference}")
+            return 1
+
+    for name in (
+        "beat_grid.npy",
+        "onset_positions.npy",
+        "nearest_onsets.npy",
+        "rest_mask.npy",
+        "templates.npy",
+        "active_note_offsets.npy",
+        "active_notes.npy",
+    ):
+        expected = np.load(golden_dir / "score_model" / name)
+        actual_path = model_dir / name
+        if not actual_path.is_file():
+            print(f"first differing stage: score/pfkorz, missing {actual_path}")
+            return 1
+        actual = np.load(actual_path)
+        tolerance = model_tolerance if name == "templates.npy" else (
+            (0.0, 0.0)
+            if name in ("rest_mask.npy", "active_note_offsets.npy", "active_notes.npy")
+            else (1e-7, 1e-9)
+        )
+        difference = first_difference(name, expected, actual, tolerance=tolerance)
+        if difference:
+            print(f"first differing stage: score/pfkorz/{name}: {difference}")
+            return 1
+
+    audio_meta = json.loads((export_dir / "audio/meta.json").read_text())
+    for key in ("processor", "sample_rate", "hop_length", "win_length", "n_fft", "frames"):
+        if audio_meta.get(key) != metadata.get(key):
+            print(
+                f"first differing stage: audio/meta.json: {key}: "
+                f"expected {metadata.get(key)!r}, actual {audio_meta.get(key)!r}"
+            )
+            return 1
+    score_meta = json.loads((export_dir / "score/meta.json").read_text())
+    if score_meta.get("score_model") != "pfkorz" or score_meta.get("audio_method") != "pfkorz":
+        print("first differing stage: score/meta.json: expected the pfkorz score model and method")
+        return 1
+
+    method_meta = json.loads((method_dir / "meta.json").read_text())
+    config = method_meta.get("config", {})
+    seed = config.get("seed")
+    if seed not in metadata["seeds"]:
+        print(f"first differing stage: pfkorz/meta.json: unexpected seed {seed!r}")
+        return 1
+    for key, expected in (
+        ("num_particles", metadata["num_particles"]),
+        ("notated_tempo", metadata["tempo"]),
+        ("hop_size", metadata["hop_length"] / metadata["sample_rate"]),
+    ):
+        if config.get(key) != expected:
+            print(
+                f"first differing stage: pfkorz/meta.json: config.{key}: "
+                f"expected {expected!r}, actual {config.get(key)!r}"
+            )
+            return 1
+
+    frames = metadata["frames"]
+    particles = metadata["num_particles"]
+    state_exported = frames > 0 and frames * particles <= 5_000_000
+    if method_meta.get("particle_state_exported") is not state_exported:
+        print(
+            "first differing stage: pfkorz/meta.json: particle_state_exported: "
+            f"expected {state_exported}, actual {method_meta.get('particle_state_exported')!r}"
+        )
+        return 1
+    if method_meta.get("particle_state_truncated") is not (frames * particles > 5_000_000):
+        print("first differing stage: pfkorz/meta.json: particle_state_truncated is inconsistent with the export bound")
+        return 1
+    if state_exported:
+        state_names = (
+            "particle_positions",
+            "particle_weights",
+            "note_log_tempi",
+            "local_log_tempi",
+            "sound_probabilities",
+            "rest_probabilities",
+        )
+        states = {}
+        for name in state_names:
+            path = method_dir / f"{name}.npy"
+            if not path.is_file():
+                print(f"first differing stage: pfkorz, missing {path}")
+                return 1
+            states[name] = np.load(path)
+            if states[name].shape != (frames, particles) or not np.isfinite(states[name]).all():
+                print(
+                    f"first differing stage: pfkorz/{name}.npy: expected finite "
+                    f"shape {(frames, particles)}, actual {states[name].shape}"
+                )
+                return 1
+        if not np.allclose(states["particle_weights"].sum(axis=1), 1.0, atol=1e-8, rtol=0.0):
+            print("first differing stage: pfkorz/particle_weights.npy: rows are not normalized")
+            return 1
+        ess_path = method_dir / "effective_sample_size.npy"
+        resampled_path = method_dir / "resampled.npy"
+        if not ess_path.is_file() or not resampled_path.is_file():
+            print("first differing stage: pfkorz, missing resampling diagnostics")
+            return 1
+        ess = np.load(ess_path)
+        resampled = np.load(resampled_path)
+        if (
+            ess.shape != (frames,)
+            or not np.isfinite(ess).all()
+            or np.any(ess < 1.0 - 1e-8)
+            or np.any(ess > particles + 1e-8)
+            or resampled.shape != (frames,)
+        ):
+            print("first differing stage: pfkorz resampling diagnostics have invalid shape or values")
+            return 1
+
+    expected_path = np.load(golden_dir / f"seed-{seed}" / "alignment_path.npy")
+    actual_path_file = method_dir / "alignment_path.npy"
+    if not actual_path_file.is_file():
+        print("first differing stage: pfkorz/alignment_path.npy is missing")
+        return 1
+    actual_path = np.load(actual_path_file)
+    if expected_path.shape != actual_path.shape or actual_path.shape != (2, frames):
+        print(
+            "first differing stage: pfkorz/alignment_path.npy: expected "
+            f"shape {(2, frames)}, actual {actual_path.shape}"
+        )
+        return 1
+    if not np.isfinite(actual_path).all():
+        print("first differing stage: pfkorz/alignment_path.npy contains non-finite values")
+        return 1
+    difference = first_difference(
+        "alignment timestamps",
+        expected_path[0],
+        actual_path[0],
+        tolerance=(0.0, tolerances["time_atol"]),
+    )
+    if difference:
+        print(f"first differing stage: pfkorz/alignment_path.npy: {difference}")
+        return 1
+    positions_path = method_dir / "positions.npy"
+    if not positions_path.is_file() or not np.array_equal(np.load(positions_path), actual_path[1]):
+        print("first differing stage: pfkorz/positions.npy does not match the recorded alignment path")
+        return 1
+    if not np.array_equal(expected_path[1], actual_path[1]):
+        delta = np.abs(expected_path[1] - actual_path[1])
+        first = int(np.flatnonzero(delta > 0.0)[0])
+        print(
+            f"POSITION_DIFFERENCE: first frame {first}, reference beat "
+            f"{expected_path[1, first]}, actual beat {actual_path[1, first]}, "
+            f"maximum difference {float(delta.max())}; RNG streams are not required to match"
+        )
+    print("WITHIN_TOL: PF structured inputs, score model, configuration, and bounded state")
+    return 0
+
+
 # RustySynth against FluidSynth templates (research R12); Gaussian templates are closed-form.
 SKF_TEMPLATE_MIN_COSINE = 0.99
 SKF_TEMPLATE_MAX_VARIATION = 0.06
@@ -839,6 +1020,8 @@ def main(golden_dir, export_dir):
             return compare_multi_fold_audio_case(golden_dir, export_dir, metadata)
         if metadata.get("method") in ("arzt", "dixon") and metadata.get("processor") in ("chroma", "lse"):
             return compare_audio_case(golden_dir, export_dir, metadata)
+        if metadata.get("method") == "pfkorz":
+            return compare_pfkorz_case(golden_dir, export_dir, metadata)
         if metadata.get("processor") == "raw_spectrum" and "sample_rate" in metadata:
             return compare_raw_spectrum_case(golden_dir, export_dir, metadata)
         if metadata.get("processor") == "mel" and "sample_rate" in metadata:

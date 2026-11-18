@@ -1,0 +1,113 @@
+{
+  "frames": 227,
+  "generator": "tools/golden/generate_audio.py",
+  "hop_length": 1470,
+  "method": "pfkorz",
+  "metric_source": "matchmaker.utils.eval.evaluate_alignment",
+  "n_fft": 4096,
+  "num_particles": 500,
+  "numpy_rng_identity_claim": false,
+  "performance": "simple_mozart_k265_var1_sf2.wav",
+  "performance_sha256": "32DD5C2ED10040658DFAA09ABFE314F97DCE35638C62027216CACA7B31EAAA60",
+  "processor": "korzeniowski",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "E508E943A6AD6882CF277F9F0B6F3ABA988123ACDA590371134A95DBBDC6C7F7",
+    "version": "0.4.0"
+  },
+  "rng_seed_override": "patch reference module SEED before each follower construction",
+  "sample_rate": 44100,
+  "score": "simple_mozart_k265_var1.musicxml",
+  "score_sha256": "FD8EE694087F9CDD74EE04667FB5BB161FC36B04DA4321A8DB3A05ECE598AB4A",
+  "seed_metrics": {
+    "1984": {
+      "accuracy_0.05b": 0.75,
+      "accuracy_0.1b": 1.0,
+      "accuracy_0.3b": 1.0,
+      "accuracy_0.5b": 1.0,
+      "accuracy_1b": 1.0,
+      "accuracy_2b": 1.0,
+      "kurtosis": 0.344,
+      "mean_b": 0.0275,
+      "median_b": 0.0151,
+      "skewness": -0.1442,
+      "smoothness": -4.6343,
+      "std_b": 0.0312
+    },
+    "1985": {
+      "accuracy_0.05b": 0.75,
+      "accuracy_0.1b": 1.0,
+      "accuracy_0.3b": 1.0,
+      "accuracy_0.5b": 1.0,
+      "accuracy_1b": 1.0,
+      "accuracy_2b": 1.0,
+      "kurtosis": 0.4888,
+      "mean_b": 0.0258,
+      "median_b": 0.0144,
+      "skewness": 0.6834,
+      "smoothness": -4.5989,
+      "std_b": 0.0279
+    },
+    "1986": {
+      "accuracy_0.05b": 0.625,
+      "accuracy_0.1b": 0.875,
+      "accuracy_0.3b": 1.0,
+      "accuracy_0.5b": 1.0,
+      "accuracy_1b": 1.0,
+      "accuracy_2b": 1.0,
+      "kurtosis": 1.6404,
+      "mean_b": 0.0423,
+      "median_b": 0.0204,
+      "skewness": 1.5473,
+      "smoothness": -4.7141,
+      "std_b": 0.0509
+    },
+    "1987": {
+      "accuracy_0.05b": 0.75,
+      "accuracy_0.1b": 1.0,
+      "accuracy_0.3b": 1.0,
+      "accuracy_0.5b": 1.0,
+      "accuracy_1b": 1.0,
+      "accuracy_2b": 1.0,
+      "kurtosis": 0.1543,
+      "mean_b": 0.0276,
+      "median_b": 0.0201,
+      "skewness": 0.1135,
+      "smoothness": -4.6784,
+      "std_b": 0.0273
+    },
+    "1988": {
+      "accuracy_0.05b": 0.625,
+      "accuracy_0.1b": 0.875,
+      "accuracy_0.3b": 1.0,
+      "accuracy_0.5b": 1.0,
+      "accuracy_1b": 1.0,
+      "accuracy_2b": 1.0,
+      "kurtosis": 0.3778,
+      "mean_b": 0.0377,
+      "median_b": 0.0188,
+      "skewness": 0.2885,
+      "smoothness": -4.542,
+      "std_b": 0.0416
+    }
+  },
+  "seeds": [
+    1984,
+    1985,
+    1986,
+    1987,
+    1988
+  ],
+  "tempo": 120.0,
+  "tolerances": {
+    "float64_atol": 1e-09,
+    "float64_rtol": 1e-07,
+    "model_atol": 1e-05,
+    "model_rtol": 1e-05,
+    "time_atol": 1e-09
+  },
+  "win_length": 2048
+}

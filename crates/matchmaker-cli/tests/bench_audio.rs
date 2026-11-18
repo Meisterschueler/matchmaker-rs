@@ -386,6 +386,65 @@ fn bench_runs_outerhmm_with_ground_truth_and_records_p95() {
 }
 
 #[test]
+fn bench_runs_pfkorz_per_seed_and_pools_exact_evaluator_metrics() {
+    let root_dir = root();
+    let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_pfkorz");
+    let _ = std::fs::remove_dir_all(&output);
+    std::fs::create_dir_all(&output).unwrap();
+    let manifest = output.join("audio.toml");
+    std::fs::write(
+        &manifest,
+        format!(
+            "[[pieces]]\ndataset = \"audio-pfkorz\"\npiece = \"mozart_pfkorz\"\n\
+             methods = [\"pfkorz\"]\nseeds = [1984, 1985]\ninput_type = \"audio\"\n\
+             kwargs = {{ num_particles = 32 }}\n\
+             score = \"{root_dir}/tests/data/simple_mozart_k265_var1.musicxml\"\n\
+             performance = \"{root_dir}/tests/data/audio/simple_mozart_k265_var1_sf2.wav\"\n\
+             ground_truth = \"{root_dir}/tests/golden/audio/ground_truth/ground_truth.tsv\"\n"
+        ),
+    )
+    .unwrap();
+    let records_path = output.join("records.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("bench")
+        .arg(&manifest)
+        .arg("--out")
+        .arg(&records_path)
+        .args(["--runs", "1", "--methods", "pfkorz"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let records: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&records_path).unwrap()).unwrap();
+    let rows = records.as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    for (record, seed) in rows.iter().zip([1984, 1985]) {
+        assert_eq!(record["method"], "pfkorz");
+        assert_eq!(record["seed"], seed);
+        assert_eq!(record["processor"], "korzeniowski");
+        assert_eq!(record["renderer"], "none");
+        assert_eq!(record["n_observations"], 227);
+        assert!(record["evaluation"]["median_b"].as_f64().is_some());
+        assert!(
+            output
+                .join(format!(
+                    "paths/audio-pfkorz/mozart_pfkorz/pfkorz-seed-{seed}.tsv"
+                ))
+                .is_file()
+        );
+    }
+    let metrics = &rows[0]["per_seed_metrics"];
+    assert!(metrics["1984"]["evaluation"]["median_b"].as_f64().is_some());
+    assert!(metrics["1985"]["evaluation"]["median_b"].as_f64().is_some());
+    assert!(rows[0]["pooled_evaluation"]["median_b"].as_f64().is_some());
+    assert!(rows[0]["pooled_p95_b"].as_f64().is_some());
+}
+
+#[test]
 fn bench_accepts_multi_fold_and_records_repeat_candidates() {
     let output = std::env::temp_dir().join("matchmaker_cli_bench_audio_multi_fold");
     std::fs::create_dir_all(&output).unwrap();

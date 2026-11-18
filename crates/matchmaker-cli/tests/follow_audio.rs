@@ -55,6 +55,17 @@ fn follow_audio_files(
     command.output().unwrap()
 }
 
+fn follow_pfkorz(extra: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .arg("follow")
+        .arg(data("simple_mozart_k265_var1.musicxml"))
+        .arg(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .args(["--input-type", "audio", "--method", "pfkorz", "--quiet"])
+        .args(extra)
+        .output()
+        .unwrap()
+}
+
 #[test]
 fn midi_outerhmm_remains_available() {
     let output = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
@@ -69,6 +80,26 @@ fn midi_outerhmm_remains_available() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn pfkorz_cli_uses_seed_and_particle_overrides_without_soundfont() {
+    let run = follow_pfkorz(&["--set", "num_particles=32", "--set", "random_seed=1984"]);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    for (parameter, value) in [("num_particles", "0"), ("win_length", "1469")] {
+        let run = follow_pfkorz(&["--set", &format!("{parameter}={value}")]);
+        assert!(!run.status.success(), "{parameter}={value}");
+        assert!(
+            String::from_utf8_lossy(&run.stderr).contains(parameter),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+    }
 }
 
 #[test]

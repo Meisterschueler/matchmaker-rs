@@ -18,7 +18,7 @@ use serde_json::json;
 use crate::base::SkfStepDebug;
 use crate::error::{Error, Result};
 use crate::features::{
-    AudioProcessor, Observation,
+    AudioProcessor, KorzeniowskiObservation, Observation,
     cqt::CqtProcessor,
     cqt_spectral_flux::CqtSpectralFluxProcessor,
     korzeniowski::KorzeniowskiProcessor,
@@ -28,9 +28,10 @@ use crate::features::{
 };
 use crate::io::audio::AudioStream;
 use crate::io::stream::{MidiMessage, MidiMessageKind};
-use crate::matchmaker::{AudioMatchmaker, AudioMethod, Matchmaker, Method, ProcessorKind};
+use crate::matchmaker::{AudioMatchmaker, AudioMethod, Matchmaker, Method, ProcessorKind, Step};
 use crate::prob::outerhmm_audio::{AudioOuterHmmScoreModel, LEARNED_TEMPLATE_SHA256};
 use crate::prob::skf::SkfScoreModel;
+use crate::score::korzeniowski::KorzeniowskiScoreModel;
 use crate::utils::eval::EvaluationResult;
 
 /// Reference skips `probabilities.npy` above this many values (`MAX_PROBABILITY_VALUES`).
@@ -358,7 +359,10 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
     let reference = mm.reference();
     let steps = &recording.steps;
 
-    if !matches!(method, AudioMethod::Skf | AudioMethod::OuterHmm) {
+    if !matches!(
+        method,
+        AudioMethod::Skf | AudioMethod::OuterHmm | AudioMethod::PfKorz
+    ) {
         f4(
             &dir.join("score/audio/features.npy"),
             &[
@@ -417,6 +421,10 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
         score_meta["soundfont_sha256"] = json!(model.soundfont_sha256());
         write_outerhmm_model(&dir.join("score/outerhmm"), model)?;
     }
+    if let Some(model) = &recording.pfkorz_score_model {
+        score_meta["score_model"] = json!("pfkorz");
+        write_pfkorz_model(&dir.join("score/pfkorz"), model)?;
+    }
     if config.processor().name() == "mel" {
         score_meta["n_mels"] = json!(config.n_mels.unwrap_or(128));
         score_meta["norm"] = norm_json(config.norm);
@@ -452,6 +460,12 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
         audio_meta["n_mfcc"] = json!(config.n_mfcc.unwrap_or(13));
         audio_meta["norm"] = mfcc_norm_json(config.dct_norm);
     }
+    if config.processor().name() == "korzeniowski" {
+        audio_meta["processor"] = json!("korzeniowski");
+        audio_meta["n_fft"] = json!(config.n_fft.unwrap_or(4_096));
+        audio_meta["win_length"] = json!(config.win_length.unwrap_or(2_048));
+        audio_meta["note_fields_present"] = json!(false);
+    }
     write_json(&dir.join("audio/meta.json"), &audio_meta)?;
     f8(
         &dir.join("audio/frame_times.npy"),
@@ -459,32 +473,49 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
         recording.frame_times.iter().copied(),
     )?;
 
-    let processor_outputs: Vec<&Observation> = recording.processor_outputs.iter().collect();
-    observations(
-        &dir.join("processor").join(processor),
-        "",
-        &processor_outputs,
-    )?;
+    if method == AudioMethod::PfKorz {
+        write_korzeniowski_observations(
+            &dir.join("processor").join(processor),
+            "",
+            &recording.korzeniowski_outputs,
+        )?;
+    } else {
+        let processor_outputs: Vec<&Observation> = recording.processor_outputs.iter().collect();
+        observations(
+            &dir.join("processor").join(processor),
+            "",
+            &processor_outputs,
+        )?;
+    }
 
     let method_dir = dir.join(method.name());
-    let fed: Vec<&Observation> = steps.iter().map(|step| &step.observation).collect();
-    observations(&method_dir, "observations_", &fed)?;
+    if method == AudioMethod::PfKorz {
+        write_korzeniowski_observations(
+            &method_dir,
+            "observations_",
+            &recording.korzeniowski_outputs,
+        )?;
+    } else {
+        let fed: Vec<&Observation> = steps.iter().map(|step| &step.observation).collect();
+        observations(&method_dir, "observations_", &fed)?;
+    }
     f4(
         &method_dir.join("score_positions.npy"),
         &[mm.score_positions().len()],
         mm.score_positions().iter().copied(),
     )?;
+    let path = mm.alignment_path();
+    let positions = positions_for_export(method, steps, path);
     f8(
         &method_dir.join("positions.npy"),
-        &[steps.len()],
-        steps.iter().map(|step| step.position),
+        &[positions.len()],
+        positions.into_iter(),
     )?;
     i8s(
         &method_dir.join("current_index.npy"),
         &[steps.len()],
         steps.iter().map(|step| step.debug.current_index),
     )?;
-    let path = mm.alignment_path();
     f8(
         &method_dir.join("alignment_path.npy"),
         &[2, path.perf_time.len()],
@@ -672,6 +703,80 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
                 .flat_map(|step| step.debug.probabilities.iter().skip(1).step_by(2).copied()),
         )?;
     }
+    let pf_state_exported = !recording.pfkorz_state_truncated
+        && !recording.pfkorz_steps.is_empty()
+        && recording.pfkorz_steps.len().saturating_mul(
+            recording
+                .pfkorz_config
+                .map_or(0, |config| config.num_particles),
+        ) <= MAX_PROBABILITY_VALUES;
+    if pf_state_exported {
+        let states = &recording.pfkorz_steps;
+        let frames = states.len();
+        let particles = states[0].positions.len();
+        for (name, values) in [
+            (
+                "particle_positions.npy",
+                states
+                    .iter()
+                    .flat_map(|state| state.positions.iter().copied())
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                "particle_weights.npy",
+                states
+                    .iter()
+                    .flat_map(|state| state.weights.iter().copied())
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                "note_log_tempi.npy",
+                states
+                    .iter()
+                    .flat_map(|state| state.note_log_tempi.iter().copied())
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                "local_log_tempi.npy",
+                states
+                    .iter()
+                    .flat_map(|state| state.local_log_tempi.iter().copied())
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                "sound_probabilities.npy",
+                states
+                    .iter()
+                    .flat_map(|state| state.sound_probabilities.iter().copied())
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                "rest_probabilities.npy",
+                states
+                    .iter()
+                    .flat_map(|state| state.rest_probabilities.iter().copied())
+                    .collect::<Vec<_>>(),
+            ),
+        ] {
+            f8(
+                &method_dir.join(name),
+                &[frames, particles],
+                values.into_iter(),
+            )?;
+        }
+        f8(
+            &method_dir.join("effective_sample_size.npy"),
+            &[frames],
+            states.iter().map(|state| state.effective_sample_size),
+        )?;
+        flags(
+            &method_dir.join("resampled.npy"),
+            &states
+                .iter()
+                .map(|state| state.resampled)
+                .collect::<Vec<_>>(),
+        )?;
+    }
     let mut method_meta = json!({
         "reference": {"implementation": "matchmaker-rs", "version": env!("CARGO_PKG_VERSION")},
         "generator": "matchmaker-rs audio export",
@@ -689,11 +794,138 @@ pub fn write_audio_run(mm: &AudioMatchmaker, dir: impl AsRef<Path>) -> Result<()
             "switch_margin": config.switch_margin,
             "s_j": config.s_j,
         },
+        "particle_state_exported": pf_state_exported,
+        "particle_state_truncated": recording.pfkorz_state_truncated,
     });
+    if let Some(pf_config) = recording.pfkorz_config {
+        method_meta["config"]["seed"] = json!(pf_config.seed);
+        method_meta["config"]["num_particles"] = json!(pf_config.num_particles);
+        method_meta["config"]["notated_tempo"] = json!(pf_config.notated_tempo);
+        method_meta["config"]["hop_size"] = json!(pf_config.hop_size);
+    }
     if let Some(mode) = config.template_mode {
         method_meta["config"]["template_mode"] = json!(mode.name());
     }
     write_json(&method_dir.join("meta.json"), &method_meta)
+}
+
+fn positions_for_export(
+    method: AudioMethod,
+    steps: &[Step],
+    path: &crate::base::AlignmentPath,
+) -> Vec<f64> {
+    if method == AudioMethod::PfKorz {
+        path.score_beat.clone()
+    } else {
+        steps.iter().map(|step| step.position).collect()
+    }
+}
+
+fn write_korzeniowski_observations(
+    dir: &Path,
+    prefix: &str,
+    observations: &[KorzeniowskiObservation],
+) -> Result<()> {
+    let frames = observations.len();
+    let bins = observations
+        .first()
+        .map_or(0, |observation| observation.spectrum.len());
+    f8(
+        &dir.join(format!("{prefix}spectrum.npy")),
+        &[frames, bins],
+        observations
+            .iter()
+            .flat_map(|observation| observation.spectrum.iter().copied()),
+    )?;
+    for (name, values) in [
+        (
+            "onset",
+            observations
+                .iter()
+                .map(|observation| observation.onset)
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "loudness",
+            observations
+                .iter()
+                .map(|observation| observation.loudness)
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "times",
+            observations
+                .iter()
+                .map(|observation| observation.perf_time)
+                .collect::<Vec<_>>(),
+        ),
+    ] {
+        f8(
+            &dir.join(format!("{prefix}{name}.npy")),
+            &[frames],
+            values.into_iter(),
+        )?;
+    }
+    write_json(
+        &dir.join("meta.json"),
+        &json!({
+            "observation_type": "korzeniowski",
+            "spectrum_bins": bins,
+            "note_fields_present": false,
+        }),
+    )
+}
+
+fn write_pfkorz_model(dir: &Path, model: &KorzeniowskiScoreModel) -> Result<()> {
+    let grid_len = model.beat_grid.len();
+    let bins = model.templates.first().map_or(0, Vec::len);
+    f8(
+        &dir.join("beat_grid.npy"),
+        &[grid_len],
+        model.beat_grid.iter().copied(),
+    )?;
+    f4(
+        &dir.join("onset_positions.npy"),
+        &[model.onset_positions.len()],
+        model.onset_positions.iter().copied(),
+    )?;
+    f4(
+        &dir.join("nearest_onsets.npy"),
+        &[grid_len],
+        model.nearest_onsets.iter().copied(),
+    )?;
+    flags(&dir.join("rest_mask.npy"), &model.rest_mask)?;
+    f4(
+        &dir.join("templates.npy"),
+        &[grid_len, bins],
+        model.templates.iter().flatten().copied(),
+    )?;
+    let mut offsets = vec![0];
+    for notes in &model.active_notes {
+        offsets.push(offsets.last().copied().unwrap() + notes.len());
+    }
+    i8s(
+        &dir.join("active_note_offsets.npy"),
+        &[offsets.len()],
+        offsets.into_iter(),
+    )?;
+    i8s(
+        &dir.join("active_notes.npy"),
+        &[model.active_notes.iter().map(Vec::len).sum()],
+        model
+            .active_notes
+            .iter()
+            .flatten()
+            .map(|&pitch| pitch as usize),
+    )?;
+    write_json(
+        &dir.join("meta.json"),
+        &json!({
+            "beat_grid_resolution": 0.1,
+            "frames": grid_len,
+            "spectrum_bins": bins,
+        }),
+    )
 }
 
 /// Chords, lengths, onsets and spectral templates of `skf` (`score/skf/`).
@@ -1128,4 +1360,21 @@ pub fn write_audio_evaluation(
             "evaluation_file": "evaluation.json",
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pfkorz_positions_are_available_when_particle_state_is_truncated() {
+        let mut path = crate::base::AlignmentPath::default();
+        path.push(0.1, 0.25);
+        path.push(0.2, 0.5);
+
+        assert_eq!(
+            positions_for_export(AudioMethod::PfKorz, &[], &path),
+            path.score_beat
+        );
+    }
 }

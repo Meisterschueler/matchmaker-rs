@@ -23,6 +23,115 @@ fn pinned_soundfont() -> PathBuf {
 }
 
 #[test]
+fn pfkorz_defaults_and_structured_audio_validation_are_explicit() {
+    let config = AudioMethodConfig::for_method(AudioMethod::PfKorz);
+    assert_eq!(config.processor(), AudioProcessorKind::Korzeniowski);
+    assert_eq!(
+        (
+            config.sample_rate,
+            config.frame_rate,
+            config.hop_length,
+            config.win_length,
+            config.n_fft,
+            config.num_particles,
+            config.random_seed,
+        ),
+        (
+            44_100,
+            30,
+            None,
+            Some(2_048),
+            Some(4_096),
+            Some(500),
+            Some(1984),
+        )
+    );
+    config.validate(AudioMethod::PfKorz).unwrap();
+
+    let mut invalid = AudioMethodConfig::for_method(AudioMethod::PfKorz);
+    invalid.win_length = Some(1_469);
+    assert!(matches!(
+        invalid.validate(AudioMethod::PfKorz),
+        Err(Error::AudioConfig { key, .. }) if key == "win_length"
+    ));
+
+    let mut invalid = AudioMethodConfig::for_method(AudioMethod::PfKorz);
+    invalid.n_fft = Some(2_047);
+    assert!(matches!(
+        invalid.validate(AudioMethod::PfKorz),
+        Err(Error::AudioConfig { key, .. }) if key == "n_fft"
+    ));
+
+    let mut invalid = AudioMethodConfig::for_method(AudioMethod::PfKorz);
+    invalid.num_particles = Some(0);
+    assert!(matches!(
+        invalid.validate(AudioMethod::PfKorz),
+        Err(Error::AudioConfig { key, .. }) if key == "num_particles"
+    ));
+
+    let mut vector_follower = AudioMethodConfig::for_method(AudioMethod::Arzt);
+    vector_follower.set_processor(AudioProcessorKind::Korzeniowski);
+    assert!(matches!(
+        vector_follower.validate(AudioMethod::Arzt),
+        Err(Error::AudioConfig { key, .. }) if key == "processor"
+    ));
+}
+
+#[test]
+fn pfkorz_audio_export_includes_score_model_and_bounded_particle_state() {
+    let mut config = AudioMethodConfig::for_method(AudioMethod::PfKorz);
+    config.num_particles = Some(16);
+    config.random_seed = Some(1986);
+    let mut follower =
+        AudioMatchmaker::new_pfkorz(data("simple_mozart_k265_var1.musicxml"), config, None, true)
+            .unwrap()
+            .record();
+    let positions = follower
+        .run_file(data("audio/simple_mozart_k265_var1_sf2.wav"))
+        .unwrap();
+    let output = std::env::temp_dir().join("matchmaker_audio_pfkorz_export");
+    let _ = std::fs::remove_dir_all(&output);
+    write_audio_run(&follower, &output).unwrap();
+
+    let frames = positions.len();
+    assert_eq!(
+        npy(output.join("processor/korzeniowski/spectrum.npy")).shape,
+        [frames, 2_049]
+    );
+    assert_eq!(
+        npy(output.join("score/pfkorz/templates.npy")).shape,
+        [161, 2_049]
+    );
+    assert_eq!(
+        npy(output.join("score/pfkorz/active_note_offsets.npy")).shape,
+        [162]
+    );
+    assert_eq!(
+        npy(output.join("pfkorz/particle_positions.npy")).shape,
+        [frames, 16]
+    );
+    assert_eq!(
+        npy(output.join("pfkorz/particle_weights.npy")).shape,
+        [frames, 16]
+    );
+    assert_eq!(
+        npy(output.join("pfkorz/effective_sample_size.npy")).shape,
+        [frames]
+    );
+    assert_eq!(npy(output.join("pfkorz/resampled.npy")).shape, [frames]);
+    assert!(!output.join("score/audio/features.npy").exists());
+    let method_meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("pfkorz/meta.json")).unwrap()).unwrap();
+    let audio_meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("audio/meta.json")).unwrap()).unwrap();
+    assert_eq!(method_meta["config"]["seed"], 1986);
+    assert_eq!(method_meta["config"]["num_particles"], 16);
+    assert_eq!(method_meta["particle_state_exported"], true);
+    assert_eq!(method_meta["particle_state_truncated"], false);
+    assert_eq!(audio_meta["win_length"], 2_048);
+}
+
+#[test]
 fn tempo_arzt_exports_state_and_accumulated_cost_windows() {
     let mut config = AudioMethodConfig::for_method(AudioMethod::ArztTempo);
     config.soundfont_path = Some(pinned_soundfont());
@@ -227,14 +336,18 @@ fn audio_method_configs_allow_processors_and_reject_incompatible_parameters() {
     {
         let mut structured = AudioMethodConfig::for_method(method);
         structured.set_processor(AudioProcessorKind::Korzeniowski);
-        assert_eq!(key_of(&structured, method), "processor");
-        assert!(
-            structured
-                .validate(method)
-                .unwrap_err()
-                .to_string()
-                .contains("structured Korzeniowski")
-        );
+        if method == AudioMethod::PfKorz {
+            structured.validate(method).unwrap();
+        } else {
+            assert_eq!(key_of(&structured, method), "processor");
+            assert!(
+                structured
+                    .validate(method)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("structured Korzeniowski")
+            );
+        }
     }
 }
 

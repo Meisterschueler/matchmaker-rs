@@ -598,6 +598,182 @@ def generate_korzeniowski_goldens(output: Path) -> None:
     write_case("silent", np.zeros(4 * win_length, dtype=np.float32), 512)
 
 
+def generate_pfkorz_goldens(
+    score_path: Path, performance_path: Path, output: Path
+) -> None:
+    """Generate score-model, controlled-draw, and seeded PF reference fixtures."""
+    from matchmaker.features.processor import KorzeniowskiScoreProcessor
+    from matchmaker.prob import particle_filter_korzeniowski as reference_pfkorz
+    from matchmaker.utils.eval import evaluate_alignment, resolve_gt
+    from matchmaker.utils.misc import get_tempo_from_score
+
+    sample_rate = 44_100
+    hop_length = sample_rate // 30
+    win_length = 2_048
+    n_fft = 4_096
+    num_particles = 500
+    seeds = [1984, 1985, 1986, 1987, 1988]
+    base = output / "pfkorz"
+
+    _, score_part, unfolded = load_score_like_matchmaker(score_path)
+    score_model = KorzeniowskiScoreProcessor(
+        sample_rate=sample_rate, n_fft=n_fft
+    )(score_part)
+    active_notes = score_model.active_notes or []
+    active_note_offsets = np.cumsum(
+        [0, *(len(notes) for notes in active_notes)], dtype=np.int64
+    )
+    active_notes_flat = (
+        np.concatenate(active_notes).astype(np.int32, copy=False)
+        if active_notes
+        else np.empty(0, dtype=np.int32)
+    )
+    model_dir = base / "score_model"
+    write_array(model_dir / "beat_grid.npy", score_model.beat_grid, "<f8")
+    write_array(model_dir / "onset_positions.npy", score_model.onset_positions, "<f8")
+    write_array(model_dir / "nearest_onsets.npy", score_model.nearest_onsets, "<f8")
+    write_array(model_dir / "rest_mask.npy", score_model.rest_mask, np.bool_)
+    write_array(model_dir / "templates.npy", score_model.templates, "<f8")
+    write_array(model_dir / "active_note_offsets.npy", active_note_offsets, "<i8")
+    write_array(model_dir / "active_notes.npy", active_notes_flat, "<i4")
+
+    fixed_draws_dir = base / "fixed_draws"
+    write_array(
+        fixed_draws_dir / "fast_choice_uniforms.npy",
+        [0.0, 0.199999, 0.2, 0.5, 0.999999],
+        "<f8",
+    )
+    write_array(
+        fixed_draws_dir / "standard_normals.npy",
+        [-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0],
+        "<f8",
+    )
+    write_array(
+        fixed_draws_dir / "resample_offsets.npy",
+        [0.0, 0.125, 0.5, 0.999999],
+        "<f8",
+    )
+
+    performance, performance_rate = sf.read(
+        performance_path, dtype=np.float32, always_2d=True
+    )
+    signal = performance.mean(axis=1, dtype=np.float32)
+    if performance_rate != sample_rate:
+        signal = librosa.resample(
+            signal, orig_sr=performance_rate, target_sr=sample_rate
+        )
+    padded = np.pad(signal, (0, (-len(signal)) % hop_length), mode="constant")
+    cache_size = win_length - hop_length
+    cache = np.zeros(cache_size, dtype=np.float32)
+    processor = KorzeniowskiAudioProcessor(
+        sample_rate=sample_rate,
+        hop_length=hop_length,
+        win_length=win_length,
+        n_fft=n_fft,
+    )
+    observations, perf_times = [], []
+    for chunk_index, chunk in enumerate(padded.reshape(-1, hop_length)):
+        block = np.concatenate((cache, chunk))
+        frame_time = max(0, chunk_index - 1) * hop_length / sample_rate
+        observation, returned_time = processor((block, frame_time))
+        if chunk_index > 0:
+            observations.append(observation)
+            perf_times.append(float(returned_time))
+        cache = block[-cache_size:].copy()
+
+    write_array(
+        base / "performance_spectrum.npy",
+        np.asarray([item.spectrum for item in observations]),
+        "<f8",
+    )
+    write_array(base / "performance_onset.npy", [item.onset for item in observations], "<f8")
+    write_array(
+        base / "performance_loudness.npy",
+        [item.loudness for item in observations],
+        "<f8",
+    )
+    write_array(base / "performance_times.npy", perf_times, "<f8")
+
+    score_tempo = get_tempo_from_score(score_part, str(score_path))
+    tempo = float(score_tempo) if score_tempo is not None else float(DEFAULT_TEMPO)
+    gt_perf_times, gt_score_beats = resolve_gt(
+        DEFAULT_OUTPUT / "ground_truth/ground_truth.tsv", score_part.note_array()
+    )
+    seed_metrics = {}
+    for seed in seeds:
+        with patch.object(reference_pfkorz, "SEED", seed):
+            follower = reference_pfkorz.ParticleFilterKorzeniowski(
+                score_model,
+                observation_type="audio",
+                notated_tempo=tempo,
+                hop_size=hop_length / sample_rate,
+                num_particles=num_particles,
+            )
+        for observation, perf_time in zip(observations, perf_times):
+            follower(observation, perf_time)
+
+        path = follower.warping_path
+        metrics = evaluate_alignment(
+            path[1], path[0], gt_score_beats, gt_perf_times
+        )
+        seed_dir = base / f"seed-{seed}"
+        write_array(seed_dir / "alignment_path.npy", path, "<f8")
+        write_json(seed_dir / "evaluation.json", metrics)
+        seed_metrics[str(seed)] = metrics
+        print(f"pfkorz/seed-{seed}: {path.shape[1]} points, {metrics['median_b']:.4f} median beats")
+
+    write_json(
+        model_dir / "meta.json",
+        {
+            "reference": reference_info(),
+            "generator": "tools/golden/generate_audio.py",
+            "score": score_path.name,
+            "score_sha256": sha256(score_path),
+            "unfolded": unfolded,
+            "sample_rate": sample_rate,
+            "n_fft": n_fft,
+            "beat_resolution": 0.1,
+            "num_harmonics": 10,
+            "harmonic_bandwidth_hz": 15.0,
+            "beat_grid_length": len(score_model.beat_grid),
+            "onset_count": len(score_model.onset_positions),
+            "template_shape": list(score_model.templates.shape),
+        },
+    )
+    write_json(
+        base / "meta.json",
+        {
+            "reference": reference_info(),
+            "generator": "tools/golden/generate_audio.py",
+            "method": "pfkorz",
+            "processor": "korzeniowski",
+            "score": score_path.name,
+            "score_sha256": sha256(score_path),
+            "performance": performance_path.name,
+            "performance_sha256": sha256(performance_path),
+            "sample_rate": sample_rate,
+            "hop_length": hop_length,
+            "win_length": win_length,
+            "n_fft": n_fft,
+            "tempo": tempo,
+            "num_particles": num_particles,
+            "seeds": seeds,
+            "frames": len(observations),
+            "metric_source": "matchmaker.utils.eval.evaluate_alignment",
+            "tolerances": {
+                "float64_atol": 1e-9,
+                "float64_rtol": 1e-7,
+                "model_atol": 1e-5,
+                "model_rtol": 1e-5,
+                "time_atol": 1e-9,
+            },
+            "rng_seed_override": "patch reference module SEED before each follower construction",
+            "seed_metrics": seed_metrics,
+            "numpy_rng_identity_claim": False,
+        },
+    )
+
+
 def stream_cqt(samples: np.ndarray, sample_rate: int, hop: int, norm=np.inf):
     """Rows and timestamps the reference stream adapter yields for ``samples``.
 
@@ -1837,6 +2013,11 @@ def main() -> None:
         help="generate structured Korzeniowski processor goldens",
     )
     parser.add_argument(
+        "--pfkorz-only",
+        action="store_true",
+        help="generate Korzeniowski score-model and seeded particle-filter goldens",
+    )
+    parser.add_argument(
         "--cqt-only",
         action="store_true",
         help="generate cqt processor goldens (stream, whole-signal, soxr stages, kernels)",
@@ -1957,6 +2138,17 @@ def main() -> None:
         return
     if args.korzeniowski_only:
         generate_korzeniowski_goldens(args.out.resolve())
+        return
+    if args.pfkorz_only:
+        score_path = args.score.resolve()
+        performance_path = args.performance.resolve()
+        if not score_path.is_file():
+            parser.error(f"score does not exist: {score_path}")
+        if not performance_path.is_file():
+            parser.error(f"performance does not exist: {performance_path}")
+        if score_path != DEFAULT_SCORE.resolve() or performance_path != DEFAULT_PERFORMANCE.resolve():
+            parser.error("--pfkorz-only uses the pinned default score and performance")
+        generate_pfkorz_goldens(score_path, performance_path, args.out.resolve())
         return
     if args.cqt_only:
         generate_cqt_goldens(args.out.resolve())

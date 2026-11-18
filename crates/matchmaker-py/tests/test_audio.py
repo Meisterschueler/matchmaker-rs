@@ -43,7 +43,7 @@ def make_audio(
 
 def test_audio_arzt_defaults_yield_positions_and_return_path():
     assert matchmaker_rs.AVAILABLE_METHODS["audio"] == [
-        "arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf", "outerhmm"
+        "arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf", "outerhmm", "pfkorz"
     ]
     defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["arzt"]
     assert defaults["processor"] == "chroma"
@@ -91,6 +91,44 @@ def test_audio_arzt_tempo_defaults_seed_and_path():
     )
     with pytest.raises(ValueError, match="random_seed"):
         make_audio("arzt_tempo", random_seed=-1)
+
+
+def test_audio_pfkorz_defaults_seed_count_and_exact_repeat():
+    assert "pfkorz" in matchmaker_rs.AVAILABLE_METHODS["audio"]
+    defaults = matchmaker_rs.DEFAULT_KWARGS["audio"]["pfkorz"]
+    assert defaults["processor"] == "korzeniowski"
+    assert defaults["sample_rate"] == 44_100
+    assert defaults["frame_rate"] == 30
+    assert defaults["n_fft"] == 4_096
+    assert defaults["win_length"] == 2_048
+    assert defaults["num_particles"] == 500
+    assert defaults["random_seed"] == 1984
+
+    def make_pfkorz(**kwargs):
+        return Matchmaker(
+            score_file=str(SCORE),
+            performance_file=str(PERFORMANCE),
+            input_type="audio",
+            method="pfkorz",
+            kwargs=kwargs,
+        )
+
+    first = make_pfkorz(num_particles=32, random_seed=1984)
+    second = make_pfkorz(num_particles=32, random_seed=1984)
+    first_positions = list(first.run(verbose=False))
+    second_positions = list(second.run(verbose=False))
+    assert len(first_positions) == len(second_positions) == 227
+    np.testing.assert_array_equal(first_positions, second_positions)
+    np.testing.assert_array_equal(
+        first.score_follower.alignment_path, second.score_follower.alignment_path
+    )
+
+    with pytest.raises(ValueError, match="num_particles"):
+        make_pfkorz(num_particles=0)
+    with pytest.raises(ValueError, match="win_length"):
+        make_pfkorz(win_length=1_469)
+    with pytest.raises(ValueError, match="random_seed"):
+        make_pfkorz(random_seed=-1)
 
 
 def test_audio_arzt_multi_fold_defaults_and_repeat_mode():

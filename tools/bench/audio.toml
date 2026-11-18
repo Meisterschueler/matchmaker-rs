@@ -118,3 +118,15 @@ score = "../../tests/data/simple_mozart_k265_var1.musicxml"
 performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
 ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+# Seeded PF is evaluated per seed and pooled with the exact reference evaluator; no SoundFont is used.
+[[pieces]]
+dataset = "audio-pfkorz"
+piece = "mozart_pfkorz"
+methods = ["pfkorz"]
+seeds = [1984, 1985, 1986, 1987, 1988]
+input_type = "audio"
+kwargs = { num_particles = 500 }
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+ground_truth = "../../tests/golden/audio/ground_truth/ground_truth.tsv"

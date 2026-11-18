@@ -317,6 +317,9 @@ fn audio_followers_handle_short_silent_overrun_and_one_onset_scores() {
                 AudioMethod::Skf | AudioMethod::OuterHmm => {
                     unreachable!("these methods have their own edge-case tests")
                 }
+                AudioMethod::PfKorz => {
+                    unreachable!("PF Korzeniowski has its own edge-case tests")
+                }
             }
         };
 

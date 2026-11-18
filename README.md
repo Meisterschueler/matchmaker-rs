@@ -73,8 +73,16 @@ returning 13 coefficients by default with `norm=backward`. It is supported by Ar
 their tempo/repeat variants; override `n_mfcc` and the DCT `norm` (`backward`, `ortho`, or `none`)
 with `--set` when following, or `--n-mfcc` and `--norm` for standalone extraction.
 `korzeniowski` returns structured spectrum, onset, loudness, and timestamp arrays instead of a
-feature vector. It is intentionally rejected by vector-only followers; extract it directly until
-the Korzeniowski particle filter is available.
+feature vector. The `pfkorz` follower consumes those observations and an analytical score model;
+it defaults to seed 1984 and 500 particles and does not require a SoundFont. Particle state is
+included in recorded exports while it stays within the export bound:
+
+```text
+cargo run --release -p matchmaker-cli -- follow score.musicxml performance.wav --input-type audio --method pfkorz --set random_seed=1984 --set num_particles=500 --export target/pfkorz/
+```
+
+The seed makes runs reproducible in the same Rust runtime/configuration; NumPy stream identity is
+not promised.
 Audio files support WAV, FLAC, MP3 and Ogg/Vorbis. For score synthesis, provision the pinned
 CC0 SF2 SoundFont described in [tests/data/audio/README.md](tests/data/audio/README.md), then run:
 
@@ -216,7 +224,7 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
 2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux`, `mel`, `mfcc` (mel and MFCC support the frame-level Arzt/Dixon followers; audio outerhmm only uses `cqt_spectral_flux`). Structured `korzeniowski` extraction is available separately and is not accepted by vector followers.
-3. Later: remaining method `pfkorz` and parangonar methods.
+3. Later: parangonar methods.
 
 ## Benchmark datasets
 

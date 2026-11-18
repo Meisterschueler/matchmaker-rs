@@ -57,6 +57,15 @@ def renderer_accuracy_parity(actual: dict, expected: dict) -> bool:
         for key in keys
     )
 
+def pfkorz_parity(actual: dict, expected: dict, actual_p95: float | None, expected_p95: float | None) -> bool:
+    """Apply the declared pooled PF median/accuracy and p95 limits."""
+    keys = ("median_b", "accuracy_0.05b", "accuracy_0.1b", "accuracy_0.3b", "accuracy_0.5b", "accuracy_1b", "accuracy_2b")
+    return (
+        renderer_accuracy_parity(actual, expected)
+        and all(key in actual and key in expected for key in keys)
+        and p95_parity(actual_p95, expected_p95)
+    )
+
 
 def p95_parity(actual: float | None, expected: float | None) -> bool:
     """The audio contract allows at most 0.05 beats of p95 error difference."""
@@ -101,7 +110,7 @@ def same(a, b) -> bool:
 
 
 def position_parity(method: str, rust: Path, python: Path, audio: bool = False) -> dict | None:
-    if method == "korzeniowski":
+    if method in ("korzeniowski", "pfkorz"):
         return None
     if not rust.exists() or not python.exists():
         return None
@@ -173,13 +182,23 @@ def main() -> None:
                 "real_time_factor": median(records, "real_time_factor"),
                 "evaluation": records[0]["evaluation"] if records else None,
                 "p95_b": records[0].get("p95_b") if records else None,
+                "per_seed_metrics": records[0].get("per_seed_metrics") if records else None,
+                "pooled_evaluation": records[0].get("pooled_evaluation") if records else None,
+                "pooled_p95_b": records[0].get("pooled_p95_b") if records else None,
                 "has_ground_truth": any(record.get("ground_truth", False) for record in records),
                 "ground_truth_path": records[0].get("ground_truth_path") if records else None,
             }
         r, p = side["rust"], side["python"]
         audio = r["input_type"] == "audio" or p["input_type"] == "audio"
         metric_parity = None
-        if r["evaluation"] and p["evaluation"]:
+        if method == "pfkorz" and r["pooled_evaluation"] and p["pooled_evaluation"]:
+            metric_parity = pfkorz_parity(
+                r["pooled_evaluation"],
+                p["pooled_evaluation"],
+                r["pooled_p95_b"],
+                p["pooled_p95_b"],
+            )
+        elif r["evaluation"] and p["evaluation"]:
             metric_parity = all(same(r["evaluation"].get(k), v) for k, v in p["evaluation"].items())
         rel = Path("paths") / dataset / piece / f"{method}.tsv"
         previous = baseline.get(key)
@@ -187,6 +206,8 @@ def main() -> None:
         if dirs["rust"] and dirs["python"]:
             parity = position_parity(method, dirs["rust"] / rel, dirs["python"] / rel, audio)
         p95 = outerhmm_p95_parity(method, audio, r["p95_b"], p["p95_b"])
+        if method == "pfkorz" and r["pooled_evaluation"] and p["pooled_evaluation"]:
+            p95 = p95_parity(r["pooled_p95_b"], p["pooled_p95_b"])
         rows.append(
             {
                 "method": method,
@@ -197,12 +218,27 @@ def main() -> None:
                 "python": p,
                 "speed_up": p["total_s"] / r["total_s"] if r["total_s"] and p["total_s"] else None,
                 "metric_parity": metric_parity,
+                "per_seed_metrics": {
+                    "rust": r["per_seed_metrics"],
+                    "python": p["per_seed_metrics"],
+                } if method == "pfkorz" else None,
+                "pooled_evaluation": {
+                    "rust": r["pooled_evaluation"],
+                    "python": p["pooled_evaluation"],
+                } if method == "pfkorz" else None,
                 "ground_truth": r["ground_truth_path"] or p["ground_truth_path"],
-                "ground_truth_accuracy_parity": renderer_accuracy_parity(r["evaluation"], p["evaluation"])
+                "ground_truth_accuracy_parity": renderer_accuracy_parity(
+                    r["pooled_evaluation"], p["pooled_evaluation"]
+                ) if method == "pfkorz" and r["pooled_evaluation"] and p["pooled_evaluation"]
+                else renderer_accuracy_parity(r["evaluation"], p["evaluation"])
                     if r["has_ground_truth"] and p["has_ground_truth"]
                     and r["evaluation"] and p["evaluation"] else None,
-                "p95_b_delta": abs(r["p95_b"] - p["p95_b"])
-                    if p95 is not None and r["p95_b"] is not None and p["p95_b"] is not None else None,
+                "p95_b_delta": abs(
+                    (r["pooled_p95_b"] if method == "pfkorz" else r["p95_b"])
+                    - (p["pooled_p95_b"] if method == "pfkorz" else p["p95_b"])
+                ) if p95 is not None
+                    and (r["pooled_p95_b"] if method == "pfkorz" else r["p95_b"]) is not None
+                    and (p["pooled_p95_b"] if method == "pfkorz" else p["p95_b"]) is not None else None,
                 "p95_parity": p95,
                 "renderer_accuracy_parity": renderer_accuracy_parity(r["evaluation"], p["evaluation"])
                     if (method == "arzt_tempo" or (method == "arzt_multi_fold" and r["has_ground_truth"] and p["has_ground_truth"]))
@@ -222,11 +258,16 @@ def main() -> None:
         "",
         "Medians over runs. Latency in ms per observation; speed-up = Python / Rust total processing time.",
         "",
-        "| method | processor | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | p95 Δ | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
+        "| method | processor | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | p95 delta | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
-        r, p, ev = row["rust"], row["python"], row["rust"]["evaluation"] or row["python"]["evaluation"] or {}
+        r, p = row["rust"], row["python"]
+        ev = (
+            r["pooled_evaluation"] or p["pooled_evaluation"]
+            if row["method"] == "pfkorz"
+            else r["evaluation"] or p["evaluation"]
+        ) or {}
         pos = row["position_parity"]
         pos_text = "-" if pos is None else flag(pos["ok"]) + f" {pos['class']} max {pos['max_diff']:.2e}" + (
             "" if pos["first_differing_step"] is None else f" (step {pos['first_differing_step']})"
@@ -241,6 +282,34 @@ def main() -> None:
             f"| {flag(row['ground_truth_accuracy_parity'])} | {flag(row['renderer_accuracy_parity'])} "
             f"| {pos_text} | {regression_text} |"
         )
+    pfkorz_rows = [row for row in rows if row["method"] == "pfkorz"]
+    if pfkorz_rows:
+        lines += [
+            "",
+            "## PF per-seed and pooled metrics",
+            "",
+            "Per-seed values are informational; only pooled metrics gate PF delivery.",
+            "",
+            "| seed | median beats (rs / py) | accuracy 0.1 beat (rs / py) | p95 beats (rs / py) |",
+            "|---:|---:|---:|---:|",
+        ]
+        for row in pfkorz_rows:
+            rust_seeds = row["rust"]["per_seed_metrics"] or {}
+            python_seeds = row["python"]["per_seed_metrics"] or {}
+            for seed in sorted(rust_seeds.keys() & python_seeds.keys(), key=int):
+                r_seed, p_seed = rust_seeds[seed], python_seeds[seed]
+                lines.append(
+                    f"| {seed} | {fmt(r_seed['evaluation'].get('median_b'))} / {fmt(p_seed['evaluation'].get('median_b'))} "
+                    f"| {fmt(r_seed['evaluation'].get('accuracy_0.1b'))} / {fmt(p_seed['evaluation'].get('accuracy_0.1b'))} "
+                    f"| {fmt(r_seed['p95_b'])} / {fmt(p_seed['p95_b'])} |"
+                )
+            pooled = row["pooled_evaluation"]
+            if pooled:
+                lines.append(
+                    f"| pooled | {fmt(pooled['rust'].get('median_b'))} / {fmt(pooled['python'].get('median_b'))} "
+                    f"| {fmt(pooled['rust'].get('accuracy_0.1b'))} / {fmt(pooled['python'].get('accuracy_0.1b'))} "
+                    f"| {fmt(row['rust']['pooled_p95_b'])} / {fmt(row['python']['pooled_p95_b'])} |"
+                )
     datasets = tomllib.loads(DATASETS.read_text(encoding="utf-8"))
     used = sorted({row["dataset"] for row in rows} & set(datasets))
     if used:

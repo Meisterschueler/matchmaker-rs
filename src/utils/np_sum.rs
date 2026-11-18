@@ -34,6 +34,32 @@ pub fn np_sum(a: &[f64]) -> f64 {
     np_sum(&a[..half]) + np_sum(&a[half..])
 }
 
+/// `np.sum(a * a)` for a contiguous `float32` array.
+pub fn np_sum_squares_f32(a: &[f32]) -> f32 {
+    const BLOCK: usize = 128;
+    let n = a.len();
+    if n < 8 {
+        return a.iter().map(|&x| x * x).sum();
+    }
+    if n <= BLOCK {
+        let mut r = [0.0; 8];
+        for (sum, &x) in r.iter_mut().zip(&a[..8]) {
+            *sum = x * x;
+        }
+        let blocks = n - n % 8;
+        for i in (8..blocks).step_by(8) {
+            for (sum, &x) in r.iter_mut().zip(&a[i..i + 8]) {
+                *sum += x * x;
+            }
+        }
+        let paired = ((r[0] + r[1]) + (r[2] + r[3])) + ((r[4] + r[5]) + (r[6] + r[7]));
+        return a[blocks..].iter().fold(paired, |sum, &x| sum + x * x);
+    }
+    let half = n / 2;
+    let half = half - half % 8;
+    np_sum_squares_f32(&a[..half]) + np_sum_squares_f32(&a[half..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::np_sum;

@@ -20,6 +20,7 @@ use std::sync::Arc;
 use crate::error::{Error, Result};
 use crate::features::KorzeniowskiObservation;
 use crate::io::audio::AudioFrame;
+use crate::utils::np_sum::np_sum_squares_f32;
 use realfft::{RealFftPlanner, RealToComplex};
 
 /// Korzeniowski's structured spectrum/onset/loudness processor.
@@ -112,16 +113,8 @@ impl KorzeniowskiProcessor {
         } else {
             raw
         };
-        let rms = (samples
-            .iter()
-            .map(|sample| {
-                let sample = f64::from(*sample);
-                sample * sample
-            })
-            .sum::<f64>()
-            / self.win_length as f64)
-            .sqrt();
-        let loudness = 20.0 * rms.max(1e-5).log10();
+        let rms = (np_sum_squares_f32(samples) / self.win_length as f32).sqrt();
+        let loudness = f64::from(10.0f32 * (rms * rms).max(1e-10).log10());
 
         Some(KorzeniowskiObservation {
             spectrum,

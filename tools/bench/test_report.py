@@ -13,6 +13,7 @@ import numpy as np
 
 from report import (
     outerhmm_p95_parity,
+    main,
     p95_parity,
     position_parity,
     regression_status,
@@ -48,6 +49,185 @@ class RegressionStatusTests(unittest.TestCase):
         self.assertIsNone(outerhmm_p95_parity("outerhmm", False, 3.081, 0.0))
         self.assertFalse(outerhmm_p95_parity("outerhmm", True, 0.10, 0.151))
         self.assertIsNone(outerhmm_p95_parity("arzt", True, 0.10, 0.151))
+
+
+class PfKorzReportTests(unittest.TestCase):
+    def test_only_pooled_metrics_gate_and_per_seed_results_remain_informational(self):
+        pooled = {
+            "median_b": 0.02,
+            "mean_b": 0.03,
+            "accuracy_0.05b": 0.9,
+            "accuracy_0.1b": 0.95,
+            "accuracy_0.3b": 1.0,
+            "accuracy_0.5b": 1.0,
+            "accuracy_1b": 1.0,
+            "accuracy_2b": 1.0,
+        }
+        seed_metrics = {
+            "1984": {
+                "evaluation": {**pooled, "median_b": 4.0, "accuracy_0.1b": 0.0},
+                "p95_b": 5.0,
+            }
+        }
+        records = []
+        for implementation in ("rust", "python"):
+            records.append(
+                {
+                    "implementation": implementation,
+                    "method": "pfkorz",
+                    "dataset": "pf-test",
+                    "piece": "fixture",
+                    "input_type": "audio",
+                    "processor": "korzeniowski",
+                    "latency_ms": {"feature": {"median": 1.0}, "inference": {"median": 1.0}},
+                    "total_processing_s": 1.0,
+                    "real_time_factor": 0.1,
+                    "evaluation": pooled,
+                    "p95_b": 0.05,
+                    "ground_truth": True,
+                    "ground_truth_path": "ground_truth.tsv",
+                    "per_seed_metrics": seed_metrics,
+                    "pooled_evaluation": pooled,
+                    "pooled_p95_b": 0.05,
+                }
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rust_path, python_path = root / "rust.json", root / "python.json"
+            rust_path.write_text(json.dumps([records[0]]), encoding="utf-8")
+            python_path.write_text(json.dumps([records[1]]), encoding="utf-8")
+            output = root / "report"
+            with patch(
+                "sys.argv",
+                ["report.py", "--rust", str(rust_path), "--python", str(python_path), "--out", str(output)],
+            ), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as result:
+                    main()
+
+            self.assertEqual(result.exception.code, 0)
+            row = json.loads((output / "report.json").read_text(encoding="utf-8"))["rows"][0]
+            self.assertNotIn("per_seed_parity", row)
+            self.assertIn("1984", row["per_seed_metrics"]["rust"])
+            index = (output / "index.md").read_text(encoding="utf-8")
+            self.assertIn("only pooled metrics gate PF delivery", index)
+            self.assertNotIn("within limits", index)
+
+
+class PfKorzComparatorTests(unittest.TestCase):
+    def test_pf_export_checks_inputs_model_state_and_reports_first_difference(self):
+        path = Path(__file__).parents[1] / "golden" / "compare.py"
+        spec = importlib.util.spec_from_file_location("pfkorz_comparison", path)
+        comparison = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(comparison)
+        golden = Path(__file__).parents[2] / "tests" / "golden" / "audio" / "pfkorz"
+        metadata = json.loads((golden / "meta.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temporary:
+            exported = Path(temporary)
+            processor = exported / "processor/korzeniowski"
+            model = exported / "score/pfkorz"
+            method = exported / "pfkorz"
+            for directory in (processor, model, method):
+                directory.mkdir(parents=True)
+
+            for source, target in (
+                ("performance_spectrum.npy", processor / "spectrum.npy"),
+                ("performance_onset.npy", processor / "onset.npy"),
+                ("performance_loudness.npy", processor / "loudness.npy"),
+                ("performance_times.npy", processor / "times.npy"),
+            ):
+                np.save(target, np.load(golden / source))
+            for name in (
+                "beat_grid.npy",
+                "onset_positions.npy",
+                "nearest_onsets.npy",
+                "rest_mask.npy",
+                "templates.npy",
+                "active_note_offsets.npy",
+                "active_notes.npy",
+            ):
+                np.save(model / name, np.load(golden / "score_model" / name))
+
+            frames, particles = metadata["frames"], metadata["num_particles"]
+            state = {
+                "particle_positions": np.zeros((frames, particles)),
+                "particle_weights": np.full((frames, particles), 1.0 / particles),
+                "note_log_tempi": np.zeros((frames, particles)),
+                "local_log_tempi": np.zeros((frames, particles)),
+                "sound_probabilities": np.zeros((frames, particles)),
+                "rest_probabilities": np.zeros((frames, particles)),
+            }
+            for name, values in state.items():
+                np.save(method / f"{name}.npy", values)
+            np.save(method / "effective_sample_size.npy", np.full(frames, particles))
+            np.save(method / "resampled.npy", np.zeros(frames, dtype=bool))
+            reference_path = np.load(golden / "seed-1984" / "alignment_path.npy")
+            np.save(method / "alignment_path.npy", reference_path)
+            np.save(method / "positions.npy", reference_path[1])
+
+            (exported / "audio").mkdir()
+            (exported / "score").mkdir(exist_ok=True)
+            (exported / "audio/meta.json").write_text(
+                json.dumps(
+                    {
+                        "processor": "korzeniowski",
+                        "sample_rate": metadata["sample_rate"],
+                        "hop_length": metadata["hop_length"],
+                        "win_length": metadata["win_length"],
+                        "n_fft": metadata["n_fft"],
+                        "frames": frames,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (exported / "score/meta.json").write_text(
+                json.dumps({"audio_method": "pfkorz", "score_model": "pfkorz"}),
+                encoding="utf-8",
+            )
+            (model / "meta.json").write_text(
+                json.dumps(
+                    {
+                        "beat_grid_resolution": 0.1,
+                        "frames": len(np.load(model / "beat_grid.npy")),
+                        "spectrum_bins": np.load(model / "templates.npy").shape[1],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            method_meta_path = method / "meta.json"
+            method_meta = {
+                "config": {
+                    "seed": 1984,
+                    "num_particles": particles,
+                    "notated_tempo": metadata["tempo"],
+                    "hop_size": metadata["hop_length"] / metadata["sample_rate"],
+                },
+                "particle_state_exported": True,
+                "particle_state_truncated": False,
+            }
+            method_meta_path.write_text(json.dumps(method_meta), encoding="utf-8")
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(comparison.compare_pfkorz_case(golden, exported, metadata), 0)
+            self.assertIn("WITHIN_TOL", output.getvalue())
+
+            onset = np.load(processor / "onset.npy")
+            onset[0] += 1.0
+            np.save(processor / "onset.npy", onset)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(comparison.compare_pfkorz_case(golden, exported, metadata), 1)
+            self.assertIn("first differing stage: processor/korzeniowski/onset.npy", output.getvalue())
+
+            np.save(processor / "onset.npy", np.load(golden / "performance_onset.npy"))
+            method_meta["particle_state_exported"] = False
+            method_meta["particle_state_truncated"] = True
+            method_meta_path.write_text(json.dumps(method_meta), encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(comparison.compare_pfkorz_case(golden, exported, metadata), 1)
+            self.assertIn("particle_state_exported", output.getvalue())
 
 
 class TempoStageComparisonTests(unittest.TestCase):

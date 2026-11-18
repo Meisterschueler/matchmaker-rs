@@ -417,6 +417,14 @@ fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<B
             kwargs.set_item("hop_length", 128)?;
             kwargs.set_item("n_fft", 512)?;
         }
+        AudioMethod::PfKorz => {
+            kwargs.set_item("processor", "korzeniowski")?;
+            kwargs.set_item("sample_rate", 44_100)?;
+            kwargs.set_item("frame_rate", 30)?;
+            kwargs.set_item("n_fft", 4_096)?;
+            kwargs.set_item("win_length", 2_048)?;
+            kwargs.set_item("num_particles", 500)?;
+        }
         AudioMethod::OuterHmm => {
             kwargs.set_item("processor", "cqt_spectral_flux")?;
             kwargs.set_item("sample_rate", 16_000)?;
@@ -424,7 +432,7 @@ fn default_audio_kwargs<'py>(py: Python<'py>, method: AudioMethod) -> PyResult<B
             kwargs.set_item("s_j", 0.0)?;
         }
     }
-    if method == AudioMethod::ArztTempo {
+    if matches!(method, AudioMethod::ArztTempo | AudioMethod::PfKorz) {
         kwargs.set_item("random_seed", 1984)?;
     }
     if method == AudioMethod::ArztMultiFold {
@@ -471,6 +479,18 @@ fn set_audio_config(
         }
         "n_fft" => {
             config.n_fft = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
+        "win_length" => {
+            config.win_length = match value {
+                ConfigValue::None => None,
+                _ => Some(integer(&value)?),
+            };
+        }
+        "num_particles" => {
+            config.num_particles = match value {
                 ConfigValue::None => None,
                 _ => Some(integer(&value)?),
             };
@@ -561,7 +581,7 @@ fn set_audio_config(
                 _ => Some(integer(&value)?),
             };
         }
-        "random_seed" if method == AudioMethod::ArztTempo => {
+        "random_seed" if matches!(method, AudioMethod::ArztTempo | AudioMethod::PfKorz) => {
             config.random_seed = Some(
                 u32::try_from(integer(&value)?)
                     .map_err(|_| PyValueError::new_err("Invalid audio parameter random_seed"))?,
@@ -754,13 +774,17 @@ fn new_audio_matchmaker(
         AudioMethod::OuterHmm => {
             AudioMatchmaker::new_outerhmm(&score_file, audio_config, tempo, unfold_score)
         }
+        AudioMethod::PfKorz => {
+            AudioMatchmaker::new_pfkorz(&score_file, audio_config, tempo, unfold_score)
+        }
     }
     .map_err(to_py_err)?;
     let method_kind = match audio_method {
         AudioMethod::Arzt
         | AudioMethod::ArztTempo
         | AudioMethod::ArztMultiFold
-        | AudioMethod::Skf => Method::Arzt,
+        | AudioMethod::Skf
+        | AudioMethod::PfKorz => Method::Arzt,
         AudioMethod::Dixon => Method::Dixon,
         AudioMethod::OuterHmm => Method::OuterHmm,
     };
@@ -1029,6 +1053,12 @@ impl PyMatchmaker {
                         self.unfold,
                     ),
                     AudioMethod::OuterHmm => AudioMatchmaker::new_outerhmm(
+                        &self.score_file,
+                        config,
+                        self.tempo_arg,
+                        self.unfold,
+                    ),
+                    AudioMethod::PfKorz => AudioMatchmaker::new_pfkorz(
                         &self.score_file,
                         config,
                         self.tempo_arg,
