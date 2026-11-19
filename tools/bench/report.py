@@ -10,10 +10,13 @@ parity flags (contracts/benchmark-report.md):
   Rust's best state leads by less than 1e-9 (relative; ``<method>.gap.tsv``) are numerical ties
   and count as equal
 
-Exits with 1 on a position-parity violation. ``--baseline`` (the previous master report.json)
-flags Rust inference latency above 1.10 x the baseline. The page ends with the sources of the
-datasets in the report (tools/datasets/datasets.toml). Standard library + NumPy only; every
-records file has its own ``paths/`` directory next to it (one directory per shard and side):
+Exits with 1 on a parity violation. Frame processors such as audio mel and MFCC use the shared
+audio position gate; standalone Korzeniowski extraction reports feature timing without a follower
+or position-parity check. The OuterHMM p95 gate also applies only to audio runs, never MIDI OuterHMM.
+``--baseline`` (the previous master report.json) flags Rust inference latency above 1.10 x the baseline. The page ends with the
+sources of the datasets in the report (tools/datasets/datasets.toml). Standard library + NumPy
+only; every records file has its own ``paths/`` directory next to it (one directory per shard
+and side):
 
     python report.py --rust rust/records.json --python python/records.json --out report
 """
@@ -43,6 +46,44 @@ def regression_status(current: float | None, previous: float | None) -> bool | N
     return current > REGRESSION * previous
 
 
+def renderer_accuracy_parity(actual: dict, expected: dict) -> bool:
+    """Declared Tempo-Arzt renderer limits, distinct from strict metric identity."""
+    keys = ("median_b", "accuracy_0.05b", "accuracy_0.1b", "accuracy_0.3b", "accuracy_0.5b", "accuracy_1b", "accuracy_2b")
+    return all(
+        isinstance(actual.get(key), (int, float))
+        and isinstance(expected.get(key), (int, float))
+        and math.isfinite(actual[key]) and math.isfinite(expected[key])
+        and abs(actual[key] - expected[key]) <= 0.01 + 1e-12
+        for key in keys
+    )
+
+def pfkorz_parity(actual: dict, expected: dict, actual_p95: float | None, expected_p95: float | None) -> bool:
+    """Apply the declared pooled PF median/accuracy and p95 limits."""
+    keys = ("median_b", "accuracy_0.05b", "accuracy_0.1b", "accuracy_0.3b", "accuracy_0.5b", "accuracy_1b", "accuracy_2b")
+    return (
+        renderer_accuracy_parity(actual, expected)
+        and all(key in actual and key in expected for key in keys)
+        and p95_parity(actual_p95, expected_p95)
+    )
+
+
+def p95_parity(actual: float | None, expected: float | None) -> bool:
+    """The audio contract allows at most 0.05 beats of p95 error difference."""
+    return (
+        isinstance(actual, (int, float))
+        and isinstance(expected, (int, float))
+        and math.isfinite(actual)
+        and math.isfinite(expected)
+        and abs(actual - expected) <= 0.05 + 1e-12
+    )
+
+
+def outerhmm_p95_parity(method: str, audio: bool, actual: float | None, expected: float | None) -> bool | None:
+    if method != "outerhmm" or not audio:
+        return None
+    return p95_parity(actual, expected)
+
+
 def load(paths: list[Path]) -> dict:
     """(records, directory of their paths/) grouped by (method, dataset, piece)."""
     groups: dict = {}
@@ -69,6 +110,8 @@ def same(a, b) -> bool:
 
 
 def position_parity(method: str, rust: Path, python: Path, audio: bool = False) -> dict | None:
+    if method in ("korzeniowski", "pfkorz"):
+        return None
     if not rust.exists() or not python.exists():
         return None
     r = np.loadtxt(rust, delimiter="\t", skiprows=1, ndmin=2)
@@ -132,31 +175,74 @@ def main() -> None:
             side[name] = {
                 "runs": len(records),
                 "input_type": records[0].get("input_type", "midi") if records else None,
+                "processor": records[0].get("processor") if records else None,
                 "feature_ms": median(records, "latency_ms", "feature", "median"),
                 "inference_ms": median(records, "latency_ms", "inference", "median"),
                 "total_s": median(records, "total_processing_s"),
                 "real_time_factor": median(records, "real_time_factor"),
                 "evaluation": records[0]["evaluation"] if records else None,
+                "p95_b": records[0].get("p95_b") if records else None,
+                "per_seed_metrics": records[0].get("per_seed_metrics") if records else None,
+                "pooled_evaluation": records[0].get("pooled_evaluation") if records else None,
+                "pooled_p95_b": records[0].get("pooled_p95_b") if records else None,
+                "has_ground_truth": any(record.get("ground_truth", False) for record in records),
+                "ground_truth_path": records[0].get("ground_truth_path") if records else None,
             }
         r, p = side["rust"], side["python"]
+        audio = r["input_type"] == "audio" or p["input_type"] == "audio"
         metric_parity = None
-        if r["evaluation"] and p["evaluation"]:
+        if method == "pfkorz" and r["pooled_evaluation"] and p["pooled_evaluation"]:
+            metric_parity = pfkorz_parity(
+                r["pooled_evaluation"],
+                p["pooled_evaluation"],
+                r["pooled_p95_b"],
+                p["pooled_p95_b"],
+            )
+        elif r["evaluation"] and p["evaluation"]:
             metric_parity = all(same(r["evaluation"].get(k), v) for k, v in p["evaluation"].items())
         rel = Path("paths") / dataset / piece / f"{method}.tsv"
         previous = baseline.get(key)
         parity = None
         if dirs["rust"] and dirs["python"]:
-            audio = side["rust"]["input_type"] == "audio" or side["python"]["input_type"] == "audio"
             parity = position_parity(method, dirs["rust"] / rel, dirs["python"] / rel, audio)
+        p95 = outerhmm_p95_parity(method, audio, r["p95_b"], p["p95_b"])
+        if method == "pfkorz" and r["pooled_evaluation"] and p["pooled_evaluation"]:
+            p95 = p95_parity(r["pooled_p95_b"], p["pooled_p95_b"])
         rows.append(
             {
                 "method": method,
+                "processor": r["processor"] or p["processor"],
                 "dataset": dataset,
                 "piece": piece,
                 "rust": r,
                 "python": p,
                 "speed_up": p["total_s"] / r["total_s"] if r["total_s"] and p["total_s"] else None,
                 "metric_parity": metric_parity,
+                "per_seed_metrics": {
+                    "rust": r["per_seed_metrics"],
+                    "python": p["per_seed_metrics"],
+                } if method == "pfkorz" else None,
+                "pooled_evaluation": {
+                    "rust": r["pooled_evaluation"],
+                    "python": p["pooled_evaluation"],
+                } if method == "pfkorz" else None,
+                "ground_truth": r["ground_truth_path"] or p["ground_truth_path"],
+                "ground_truth_accuracy_parity": renderer_accuracy_parity(
+                    r["pooled_evaluation"], p["pooled_evaluation"]
+                ) if method == "pfkorz" and r["pooled_evaluation"] and p["pooled_evaluation"]
+                else renderer_accuracy_parity(r["evaluation"], p["evaluation"])
+                    if r["has_ground_truth"] and p["has_ground_truth"]
+                    and r["evaluation"] and p["evaluation"] else None,
+                "p95_b_delta": abs(
+                    (r["pooled_p95_b"] if method == "pfkorz" else r["p95_b"])
+                    - (p["pooled_p95_b"] if method == "pfkorz" else p["p95_b"])
+                ) if p95 is not None
+                    and (r["pooled_p95_b"] if method == "pfkorz" else r["p95_b"]) is not None
+                    and (p["pooled_p95_b"] if method == "pfkorz" else p["p95_b"]) is not None else None,
+                "p95_parity": p95,
+                "renderer_accuracy_parity": renderer_accuracy_parity(r["evaluation"], p["evaluation"])
+                    if (method == "arzt_tempo" or (method == "arzt_multi_fold" and r["has_ground_truth"] and p["has_ground_truth"]))
+                    and r["evaluation"] and p["evaluation"] else None,
                 "position_parity": parity,
                 "regression": regression_status(r["inference_ms"], previous),
             }
@@ -172,11 +258,16 @@ def main() -> None:
         "",
         "Medians over runs. Latency in ms per observation; speed-up = Python / Rust total processing time.",
         "",
-        "| method | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | smoothness | metrics | positions | regression |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| method | processor | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | p95 delta | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
-        r, p, ev = row["rust"], row["python"], row["rust"]["evaluation"] or row["python"]["evaluation"] or {}
+        r, p = row["rust"], row["python"]
+        ev = (
+            r["pooled_evaluation"] or p["pooled_evaluation"]
+            if row["method"] == "pfkorz"
+            else r["evaluation"] or p["evaluation"]
+        ) or {}
         pos = row["position_parity"]
         pos_text = "-" if pos is None else flag(pos["ok"]) + f" {pos['class']} max {pos['max_diff']:.2e}" + (
             "" if pos["first_differing_step"] is None else f" (step {pos['first_differing_step']})"
@@ -184,12 +275,41 @@ def main() -> None:
         regression = row["regression"]
         regression_text = "n/a" if regression is None else "REGRESSION" if regression else "ok"
         lines.append(
-            f"| {row['method']} | {row['dataset']} | {row['piece']} "
+            f"| {row['method']} | {row['processor'] or '-'} | {row['dataset']} | {row['piece']} "
             f"| {fmt(r['feature_ms'])} / {fmt(p['feature_ms'])} | {fmt(r['inference_ms'])} / {fmt(p['inference_ms'])} "
             f"| {fmt(row['speed_up'], '.1f')} | {fmt(r['real_time_factor'])} | {fmt(ev.get('mean_b'))} "
-            f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "
+            f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(row['p95_b_delta'])} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "
+            f"| {flag(row['ground_truth_accuracy_parity'])} | {flag(row['renderer_accuracy_parity'])} "
             f"| {pos_text} | {regression_text} |"
         )
+    pfkorz_rows = [row for row in rows if row["method"] == "pfkorz"]
+    if pfkorz_rows:
+        lines += [
+            "",
+            "## PF per-seed and pooled metrics",
+            "",
+            "Per-seed values are informational; only pooled metrics gate PF delivery.",
+            "",
+            "| seed | median beats (rs / py) | accuracy 0.1 beat (rs / py) | p95 beats (rs / py) |",
+            "|---:|---:|---:|---:|",
+        ]
+        for row in pfkorz_rows:
+            rust_seeds = row["rust"]["per_seed_metrics"] or {}
+            python_seeds = row["python"]["per_seed_metrics"] or {}
+            for seed in sorted(rust_seeds.keys() & python_seeds.keys(), key=int):
+                r_seed, p_seed = rust_seeds[seed], python_seeds[seed]
+                lines.append(
+                    f"| {seed} | {fmt(r_seed['evaluation'].get('median_b'))} / {fmt(p_seed['evaluation'].get('median_b'))} "
+                    f"| {fmt(r_seed['evaluation'].get('accuracy_0.1b'))} / {fmt(p_seed['evaluation'].get('accuracy_0.1b'))} "
+                    f"| {fmt(r_seed['p95_b'])} / {fmt(p_seed['p95_b'])} |"
+                )
+            pooled = row["pooled_evaluation"]
+            if pooled:
+                lines.append(
+                    f"| pooled | {fmt(pooled['rust'].get('median_b'))} / {fmt(pooled['python'].get('median_b'))} "
+                    f"| {fmt(pooled['rust'].get('accuracy_0.1b'))} / {fmt(pooled['python'].get('accuracy_0.1b'))} "
+                    f"| {fmt(row['rust']['pooled_p95_b'])} / {fmt(row['python']['pooled_p95_b'])} |"
+                )
     datasets = tomllib.loads(DATASETS.read_text(encoding="utf-8"))
     used = sorted({row["dataset"] for row in rows} & set(datasets))
     if used:
@@ -200,7 +320,10 @@ def main() -> None:
     (args.out / "index.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
 
-    violations = [row for row in rows if row["position_parity"] and not row["position_parity"]["ok"]]
+    violations = [row for row in rows if (row["position_parity"] and not row["position_parity"]["ok"])
+                  or row["ground_truth_accuracy_parity"] is False
+                  or row["renderer_accuracy_parity"] is False
+                  or row["p95_parity"] is False]
     # shields.io endpoint for the README badge: median speed-up over all pieces, red on a parity violation
     speed_ups = [row["speed_up"] for row in rows if row["speed_up"]]
     badge = {
@@ -211,7 +334,16 @@ def main() -> None:
     }
     (args.out / "badge.json").write_text(json.dumps(badge) + "\n", encoding="utf-8")
     for row in violations:
-        print(f"position parity violated: {row['method']} {row['dataset']}/{row['piece']}: {row['position_parity']}")
+        reasons = []
+        if row["position_parity"] and not row["position_parity"]["ok"]:
+            reasons.append(f"positions {row['position_parity']}")
+        if row["ground_truth_accuracy_parity"] is False:
+            reasons.append("ground-truth accuracy")
+        if row["renderer_accuracy_parity"] is False:
+            reasons.append("renderer accuracy")
+        if row["p95_parity"] is False:
+            reasons.append(f"p95 delta {row['p95_b_delta']}")
+        print(f"benchmark parity violated: {row['method']} {row['dataset']}/{row['piece']}: {'; '.join(reasons)}")
     raise SystemExit(1 if violations else 0)
 
 

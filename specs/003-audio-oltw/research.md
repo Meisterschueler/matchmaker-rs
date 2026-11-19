@@ -290,9 +290,21 @@ speedups were 1.4x and 15.0x; Rust real-time factors were 0.05881 and 0.009332.
 Position parity passed within the documented renderer envelope (maximum score
 deviation 0.20 beats for Arzt and 0.52 beats for Dixon, including the allowed
 tail frame). Metric parity was flagged because FluidSynth and RustySynth
-produce different score features; this is reported, not masked. A comparable
-current-master audio baseline was not available, so the 10% regression
-comparison remains open for T035.
+produce different score features; this is reported, not masked.
+
+T035 verification: benchmark run 41526561227 completed successfully on the
+feature commit; all four dataset jobs, including the bundled audio job, and the
+report job passed. The workflow config uses five Rust and five Python runs on
+the same fixture. After merge, master run 41579861381 succeeded and published
+the audio baseline (Rust inference medians: Arzt 0.002513 ms, Dixon 0.091274
+ms). `report.py` was run with the five-run Windows records against that current
+published baseline and flagged both methods above the 10% threshold. This
+cross-platform comparison (Windows local run vs. Ubuntu CI baseline) is only a
+threshold/reporting check, not a valid performance regression conclusion; the
+workflow performs the authoritative comparison on its Ubuntu runner. The
+report test suite passes, and the report/workflow publish benchmark-derived
+metrics without redistributing the fixture or source dataset. Metric parity
+remains reported as a renderer difference rather than hidden.
 
 ### T031/T032: Edge cases and examples
 
@@ -323,7 +335,9 @@ single-observation examples; all 28 doctests pass.
 The full `cargo deny check` passed advisories, bans, licenses, and source checks
 once; a later refresh attempt could not reach RustSec because the proxy returned
 HTTP 407. The gate should be rerun in CI. Arzt and Dixon end-to-end alignment,
-audio stage exports, and benchmark integration are implemented. The
-current-master regression comparison remains open under T035.
+audio stage exports, and benchmark integration are implemented. T035's
+five-run, report-threshold, and derived-metrics checks are complete; the local
+cross-platform comparison is not treated as an authoritative regression
+measurement.
 FluidSynth/RustySynth waveform parity is not claimed. T033 updates the README
 method/input table, decoder/SF2 setup and roadmap, plus the UPSTREAM module map.

@@ -28,6 +28,47 @@ impl AlignmentPath {
     }
 }
 
+/// Frame-level tempo diagnostics and the accumulated OLTW window computed by a call.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TempoStepDebug {
+    /// Frame, onset index, relative tempo, beat period, inserted/deleted/postponed counts, length.
+    pub state: [f64; 8],
+    /// First reference-frame index of the accumulated cost window.
+    pub window_start: usize,
+    /// Accumulated float32 costs for the reference window.
+    pub costs: Vec<f32>,
+}
+
+/// Candidate selection state for parallel multi-fold Arzt inference.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultiFoldStepDebug {
+    /// Currently selected candidate index.
+    pub selected_hypothesis: usize,
+    /// Current reference frame for each candidate.
+    pub current_frames: Vec<usize>,
+    /// Current-frame feature distance for each candidate.
+    pub local_costs: Vec<f64>,
+    /// Trailing-window mean distance for each candidate.
+    pub mean_costs: Vec<f64>,
+}
+
+/// Active hypotheses of the switching Kalman filter after a call, in beam order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkfStepDebug {
+    /// Chord index of each hypothesis.
+    pub chords: Vec<usize>,
+    /// Frames each hypothesis' chord has lasted.
+    pub ages: Vec<usize>,
+    /// Normalized probability of each hypothesis.
+    pub probabilities: Vec<f64>,
+    /// Tempo mean of each hypothesis in seconds per whole note.
+    pub tempo_means: Vec<f64>,
+    /// Tempo variance of each hypothesis.
+    pub tempo_variances: Vec<f64>,
+    /// Hypotheses after merging and before the beam pruned them.
+    pub candidates: usize,
+}
+
 /// Inspectable follower state after a call, for the export of a run (FR-018).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StepDebug {
@@ -39,6 +80,12 @@ pub struct StepDebug {
     pub beat_period: Option<f64>,
     /// `outerhmm`: whether the call folded a note into the previous chord.
     pub is_continuation: Option<bool>,
+    /// Tempo-aware frame diagnostics; absent for existing non-tempo followers.
+    pub tempo: Option<TempoStepDebug>,
+    /// Repeat-hypothesis diagnostics; absent for non-multi-fold followers.
+    pub multi_fold: Option<MultiFoldStepDebug>,
+    /// Chord/age hypotheses of the switching Kalman filter; absent for other followers.
+    pub skf: Option<SkfStepDebug>,
 }
 
 /// A score follower (`OnlineAlignment`).

@@ -1,0 +1,38 @@
+{
+  "chords": 8,
+  "follower": {
+    "hop_length": 128,
+    "max_hypotheses": 12,
+    "n_fft": 512,
+    "sample_rate": 8000
+  },
+  "frames": 81,
+  "generator": "tools/golden/generate_audio.py",
+  "input": "synthetic spectra drawn around the Gaussian templates (numpy PCG64 seed 1984)",
+  "method": "skf",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "44A17879953097931B0A3E2CE15CD1F69FCF21EB2D21A23DF0892766CD2805EB",
+    "version": "0.4.0"
+  },
+  "special_frames": [
+    [
+      35,
+      "silent"
+    ],
+    [
+      50,
+      "negative"
+    ]
+  ],
+  "template_mode": "gaussian",
+  "tempo": 240.0,
+  "tolerances": {
+    "model_atol": 1e-09,
+    "model_rtol": 1e-07,
+    "position_atol": 1e-09
+  }
+}

@@ -13,6 +13,7 @@ use matchmaker_rs::matchmaker::{
     ConfigValue, Matchmaker, Method, MethodConfig,
 };
 use matchmaker_rs::performance::Performance;
+use matchmaker_rs::prob::skf::TemplateMode;
 use matchmaker_rs::score::Score;
 use matchmaker_rs::utils::eval::{GroundTruth, evaluate_alignment};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
@@ -39,19 +40,21 @@ enum Command {
         #[arg(long, value_enum, default_value_t = InputType::Midi)]
         input_type: InputType,
         /// Score-following method
-        #[arg(long, default_value = "pthmm")]
-        method: Method,
-        /// Local SF2 SoundFont required for audio score rendering
+        #[arg(long, default_value = "pthmm", value_parser = parse_method_name)]
+        method: String,
+        /// Local SF2 SoundFont required for audio score rendering (skf: synthesized templates)
         #[arg(long)]
         soundfont_path: Option<PathBuf>,
         /// Tempo in BPM (default: score marking, else 120)
         #[arg(long)]
         tempo: Option<f64>,
-        /// Feature processor: MIDI pitch/chord_onset or audio chroma/lse
+        /// Feature processor: MIDI pitch/chord_onset or audio chroma/lse/raw_spectrum/cqt
         #[arg(long)]
         processor: Option<String>,
         /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20;
-        /// arzt: step_size, distance_func; dixon: window_size, max_run_count, distance_func)
+        /// arzt: step_size, distance_func; dixon: window_size, max_run_count, distance_func;
+        /// arzt_multi_fold: selection_window, switch_margin; skf: n_fft,
+        /// template_mode=synthesized|gaussian)
         #[arg(long = "set", value_name = "KEY=VALUE")]
         set: Vec<String>,
         /// Do not unfold repeats
@@ -96,9 +99,44 @@ enum Command {
         /// Runs per method and piece
         #[arg(long, default_value_t = 5)]
         runs: usize,
-        /// Comma-separated methods (default: all available)
-        #[arg(long, value_delimiter = ',')]
-        methods: Vec<Method>,
+        /// Comma-separated methods or standalone benchmark processors (default: all available)
+        #[arg(long, value_delimiter = ',', value_parser = parse_bench_method_name)]
+        methods: Vec<String>,
+    },
+    /// Extract standalone features from a prerecorded audio performance.
+    Features {
+        /// Performance audio file.
+        performance: PathBuf,
+        /// Audio feature processor: raw_spectrum, cqt, cqt_spectral_flux, mel, mfcc or korzeniowski.
+        #[arg(long)]
+        processor: String,
+        /// Directory for NumPy-readable feature and metadata exports.
+        #[arg(long)]
+        export: PathBuf,
+        /// Target sample rate in hertz (default: raw_spectrum 8000, the others 44100).
+        #[arg(long)]
+        sample_rate: Option<u32>,
+        /// Hop length in samples (default: raw_spectrum 128, korzeniowski 512, the others 1470).
+        #[arg(long)]
+        hop_length: Option<usize>,
+        /// FFT size in samples (raw_spectrum default 512, korzeniowski default 4096).
+        #[arg(long)]
+        n_fft: Option<usize>,
+        /// Leave out the flux column: 88 instead of 89 values (cqt_spectral_flux only).
+        #[arg(long)]
+        no_spectral_flux: bool,
+        /// Mel-band count (mel only, default 128).
+        #[arg(long)]
+        n_mels: Option<usize>,
+        /// MFCC coefficient count (mfcc only, default 13).
+        #[arg(long)]
+        n_mfcc: Option<usize>,
+        /// Analysis window length (korzeniowski only, default 2048).
+        #[arg(long)]
+        win_length: Option<usize>,
+        /// Mel filter norm (mel) or DCT norm (mfcc); processor defaults apply.
+        #[arg(long)]
+        norm: Option<String>,
     },
 }
 
@@ -106,6 +144,26 @@ enum Command {
 enum InputType {
     Midi,
     Audio,
+}
+
+fn parse_method_name(name: &str) -> Result<String, String> {
+    if Method::AVAILABLE.contains(&name) || AudioMethod::AVAILABLE.contains(&name) {
+        Ok(name.to_string())
+    } else {
+        Err(format!(
+            "invalid method {name:?}; MIDI: {:?}; audio: {:?}",
+            Method::AVAILABLE,
+            AudioMethod::AVAILABLE,
+        ))
+    }
+}
+
+fn parse_bench_method_name(name: &str) -> Result<String, String> {
+    if name == "korzeniowski" {
+        Ok(name.to_string())
+    } else {
+        parse_method_name(name)
+    }
 }
 
 /// Write an alignment path as TSV with header `perf_sec\tscore_beat`.
@@ -175,7 +233,7 @@ fn audio_config(
                 ConfigValue::Str(name) => {
                     selected_processor = Some(name.parse::<AudioProcessorKind>()?)
                 }
-                _ => anyhow::bail!("--set processor expects chroma or lse"),
+                _ => anyhow::bail!("--set processor expects a valid audio processor name"),
             }
         }
     }
@@ -190,26 +248,51 @@ fn audio_config(
         match key {
             "processor" => {}
             "sample_rate" => config.sample_rate = audio_u32(key, &value)?,
+            "random_seed" => config.random_seed = Some(audio_u32(key, &value)?),
             "frame_rate" => config.frame_rate = audio_u32(key, &value)?,
             "hop_length" => config.hop_length = audio_optional_usize(key, &value)?,
+            "n_fft" => config.n_fft = audio_optional_usize(key, &value)?,
+            "win_length" => config.win_length = audio_optional_usize(key, &value)?,
+            "num_particles" => config.num_particles = audio_optional_usize(key, &value)?,
+            "n_mels" => config.n_mels = audio_optional_usize(key, &value)?,
+            "n_mfcc" => config.n_mfcc = audio_optional_usize(key, &value)?,
             "norm" => {
-                config.norm = match &value {
-                    ConfigValue::None => None,
-                    ConfigValue::Str(value)
-                        if value.eq_ignore_ascii_case("inf")
-                            || value.eq_ignore_ascii_case("infinity") =>
-                    {
-                        Some(f64::INFINITY)
+                if config.processor() == AudioProcessorKind::Mfcc {
+                    config.dct_norm = parse_mfcc_norm(&value)?;
+                } else {
+                    config.norm = match &value {
+                        ConfigValue::None => None,
+                        ConfigValue::Str(value)
+                            if value.eq_ignore_ascii_case("inf")
+                                || value.eq_ignore_ascii_case("infinity") =>
+                        {
+                            Some(f64::INFINITY)
+                        }
+                        ConfigValue::Int(value) => Some(*value as f64),
+                        ConfigValue::Float(value) => Some(*value),
+                        _ => anyhow::bail!("--set norm expects a positive number or none"),
                     }
-                    ConfigValue::Int(value) => Some(*value as f64),
-                    ConfigValue::Float(value) => Some(*value),
-                    _ => anyhow::bail!("--set norm expects a positive number or none"),
                 }
+            }
+            "window_size" | "distance_func" if method == AudioMethod::Skf => {
+                anyhow::bail!("{key} is not used by audio skf")
+            }
+            "window_size" | "distance_func" if method == AudioMethod::OuterHmm => {
+                anyhow::bail!("{key} is not used by audio outerhmm")
             }
             "window_size" => config.window_size = audio_f64(key, &value)?,
             "start_window_size" => config.start_window_size = audio_optional_f64(key, &value)?,
             "step_size" => config.step_size = audio_optional_usize(key, &value)?,
             "max_run_count" => config.max_run_count = audio_optional_usize(key, &value)?,
+            "selection_window" => config.selection_window = audio_optional_usize(key, &value)?,
+            "switch_margin" => config.switch_margin = audio_optional_f64(key, &value)?,
+            "s_j" => config.s_j = Some(audio_f64(key, &value)?),
+            "template_mode" => match value {
+                ConfigValue::Str(name) => {
+                    config.template_mode = Some(name.parse::<TemplateMode>()?)
+                }
+                _ => anyhow::bail!("--set template_mode expects synthesized or gaussian"),
+            },
             "distance_func" => match value {
                 ConfigValue::Str(name) => config.distance_func = name.parse::<AudioDistance>()?,
                 _ => anyhow::bail!("--set distance_func expects manhattan or euclidean"),
@@ -219,6 +302,19 @@ fn audio_config(
     }
     config.validate(method)?;
     Ok(config)
+}
+
+fn parse_mfcc_norm(value: &ConfigValue) -> Result<Option<matchmaker_rs::features::mfcc::MfccNorm>> {
+    use matchmaker_rs::features::mfcc::MfccNorm;
+
+    match value {
+        ConfigValue::None => Ok(None),
+        ConfigValue::Str(value) if value.eq_ignore_ascii_case("backward") => {
+            Ok(Some(MfccNorm::Backward))
+        }
+        ConfigValue::Str(value) if value.eq_ignore_ascii_case("ortho") => Ok(Some(MfccNorm::Ortho)),
+        _ => anyhow::bail!("--set norm for mfcc expects backward, ortho, or none"),
+    }
 }
 
 fn audio_u32(key: &str, value: &ConfigValue) -> Result<u32> {
@@ -285,6 +381,7 @@ fn main() -> Result<()> {
             quiet,
         } => match input_type {
             InputType::Midi => {
+                let method: Method = method.parse()?;
                 anyhow::ensure!(
                     soundfont_path.is_none(),
                     "--soundfont-path requires --input-type audio"
@@ -329,11 +426,7 @@ fn main() -> Result<()> {
                 Ok(())
             }
             InputType::Audio => {
-                anyhow::ensure!(
-                    ground_truth.is_none(),
-                    "audio ground-truth evaluation is not implemented yet"
-                );
-                let audio_method: AudioMethod = method.name().parse()?;
+                let audio_method: AudioMethod = method.parse()?;
                 let config =
                     audio_config(audio_method, processor.as_deref(), soundfont_path, &set)?;
                 let mut mm = match audio_method {
@@ -343,11 +436,41 @@ fn main() -> Result<()> {
                     AudioMethod::Dixon => {
                         AudioMatchmaker::new_dixon(&score, config, tempo, !no_unfold)?
                     }
+                    AudioMethod::ArztTempo => {
+                        AudioMatchmaker::new_arzt_tempo(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::ArztMultiFold => {
+                        AudioMatchmaker::new_arzt_multi_fold(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::Skf => {
+                        AudioMatchmaker::new_skf(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::OuterHmm => {
+                        AudioMatchmaker::new_outerhmm(&score, config, tempo, !no_unfold)?
+                    }
+                    AudioMethod::PfKorz => {
+                        AudioMatchmaker::new_pfkorz(&score, config, tempo, !no_unfold)?
+                    }
+                };
+                let ground_truth_path = ground_truth;
+                let ground_truth = if let Some(ground_truth) = &ground_truth_path {
+                    anyhow::ensure!(
+                        !ground_truth
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("match")),
+                        "audio follow requires direct perf_sec/score_beat TSV ground truth; note-ID .match files need a separate MIDI performance"
+                    );
+                    Some(GroundTruth::load(ground_truth, mm.score(), None)?)
+                } else {
+                    None
                 };
                 if export.is_some() {
                     mm = mm.record();
                 }
                 mm.run_file(&performance)?;
+                let evaluation = ground_truth
+                    .as_ref()
+                    .map(|ground_truth| evaluate_alignment(mm.alignment_path(), ground_truth));
                 let path = mm.alignment_path();
                 if !quiet {
                     let mut out = std::io::stdout().lock();
@@ -359,7 +482,17 @@ fn main() -> Result<()> {
                     write_path_tsv(&path_output, path)?;
                 }
                 if let Some(directory) = export {
-                    matchmaker_rs::export::write_audio_run(&mm, directory)?;
+                    matchmaker_rs::export::write_audio_run(&mm, &directory)?;
+                    if let (Some(ground_truth_path), Some(evaluation)) =
+                        (ground_truth_path.as_deref(), evaluation.as_ref())
+                    {
+                        matchmaker_rs::export::write_audio_evaluation(
+                            audio_method,
+                            &directory,
+                            ground_truth_path,
+                            evaluation,
+                        )?;
+                    }
                 }
                 Ok(())
             }
@@ -398,12 +531,141 @@ fn main() -> Result<()> {
             let methods = if methods.is_empty() {
                 Method::AVAILABLE
                     .iter()
-                    .map(|m| m.parse())
-                    .collect::<Result<_, _>>()?
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>()
             } else {
                 methods
             };
             bench::run(&manifest, &out, runs, &methods)
+        }
+        Command::Features {
+            performance,
+            processor,
+            export,
+            sample_rate,
+            hop_length,
+            n_fft,
+            no_spectral_flux,
+            n_mels,
+            n_mfcc,
+            win_length,
+            norm,
+        } => {
+            anyhow::ensure!(
+                !no_spectral_flux || processor == "cqt_spectral_flux",
+                "--no-spectral-flux is only valid for cqt_spectral_flux"
+            );
+            anyhow::ensure!(
+                processor == "mel" || n_mels.is_none(),
+                "--n-mels is only valid for mel"
+            );
+            anyhow::ensure!(
+                processor == "mfcc" || n_mfcc.is_none(),
+                "--n-mfcc is only valid for mfcc"
+            );
+            anyhow::ensure!(
+                processor == "korzeniowski" || win_length.is_none(),
+                "--win-length is only valid for korzeniowski"
+            );
+            anyhow::ensure!(
+                processor == "mel" || processor == "mfcc" || norm.is_none(),
+                "--norm is only valid for mel or mfcc"
+            );
+            match processor.as_str() {
+                "raw_spectrum" => matchmaker_rs::export::write_audio_features(
+                    performance,
+                    export,
+                    sample_rate.unwrap_or(8_000),
+                    hop_length.unwrap_or(128),
+                    n_fft.unwrap_or(512),
+                )?,
+                "cqt" => {
+                    anyhow::ensure!(n_fft.is_none(), "--n-fft is only valid for raw_spectrum");
+                    matchmaker_rs::export::write_cqt_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(1_470),
+                    )?;
+                }
+                "cqt_spectral_flux" => {
+                    anyhow::ensure!(n_fft.is_none(), "--n-fft is only valid for raw_spectrum");
+                    matchmaker_rs::export::write_cqt_spectral_flux_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(1_470),
+                        !no_spectral_flux,
+                    )?;
+                }
+                "mel" => {
+                    anyhow::ensure!(n_fft.is_none(), "--n-fft is only valid for raw_spectrum");
+                    let norm = match norm.as_deref() {
+                        None => Some(f64::INFINITY),
+                        Some(value) if value.eq_ignore_ascii_case("none") => None,
+                        Some(value)
+                            if value.eq_ignore_ascii_case("inf")
+                                || value.eq_ignore_ascii_case("infinity") =>
+                        {
+                            Some(f64::INFINITY)
+                        }
+                        Some(value) => {
+                            let parsed = value.parse::<f64>().with_context(
+                                || "--norm expects a positive number, inf, or none",
+                            )?;
+                            anyhow::ensure!(
+                                parsed.is_finite() && parsed > 0.0,
+                                "--norm expects a positive number, inf, or none"
+                            );
+                            Some(parsed)
+                        }
+                    };
+                    matchmaker_rs::export::write_mel_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(1_470),
+                        n_mels.unwrap_or(128),
+                        norm,
+                    )?;
+                }
+                "mfcc" => {
+                    anyhow::ensure!(n_fft.is_none(), "--n-fft is only valid for raw_spectrum");
+                    let norm = match norm.as_deref() {
+                        None => Some(matchmaker_rs::features::mfcc::MfccNorm::Backward),
+                        Some(value) if value.eq_ignore_ascii_case("backward") => {
+                            Some(matchmaker_rs::features::mfcc::MfccNorm::Backward)
+                        }
+                        Some(value) if value.eq_ignore_ascii_case("ortho") => {
+                            Some(matchmaker_rs::features::mfcc::MfccNorm::Ortho)
+                        }
+                        Some(value) if value.eq_ignore_ascii_case("none") => None,
+                        _ => anyhow::bail!("--norm for mfcc expects backward, ortho, or none"),
+                    };
+                    matchmaker_rs::export::write_mfcc_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(1_470),
+                        n_mfcc.unwrap_or(13),
+                        norm,
+                    )?;
+                }
+                "korzeniowski" => {
+                    matchmaker_rs::export::write_korzeniowski_features(
+                        performance,
+                        export,
+                        sample_rate.unwrap_or(44_100),
+                        hop_length.unwrap_or(512),
+                        win_length.unwrap_or(2_048),
+                        n_fft.unwrap_or(4_096),
+                    )?;
+                }
+                _ => anyhow::bail!(
+                    "unknown audio processor {processor:?}; available: raw_spectrum, cqt, cqt_spectral_flux, mel, mfcc, korzeniowski"
+                ),
+            }
+            Ok(())
         }
     }
 }

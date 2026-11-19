@@ -1,0 +1,25 @@
+{
+  "beat_grid_length": 161,
+  "beat_resolution": 0.1,
+  "generator": "tools/golden/generate_audio.py",
+  "harmonic_bandwidth_hz": 15.0,
+  "n_fft": 4096,
+  "num_harmonics": 10,
+  "onset_count": 54,
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "E508E943A6AD6882CF277F9F0B6F3ABA988123ACDA590371134A95DBBDC6C7F7",
+    "version": "0.4.0"
+  },
+  "sample_rate": 44100,
+  "score": "simple_mozart_k265_var1.musicxml",
+  "score_sha256": "FD8EE694087F9CDD74EE04667FB5BB161FC36B04DA4321A8DB3A05ECE598AB4A",
+  "template_shape": [
+    161,
+    2049
+  ],
+  "unfolded": true
+}

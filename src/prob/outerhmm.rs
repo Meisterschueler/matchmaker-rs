@@ -383,6 +383,9 @@ impl OnlineAlignment for OuterProductHmm {
             probabilities: self.state_probabilities.clone(),
             beat_period: None,
             is_continuation: Some(self.is_continuation),
+            tempo: None,
+            multi_fold: None,
+            skf: None,
         }
     }
 }

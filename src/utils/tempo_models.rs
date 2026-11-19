@@ -1,4 +1,4 @@
-//! Port of `matchmaker.utils.tempo_models.KalmanTempoModel`.
+//! Port of `KalmanTempoModel` and the audio tracker integration of `ArztTempoModel`.
 //!
 //! The reference mixes Python floats with NumPy scalars, so single (`f32`) and double (`f64`)
 //! precision alternate between operands (research R4). Every mixed-precision line names the
@@ -127,6 +127,116 @@ impl KalmanTempoModel {
         // var_est = (1 - kalman_gain * score_ioi) * var_pred
         self.var_est = f64::from((1.0 - kalman_gain * score_ioi) * var_pred);
         self.counter += 1;
+    }
+}
+
+/// Port of `ArztTempoModel`: seeded score-frame alterations and relative tempo state.
+#[derive(Debug, Clone)]
+pub struct ArztTempoModel {
+    pub(crate) window_frames: i64,
+    pub(crate) min_past_frames: i64,
+    pub(crate) current_tempo: f64,
+    pub(crate) beat_period: f64,
+    pub(crate) n_inserted: usize,
+    pub(crate) n_deleted: usize,
+    pub(crate) n_postponed: usize,
+    last_altered: i64,
+    consecutive: usize,
+    insert_pending: bool,
+    random: Box<rand_mt::Mt>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ScoreAlteration {
+    Insert,
+    Delete,
+}
+
+impl ArztTempoModel {
+    /// Initialize reference defaults at a finite positive frame rate and explicit MT19937 seed.
+    pub fn new(frame_rate: f64, seed: u32) -> crate::Result<Self> {
+        if !frame_rate.is_finite() || frame_rate <= 0.0 {
+            return Err(crate::Error::AudioConfig {
+                key: "frame_rate".into(),
+                reason: "must be finite and positive".into(),
+            });
+        }
+        Ok(Self {
+            window_frames: (3.0 * frame_rate).round_ties_even() as i64,
+            min_past_frames: frame_rate.round_ties_even() as i64,
+            current_tempo: 1.0,
+            beat_period: 0.5,
+            n_inserted: 0,
+            n_deleted: 0,
+            n_postponed: 0,
+            last_altered: -1,
+            consecutive: 0,
+            insert_pending: false,
+            random: Box::new(rand_mt::Mt::new(seed)),
+        })
+    }
+
+    /// Current relative performance/score tempo factor.
+    pub fn current_tempo(&self) -> f64 {
+        self.current_tempo
+    }
+
+    /// Current seconds per beat.
+    pub fn beat_period(&self) -> f64 {
+        self.beat_period
+    }
+
+    pub(crate) fn alteration(
+        &mut self,
+        relative_tempo: Option<f64>,
+        score_frame: usize,
+        onsets: &[bool],
+    ) -> Option<ScoreAlteration> {
+        let Some(tempo) = relative_tempo.filter(|tempo| tempo.is_finite() && *tempo > 0.0) else {
+            self.consecutive = 0;
+            return None;
+        };
+        let beat_period = 0.5 / tempo.max(1e-4);
+        if !beat_period.is_finite() || beat_period <= 0.0 {
+            self.consecutive = 0;
+            return None;
+        }
+        self.current_tempo = tempo;
+        self.beat_period = beat_period;
+        let tempo = tempo.clamp(0.85, 1.20);
+        if tempo >= 1.0 {
+            self.insert_pending = false;
+        }
+        if score_frame as i64 <= self.last_altered + 10 || score_frame + 2 >= onsets.len() {
+            return None;
+        }
+        if self.consecutive >= 3 {
+            self.consecutive = 0;
+            return None;
+        }
+        let high = self.random.next_u32() >> 5;
+        let low = self.random.next_u32() >> 6;
+        let uniform = (f64::from(high) * 67_108_864.0 + f64::from(low)) / 9_007_199_254_740_992.0;
+        let alteration = if tempo > 1.0 && uniform > 1.0 / tempo {
+            self.n_deleted += 1;
+            ScoreAlteration::Delete
+        } else if tempo < 1.0 && (self.insert_pending || uniform > tempo) {
+            if onsets[score_frame] || onsets[score_frame + 1] {
+                self.insert_pending = true;
+                self.n_postponed += 1;
+                self.consecutive = 0;
+                return None;
+            }
+            self.insert_pending = false;
+            self.n_inserted += 1;
+            ScoreAlteration::Insert
+        } else {
+            self.consecutive = 0;
+            return None;
+        };
+        self.consecutive += 1;
+        self.last_altered = score_frame as i64;
+        Some(alteration)
     }
 }
 

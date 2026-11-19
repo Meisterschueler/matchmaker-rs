@@ -1,10 +1,132 @@
 # Synthetic score-audio benchmark fixture; SoundFont is provisioned locally from tests/data/audio/README.md.
-# Usage: matchmaker bench tools/bench/audio.toml --out target/bench/audio/records.json --runs 5 --methods arzt,dixon
+# Usage: matchmaker bench tools/bench/audio.toml --out target/bench/audio/records.json --runs 5 --methods arzt,dixon,arzt_tempo,arzt_multi_fold,skf
 
 [[pieces]]
 dataset = "audio-bundled"
 piece = "mozart_k265_sf2"
+methods = ["arzt", "dixon", "arzt_tempo", "arzt_multi_fold"]
 input_type = "audio"
 score = "../../tests/data/simple_mozart_k265_var1.musicxml"
 performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
 soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+[[pieces]]
+dataset = "audio-ground-truth"
+piece = "mozart_score_onsets"
+methods = ["arzt"]
+input_type = "audio"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+[[pieces]]
+dataset = "audio-repeat"
+piece = "repeats_taken"
+methods = ["arzt_multi_fold"]
+input_type = "audio"
+unfold_score = false
+score = "../../tests/data/fixture_repeats_voltas.musicxml"
+performance = "../../tests/data/audio/arzt_multi_fold/repeat_taken.wav"
+ground_truth = "../../tests/data/audio/arzt_multi_fold/repeat_taken.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+[[pieces]]
+dataset = "audio-repeat"
+piece = "repeats_skipped"
+methods = ["arzt_multi_fold"]
+input_type = "audio"
+unfold_score = false
+score = "../../tests/data/fixture_repeats_voltas.musicxml"
+performance = "../../tests/data/audio/arzt_multi_fold/repeat_skipped.wav"
+ground_truth = "../../tests/data/audio/arzt_multi_fold/repeat_skipped.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+[[pieces]]
+dataset = "audio-raw-spectrum"
+piece = "mozart_raw_spectrum"
+methods = ["arzt", "dixon"]
+input_type = "audio"
+processor = "raw_spectrum"
+kwargs = { sample_rate = 44100, hop_length = 128, n_fft = 512 }
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+# cqt keeps its own defaults (44100 Hz, hop 1470 for arzt, 882 for dixon); norm and n_fft are not options.
+[[pieces]]
+dataset = "audio-cqt"
+piece = "mozart_cqt"
+methods = ["arzt", "dixon"]
+input_type = "audio"
+processor = "cqt"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+# mel uses 128 Slaney bands, norm=inf, and n_fft=2*hop_length by default.
+[[pieces]]
+dataset = "audio-mel"
+piece = "mozart_mel"
+methods = ["arzt", "dixon"]
+input_type = "audio"
+processor = "mel"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+# mfcc uses 13 coefficients, backward DCT normalization, and n_fft=2*hop_length by default.
+[[pieces]]
+dataset = "audio-mfcc"
+piece = "mozart_mfcc"
+methods = ["arzt", "dixon"]
+input_type = "audio"
+processor = "mfcc"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+# Standalone structured extraction; not passed through a vector-only follower.
+[[pieces]]
+dataset = "audio-bundled"
+piece = "mozart_korzeniowski"
+methods = ["korzeniowski"]
+input_type = "audio"
+processor = "korzeniowski"
+kwargs = { sample_rate = 44100, hop_length = 512, win_length = 2048, n_fft = 4096 }
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+
+# skf follows chords, not a rendered score, so only a direct ground truth can judge it.
+[[pieces]]
+dataset = "audio-skf"
+piece = "mozart_skf"
+methods = ["skf"]
+input_type = "audio"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+# Audio-OuterHMM follows the score note array; evaluate against direct note-onset ground truth.
+[[pieces]]
+dataset = "audio-outerhmm"
+piece = "mozart_outerhmm"
+methods = ["outerhmm"]
+input_type = "audio"
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+ground_truth = "../../tests/data/audio/ground_truth/score_onsets.tsv"
+soundfont = "../../target/audio-assets/UprightPianoKW-small-SF2-20190703/UprightPianoKW-small-20190703.sf2"
+
+# Seeded PF is evaluated per seed and pooled with the exact reference evaluator; no SoundFont is used.
+[[pieces]]
+dataset = "audio-pfkorz"
+piece = "mozart_pfkorz"
+methods = ["pfkorz"]
+seeds = [1984, 1985, 1986, 1987, 1988]
+input_type = "audio"
+kwargs = { num_particles = 500 }
+score = "../../tests/data/simple_mozart_k265_var1.musicxml"
+performance = "../../tests/data/audio/simple_mozart_k265_var1_sf2.wav"
+ground_truth = "../../tests/golden/audio/ground_truth/ground_truth.tsv"

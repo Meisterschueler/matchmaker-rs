@@ -1,0 +1,22 @@
+{
+  "events": 8,
+  "generator": "tools/golden/generate_audio.py",
+  "ground_truth": "sampled unique score onsets mapped to performance seconds",
+  "ground_truth_file": "score_onsets.tsv",
+  "method": "audio_ground_truth",
+  "metric_source": "matchmaker.utils.eval.evaluate_alignment",
+  "performance": "simple_mozart_k265_var1_sf2.wav",
+  "performance_sha256": "32DD5C2ED10040658DFAA09ABFE314F97DCE35638C62027216CACA7B31EAAA60",
+  "processor": "chroma",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "44A17879953097931B0A3E2CE15CD1F69FCF21EB2D21A23DF0892766CD2805EB",
+    "version": "0.4.0"
+  },
+  "score": "simple_mozart_k265_var1.musicxml",
+  "score_sha256": "FD8EE694087F9CDD74EE04667FB5BB161FC36B04DA4321A8DB3A05ECE598AB4A",
+  "soundfont_sha256": "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F"
+}

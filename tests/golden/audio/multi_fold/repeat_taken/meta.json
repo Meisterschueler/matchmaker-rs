@@ -1,0 +1,46 @@
+{
+  "fluidsynth": "2.6.2",
+  "frame_rate": 30,
+  "generator": "tools/golden/generate_audio.py",
+  "ground_truth": "repeat_taken.tsv",
+  "hypotheses": [
+    {
+      "index": 0,
+      "max_onset_beat": 18.0,
+      "note_count": 9,
+      "reference_frames": 362
+    },
+    {
+      "index": 1,
+      "max_onset_beat": 14.0,
+      "note_count": 7,
+      "reference_frames": 281
+    },
+    {
+      "index": 2,
+      "max_onset_beat": 10.0,
+      "note_count": 6,
+      "reference_frames": 201
+    }
+  ],
+  "method": "arzt_multi_fold",
+  "performance": "repeat_taken.wav",
+  "performance_sha256": "F35C15390B45259DBAA9A72421FD0141871705749911496549DF497A18061F07",
+  "processor": "chroma",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "44A17879953097931B0A3E2CE15CD1F69FCF21EB2D21A23DF0892766CD2805EB",
+    "version": "0.4.0"
+  },
+  "sample_rate": 44100,
+  "score": "fixture_repeats_voltas.musicxml",
+  "score_sha256": "44E765CBD6CA3C48871123F290CC6B360234855C8599207DFC0D358B8809D4E9",
+  "selection_window": 50,
+  "soundfont_sha256": "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F",
+  "switch_margin": 0.05,
+  "tempo": 90.0,
+  "unfold_score": false
+}

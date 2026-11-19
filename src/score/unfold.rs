@@ -380,6 +380,7 @@ fn add_segments(part: &Part) -> Result<BTreeMap<String, Segment>, UnfoldError> {
 }
 
 /// The single path followed with `all_repeats=True` (port of `Path` + `unfold_paths`).
+#[derive(Clone)]
 struct PathState {
     path: Vec<String>,
     used: HashMap<String, Vec<String>>,
@@ -388,6 +389,46 @@ struct PathState {
 }
 
 impl PathState {
+    fn variant_destinations(
+        &self,
+        segments: &BTreeMap<String, Segment>,
+    ) -> Result<Vec<String>, UnfoldError> {
+        let last = self
+            .path
+            .last()
+            .ok_or_else(|| UnfoldError("empty path".into()))?;
+        let destinations = &segments
+            .get(last)
+            .ok_or_else(|| UnfoldError(format!("KeyError: {last}")))?
+            .to;
+        if destinations.is_empty() {
+            return Err(UnfoldError("IndexError: no destination".into()));
+        }
+        if self.no_repeats {
+            return Ok(vec![destinations[destinations.len() - 1].clone()]);
+        }
+        let used = self.used.get(last).map(Vec::as_slice).unwrap_or(&[]);
+        let Some(last_destination) = used.last() else {
+            return Ok(destinations.clone());
+        };
+        let count = used
+            .iter()
+            .filter(|destination| *destination == last_destination)
+            .count();
+        let positions: Vec<usize> = (0..destinations.len() * 100)
+            .filter(|&index| destinations[index % destinations.len()] == *last_destination)
+            .collect();
+        let index = positions
+            .get(count - 1)
+            .ok_or_else(|| UnfoldError("IndexError: destination history".into()))?
+            % destinations.len();
+        if index < destinations.len() - 1 {
+            Ok(destinations[index + 1..].to_vec())
+        } else {
+            Ok(destinations.clone())
+        }
+    }
+
     /// Port of `Path.list_of_destinations_from_last_segment` for `all_repeats=True`.
     fn next_destination(
         &self,
@@ -432,6 +473,7 @@ impl PathState {
         &mut self,
         destination: String,
         segments: &mut BTreeMap<String, Segment>,
+        ignore_leap_info: bool,
     ) -> Result<(), UnfoldError> {
         let last = self
             .path
@@ -468,7 +510,9 @@ impl PathState {
                 }
                 self.used.entry(last).or_default().push(destination);
             }
-            self.no_repeats = true;
+            if !ignore_leap_info {
+                self.no_repeats = true;
+            }
         }
         Ok(())
     }
@@ -492,7 +536,7 @@ fn maximal_path(part: &Part) -> Result<Vec<(Time, Time)>, UnfoldError> {
         if destination == "END" {
             break;
         }
-        state.jump_to(destination, &mut segments)?;
+        state.jump_to(destination, &mut segments, false)?;
         if state.path.len() > MAX_PATH_LEN {
             return Err(UnfoldError("RecursionError".into()));
         }
@@ -515,6 +559,69 @@ pub(crate) fn unfold_part_maximal(part: &Part) -> Result<Part, UnfoldError> {
     let mut new = create_variant_part(part, &path)?;
     update_note_ids_after_unfolding(&mut new);
     Ok(new)
+}
+
+pub(crate) fn iter_unfolded_parts(part: &Part, limit: usize) -> Result<Vec<Part>, UnfoldError> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let segments = add_segments(part)?;
+    let state = PathState {
+        path: vec!["A".to_string()],
+        used: HashMap::new(),
+        no_repeats: false,
+        jumped: false,
+    };
+    enum Work {
+        Explore(PathState, BTreeMap<String, Segment>),
+        Complete(PathState, BTreeMap<String, Segment>),
+    }
+    let mut work = vec![Work::Explore(state, segments)];
+    let mut paths = Vec::new();
+    while let Some(item) = work.pop() {
+        if paths.len() >= limit {
+            break;
+        }
+        match item {
+            Work::Complete(state, segments) => {
+                paths.push(
+                    state
+                        .path
+                        .iter()
+                        .map(|id| {
+                            segments
+                                .get(id)
+                                .map(|segment| (segment.start, segment.end))
+                                .ok_or_else(|| UnfoldError(format!("KeyError: {id}")))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+            }
+            Work::Explore(state, segments) => {
+                if state.path.len() > MAX_PATH_LEN {
+                    return Err(UnfoldError("RecursionError".into()));
+                }
+                for destination in state.variant_destinations(&segments)?.into_iter().rev() {
+                    if destination == "END" {
+                        work.push(Work::Complete(state.clone(), segments.clone()));
+                    } else {
+                        let mut next_state = state.clone();
+                        let mut next_segments = segments.clone();
+                        next_state.jump_to(destination, &mut next_segments, true)?;
+                        work.push(Work::Explore(next_state, next_segments));
+                    }
+                }
+            }
+        }
+    }
+    paths
+        .into_iter()
+        .map(|path| {
+            let mut variant = create_variant_part(part, &path)?;
+            update_note_ids_after_unfolding(&mut variant);
+            Ok(variant)
+        })
+        .collect()
 }
 
 /// Port of `ScoreVariant.create_variant_part`.
@@ -624,5 +731,36 @@ fn update_note_ids_after_unfolding(part: &mut Part) {
         for (k, i) in idx.into_iter().enumerate() {
             part.notes[i].id = Some(format!("{id}-{}", k + 1));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::score::Score;
+
+    #[test]
+    fn repeat_variants_match_reference_order() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/fixture_repeats_voltas.musicxml");
+        let score = Score::load(path, false).unwrap();
+        let actual: Vec<_> = score
+            .multi_fold_variants()
+            .unwrap()
+            .iter()
+            .map(|score| {
+                let notes = &score.notes;
+                (notes.len(), notes.last().unwrap().onset_beat)
+            })
+            .collect();
+
+        assert_eq!(actual, [(9, 18.0), (7, 14.0), (6, 10.0)]);
+
+        let unfolded = Score::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/data/fixture_repeats_voltas.musicxml"),
+            true,
+        )
+        .unwrap();
+        assert_eq!(unfolded.multi_fold_variants().unwrap().len(), 1);
     }
 }

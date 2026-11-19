@@ -1,0 +1,19 @@
+{
+  "center": false,
+  "direct_call": "librosa raises when n_fft exceeds uncentered input length",
+  "frames": 0,
+  "generator": "tools/golden/generate_audio.py",
+  "hop_length": 128,
+  "n_fft": 512,
+  "processor": "raw_spectrum",
+  "reference": {
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.4.0",
+    "uv_lock_sha256": "44A17879953097931B0A3E2CE15CD1F69FCF21EB2D21A23DF0892766CD2805EB",
+    "version": "0.4.0"
+  },
+  "sample_rate": 8000,
+  "window": "hann"
+}
