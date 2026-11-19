@@ -182,11 +182,11 @@ The shared audio pipeline already exists; do not scaffold a second pipeline or p
 - [X] T083 [US12] Add structured observation consumer, seed=1984, num_particles=500 facade defaults and rate/hop/window validation in src/matchmaker.rs, crates/matchmaker-cli/src/main.rs and crates/matchmaker-py/src/lib.rs; retain direct processor defaults and iterator/path compatibility.
 - [X] T084 [US12] Export score-grid/rest/templates, seed, particles/weights/tempo and resampling diagnostics in src/export.rs; extend tools/golden/compare.py, tests/audio_config_export.rs and tests/edge_cases.rs for exact repeat, first-difference and bounded particle-state behavior.
 - [X] T085 [US12] Extend tools/bench/audio.toml, tools/bench/run_reference.py, tools/bench/report.py and crates/matchmaker-cli/tests/bench_audio.rs for per-seed and pooled metrics using exact evaluator; add public module/score-model/seed examples, README.md and UPSTREAM.md (FR-016, FR-022).
-- [ ] T086 [US12] Run all quickstart gates, exact Rust reproducibility and predeclared five-seed accuracy limits; record RNG/config/hash/report/platform evidence in specs/004-audio-methods/research.md and create only C12 `feat(audio): add pfkorz follower`; no NumPy-stream identity claim.
+- [X] T086 [US12] Run all quickstart gates, exact Rust reproducibility and predeclared five-seed accuracy limits; record RNG/config/hash/report/platform evidence in specs/004-audio-methods/research.md and create only C12 `feat(audio): add pfkorz follower`; no NumPy-stream identity claim.
 
 ## Phase 15: Final audit (no deferred implementation)
 
-- [ ] T087 Verify all C01-C12 hashes/evidence in specs/004-audio-methods/research.md, all 87 task states in specs/004-audio-methods/tasks.md, and the completed method/processor tables in README.md and UPSTREAM.md; confirm no commit mixes algorithms/processors and no per-story gate was deferred (SC-001 through SC-006).
+- [X] T087 Verify all C01-C12 hashes/evidence in specs/004-audio-methods/research.md, all 87 task states in specs/004-audio-methods/tasks.md, and the completed method/processor tables in README.md and UPSTREAM.md; confirm no commit mixes algorithms/processors and no per-story gate was deferred (SC-001 through SC-006).
 
 ## Dependencies and execution order
 

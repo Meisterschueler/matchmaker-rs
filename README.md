@@ -36,6 +36,7 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `arzt_multi_fold` | Audio | `chroma`, `lse`, `mel`, `mfcc` | parallel repeat hypotheses; defaults to `chroma` at 30 fps, 50-cost window and 5% switch margin |
 | `skf` | Audio | `raw_spectrum` | switching Kalman filter over chords with hidden tempo; 8000 Hz, hop 128, FFT 512 |
 | `outerhmm` | Audio | `cqt_spectral_flux` | two-layer sound/pause HMM with weighted chord and pitch-template model; 16000 Hz, hop 640 |
+| `pfkorz` | Audio | `korzeniowski` | seeded particle filter over an analytical score model; seed 1984, 500 particles, 44100 Hz, hop 1470 |
 
 Select with `--method` and `--processor`; override parameters with `--set KEY=VALUE`.
 For `arzt_multi_fold`, pass `--no-unfold` when the score has repeats so the follower receives
@@ -223,7 +224,7 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 ## Roadmap
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
-2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux`, `mel`, `mfcc` (mel and MFCC support the frame-level Arzt/Dixon followers; audio outerhmm only uses `cqt_spectral_flux`). Structured `korzeniowski` extraction is available separately and is not accepted by vector followers.
+2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`, seeded `pfkorz`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux`, `mel`, `mfcc` (mel and MFCC support the frame-level Arzt/Dixon followers; audio outerhmm only uses `cqt_spectral_flux`). Structured `korzeniowski` extraction is available separately, feeds `pfkorz`, and is not accepted by vector followers.
 3. Later: parangonar methods.
 
 ## Benchmark datasets
