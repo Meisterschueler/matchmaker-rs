@@ -4,7 +4,11 @@
 //! Upstream: `hiddenmarkov/__init__.py` (package `python-hiddenmarkov`, not pymatchmaker).
 //!
 //! Transition rows are stored as their band of entries that are not exactly zero (research
-//! R2): skipping exact zeros does not change any product or sum.
+//! R2): skipping exact zeros does not change any product or sum. This also realizes the
+//! reference's 0.5.1 `PitchIOIHMM.step` fast path (`_last_col` cumulative band bound,
+//! prior restricted to the reached states, `fv /= max(fv.sum(), 1e-6)`): the banded
+//! product touches the same non-zero entries, and the guarded normalization below is the
+//! one that fast path copies.
 //!
 //! ```
 //! use matchmaker_rs::prob::hidden_markov::{argmax, Banded};

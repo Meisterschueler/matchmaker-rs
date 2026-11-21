@@ -201,7 +201,7 @@ git config core.hooksPath .githooks
 
 ## Reference implementation
 
-- pymatchmaker release: tag [`v0.4.0`](https://github.com/pymatchmaker/matchmaker/tree/v0.4.0).
+- pymatchmaker release: tag [`v0.5.1`](https://github.com/pymatchmaker/matchmaker/tree/v0.5.1).
   Only released tags are used; see the constitution (`.specify/memory/constitution.md`, I).
 - Python versions for the bindings follow its `requires-python` (currently 3.10–3.13).
 

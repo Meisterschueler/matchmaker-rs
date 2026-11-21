@@ -131,6 +131,8 @@ impl OnlineAlignment for PitchIoiHmm {
                     )
             })
             .collect();
+        // 0.5.1 restricts this step to the states the forward variable has reached
+        // (`PitchIOIHMM.step`); the banded transition realizes that, see `hidden_markov`.
         let fv = forward_algorithm_step(
             &observation_prob,
             &self.transition,

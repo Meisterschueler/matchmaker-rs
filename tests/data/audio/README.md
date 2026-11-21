@@ -53,7 +53,7 @@ this exact pin and records its SF2 hash in generated fixture metadata.
 
 ### Reference generation
 
-`tools/golden/generate_audio.py` uses pymatchmaker v0.4.0 and the locked
+`tools/golden/generate_audio.py` uses pymatchmaker v0.5.1 and the locked
 `tools/golden/uv.lock`. Its `--processors-only` mode generates a deterministic
 three-tone input and processor goldens for all four method/processor pairs under
 `tests/golden/audio/processors/`, without requiring FluidSynth. The checked-in
@@ -129,7 +129,8 @@ documented, with their known limits, in research R11 of `specs/004-audio-methods
 `tests/data/fixture_repeats_voltas.musicxml` is a small hand-authored synthetic
 score. `tools/golden/generate_audio.py --multi-fold-only` renders its taken- and
 skipped-repeat variants with the pinned CC0 SoundFont above and records Partitura
-0.4.0 candidate/replay goldens under `tests/golden/audio/multi_fold/`.
+candidate and replay goldens (locked pymatchmaker 0.5.1 environment) under
+`tests/golden/audio/multi_fold/`.
 The score SHA-256 is `44E765CBD6CA3C48871123F290CC6B360234855C8599207DFC0D358B8809D4E9`.
 
 | File | Bytes | SHA-256 |
@@ -197,7 +198,7 @@ of `matchmaker features ... --processor cqt_spectral_flux --export <dir>`.
 
 `tools/golden/generate_audio.py --outerhmm-only` writes fixed-template reference replays under
 `tests/golden/audio/outerhmm/` and embeds the exact learned archive from the locked pymatchmaker
-0.4.0 package at `src/prob/assets/pitch_templates_16000_640.npz`.
+0.5.1 package at `src/prob/assets/pitch_templates_16000_640.npz`.
 
 - Upstream: `matchmaker/prob/templates/pitch_templates_16000_640.npz`, introduced by commit
   `b7955e645e3998e4d4b5deed7370948991766e4e`; Git blob

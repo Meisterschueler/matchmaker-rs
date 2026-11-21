@@ -33,7 +33,7 @@ from matchmaker.utils.symbolic import (
     midi_messages_to_framed_midi,
 )
 
-REFERENCE_TAG = "v0.4.0"
+REFERENCE_TAG = "v0.5.1"
 PIECES = ["simple_mozart_k265_var1", "mozart_k265_var1", "Bach-fugue_bwv_858"]
 METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"]
 MAX_PROBABILITY_VALUES = 5_000_000

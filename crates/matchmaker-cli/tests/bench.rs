@@ -42,7 +42,7 @@ fn bench_writes_records_and_path() {
     // golden pthmm path of this piece has 67 entries, one per observation
     assert_eq!(r["n_observations"], 67);
     assert!(r["latency_ms"]["inference"]["median"].as_f64().unwrap() > 0.0);
-    assert!((r["evaluation"]["smoothness"].as_f64().unwrap() - -8.8134).abs() <= 1e-4);
+    assert!((r["evaluation"]["smoothness"].as_f64().unwrap() - -9.2708).abs() <= 1e-4);
     let path = std::fs::read_to_string(dir.join("paths/bundled/simple/pthmm.tsv")).unwrap();
     assert_eq!(path.lines().count(), 68);
 }

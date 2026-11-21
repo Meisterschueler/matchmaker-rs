@@ -561,6 +561,9 @@ pub(crate) fn unfold_part_maximal(part: &Part) -> Result<Part, UnfoldError> {
     Ok(new)
 }
 
+/// Lazy bounded enumeration of unfold variants in partitura's traversal order; 0.5.1's
+/// `_iter_first_unfolded_parts(part, limit)` (`matchmaker/dp/oltw_arzt_multi_fold.py`)
+/// walks the segment graph the same way without enumerating the rest.
 pub(crate) fn iter_unfolded_parts(part: &Part, limit: usize) -> Result<Vec<Part>, UnfoldError> {
     if limit == 0 {
         return Ok(Vec::new());

@@ -58,5 +58,5 @@ fn evaluate_prints_reference_keys() {
         ]
     );
     // reference evaluation.json of this piece (pthmm)
-    assert!((json["smoothness"].as_f64().unwrap() - -8.8134).abs() <= 1e-4);
+    assert!((json["smoothness"].as_f64().unwrap() - -9.2708).abs() <= 1e-4);
 }

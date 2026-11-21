@@ -5,7 +5,7 @@ description = "Locked reference environment that generates golden data for match
 requires-python = "==3.12.*"
 dependencies = [
     # Reference release; the tag is the single source of truth (see README "Reference implementation").
-    "pymatchmaker @ git+https://github.com/pymatchmaker/matchmaker@v0.4.0",
+    "pymatchmaker @ git+https://github.com/pymatchmaker/matchmaker@v0.5.1",
     "numpy>=2",
     "pyfluidsynth>=1.4,<2",
 ]

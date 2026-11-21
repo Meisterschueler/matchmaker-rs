@@ -14,9 +14,9 @@
     "numpy": "2.5.4",
     "package": "pymatchmaker",
     "partitura": "1.9.0",
-    "tag": "v0.4.0",
-    "uv_lock_sha256": "E508E943A6AD6882CF277F9F0B6F3ABA988123ACDA590371134A95DBBDC6C7F7",
-    "version": "0.4.0"
+    "tag": "v0.5.1",
+    "uv_lock_sha256": "999F89909BCB999A7B8D79A3FF0E9CDD535871EF85C27A866FBECBD206537BB4",
+    "version": "0.5.1"
   },
   "rng_seed_override": "patch reference module SEED before each follower construction",
   "sample_rate": 44100,
@@ -34,7 +34,7 @@
       "mean_b": 0.0275,
       "median_b": 0.0151,
       "skewness": -0.1442,
-      "smoothness": -4.6343,
+      "smoothness": -4.333,
       "std_b": 0.0312
     },
     "1985": {
@@ -48,7 +48,7 @@
       "mean_b": 0.0258,
       "median_b": 0.0144,
       "skewness": 0.6834,
-      "smoothness": -4.5989,
+      "smoothness": -4.2372,
       "std_b": 0.0279
     },
     "1986": {
@@ -62,7 +62,7 @@
       "mean_b": 0.0423,
       "median_b": 0.0204,
       "skewness": 1.5473,
-      "smoothness": -4.7141,
+      "smoothness": -4.2257,
       "std_b": 0.0509
     },
     "1987": {
@@ -76,7 +76,7 @@
       "mean_b": 0.0276,
       "median_b": 0.0201,
       "skewness": 0.1135,
-      "smoothness": -4.6784,
+      "smoothness": -4.2789,
       "std_b": 0.0273
     },
     "1988": {
@@ -90,7 +90,7 @@
       "mean_b": 0.0377,
       "median_b": 0.0188,
       "skewness": 0.2885,
-      "smoothness": -4.542,
+      "smoothness": -4.1399,
       "std_b": 0.0416
     }
   },

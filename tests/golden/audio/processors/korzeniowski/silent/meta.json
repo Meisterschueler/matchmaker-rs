@@ -12,9 +12,9 @@
     "numpy": "2.5.4",
     "package": "pymatchmaker",
     "partitura": "1.9.0",
-    "tag": "v0.4.0",
-    "uv_lock_sha256": "E508E943A6AD6882CF277F9F0B6F3ABA988123ACDA590371134A95DBBDC6C7F7",
-    "version": "0.4.0"
+    "tag": "v0.5.1",
+    "uv_lock_sha256": "999F89909BCB999A7B8D79A3FF0E9CDD535871EF85C27A866FBECBD206537BB4",
+    "version": "0.5.1"
   },
   "sample_rate": 44100,
   "spectrum": "rfft magnitude, zero-padded to n_fft, L2 normalized",

@@ -14,12 +14,12 @@
     "score": "Bach-fugue_bwv_858.musicxml"
   },
   "reference": {
-    "lockfile_sha256": "5bd952bf8f214c4deb2203c33edaa544b6c3abffda5bb019b29ef0e7af1d0b28",
+    "lockfile_sha256": "999f89909bcb999a7b8d79a3ff0e9cdd535871ef85c27a866fbecbd206537bb4",
     "numpy": "2.5.4",
     "package": "pymatchmaker",
     "partitura": "1.9.0",
-    "tag": "v0.4.0",
-    "version": "0.4.0"
+    "tag": "v0.5.1",
+    "version": "0.5.1"
   },
   "tolerances": {
     "beat_period_rtol": 1e-09,

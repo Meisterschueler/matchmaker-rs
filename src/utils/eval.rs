@@ -18,7 +18,7 @@
 //! ```
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use realfft::RealFftPlanner;
@@ -31,7 +31,10 @@ use crate::score::Score;
 
 /// Forward-window duration of the SPARC anchors in seconds (`ONSET_WINDOW_DURATION`).
 pub const ONSET_WINDOW_DURATION: f64 = 30.0;
-const SPARC_FS: f64 = 50.0;
+/// `SPARC_SAMPLE_RATE`: every frame rate the reference uses (25, 30, 50 and 62.5 Hz)
+/// divides it, so each frame interval spans a whole number of samples, and closely spaced
+/// MIDI updates stay apart.
+const SPARC_FS: f64 = 3000.0;
 const SPARC_FC: f64 = 10.0;
 const SPARC_PADLEVEL: u32 = 4;
 const SPARC_AMP_TH: f64 = 0.05;
@@ -487,8 +490,147 @@ fn spectral_arc_length(speed: &[f64], planner: &mut RealFftPlanner<f64>) -> Opti
     Some(-length)
 }
 
+/// `windowed_spectral_arc_lengths(position, fs, edges)`: [`spectral_arc_length`] of
+/// `|np.gradient(position[left..right])|` per `(left, right)` window, without its cost at
+/// high rates.
+///
+/// A held position makes the speed zero except where a report changes it, and SPARC reads
+/// only the bins up to `SPARC_FC`. So each window's spectrum is kept as a running sum of
+/// its nonzero speed samples, evaluated at those bins only, while the windows slide
+/// forward; `np.gradient` is one-sided at a slice's ends, so the two edge samples are
+/// corrected per window. The reference's cost heuristic falls back to plain per-window
+/// FFTs where those are cheaper; both routes give the same values.
+///
+/// `edges` must not decrease in either bound. `position` may be NaN before the first
+/// report, but not within a window.
+fn windowed_spectral_arc_lengths(position: &[f64], edges: &[(usize, usize)]) -> Vec<Option<f64>> {
+    let mut results = vec![None; edges.len()];
+    let n = position.len();
+    if n < 2 {
+        return results; // "insufficient_samples"
+    }
+    let dt = 1.0 / SPARC_FS;
+    // np.nan_to_num(np.abs(np.gradient(position, 1.0 / fs)), nan=0.0)
+    let speed: Vec<f64> = (0..n)
+        .map(|i| match i {
+            0 => (position[1] - position[0]) / dt,
+            i if i == n - 1 => (position[n - 1] - position[n - 2]) / dt,
+            i => (position[i + 1] - position[i - 1]) / (2.0 * dt),
+        })
+        .map(|s| if s.is_nan() { 0.0 } else { s.abs() })
+        .collect();
+    let nonzero: Vec<usize> = (0..n).filter(|&i| speed[i] != 0.0).collect();
+    let mut planner = RealFftPlanner::new();
+    // Group windows by transform size; edges are sorted, so each group stays sorted.
+    let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (i, &(left, right)) in edges.iter().enumerate() {
+        if right - left < 2 {
+            continue; // "insufficient_samples"
+        }
+        groups
+            .entry((right - left).next_power_of_two() << SPARC_PADLEVEL)
+            .or_default()
+            .push(i);
+    }
+    for (n_fft, members) in groups {
+        // np.fft.rfftfreq(n_fft, d=1/fs), truncated to the bins up to SPARC_FC
+        let step = 1.0 / (n_fft as f64 * (1.0 / SPARC_FS));
+        let freq = |k: usize| k as f64 * step;
+        let n_freq = (0..=n_fft / 2).take_while(|&k| freq(k) <= SPARC_FC).count();
+        // At low rates nearly every speed sample is nonzero and the band up to SPARC_FC is
+        // a large share of the spectrum: there, plain per-window FFTs are cheaper. Both
+        // routes give the same values. A complex exponential in the sliding loop costs
+        // about 20 FFT operations.
+        let (first_left, last_right) = (edges[members[0]].0, edges[members[members.len() - 1]].1);
+        let in_span = nonzero.partition_point(|&p| p < last_right)
+            - nonzero.partition_point(|&p| p < first_left);
+        let plain_cost = members.len() as f64 * n_fft as f64 * (n_fft as f64).log2();
+        let sliding_cost = 20.0 * 2.0 * (in_span + members.len()) as f64 * n_freq as f64;
+        if plain_cost < sliding_cost {
+            for &i in &members {
+                let (left, right) = edges[i];
+                let p = &position[left..right];
+                let m = p.len();
+                // np.abs(np.gradient(p, dt)), edge_order 1
+                let local_speed: Vec<f64> = (0..m)
+                    .map(|j| match j {
+                        0 => (p[1] - p[0]) / dt,
+                        j if j == m - 1 => (p[m - 1] - p[m - 2]) / dt,
+                        j => (p[j + 1] - p[j - 1]) / (2.0 * dt),
+                    })
+                    .map(f64::abs)
+                    .collect();
+                results[i] = spectral_arc_length(&local_speed, &mut planner);
+            }
+            continue;
+        }
+        // omega[k] = -2 * pi * k / n_fft; exp(omega * pos) evaluated as (cos, sin)
+        let omega = |k: usize| (-2.0 * std::f64::consts::PI * k as f64) / n_fft as f64;
+        let mut spec_re = vec![0.0; n_freq];
+        let mut spec_im = vec![0.0; n_freq];
+        let (mut low, mut high) = (0usize, 0usize);
+        for &i in &members {
+            let (left, right) = edges[i];
+            while high < nonzero.len() && nonzero[high] < right {
+                let (pos, w) = (nonzero[high], speed[nonzero[high]]);
+                for k in 0..n_freq {
+                    let angle = omega(k) * pos as f64;
+                    spec_re[k] += w * angle.cos();
+                    spec_im[k] += w * angle.sin();
+                }
+                high += 1;
+            }
+            while low < high && nonzero[low] < left {
+                let (pos, w) = (nonzero[low], speed[nonzero[low]]);
+                for k in 0..n_freq {
+                    let angle = omega(k) * pos as f64;
+                    spec_re[k] -= w * angle.cos();
+                    spec_im[k] -= w * angle.sin();
+                }
+                low += 1;
+            }
+            let first = (position[left + 1] - position[left]).abs() / dt;
+            let last = (position[right - 1] - position[right - 2]).abs() / dt;
+            let inner = nonzero.partition_point(|&p| p < right - 1)
+                - nonzero.partition_point(|&p| p < left + 1);
+            if inner == 0 && first == 0.0 && last == 0.0 {
+                continue; // "stationary"
+            }
+            let (c1, c2) = (first - speed[left], last - speed[right - 1]);
+            let mut magnitude = Vec::with_capacity(n_freq);
+            let mut dc = 0.0;
+            for k in 0..n_freq {
+                let (a1, a2) = (omega(k) * left as f64, omega(k) * (right - 1) as f64);
+                let re = spec_re[k] + c1 * a1.cos() + c2 * a2.cos();
+                let im = spec_im[k] + c1 * a1.sin() + c2 * a2.sin();
+                if k == 0 {
+                    // The speed is nonnegative, so the DC bin is the spectrum's maximum.
+                    dc = re;
+                }
+                magnitude.push(re.hypot(im));
+            }
+            magnitude.iter_mut().for_each(|m| *m /= dc);
+            let support: Vec<usize> = (0..n_freq)
+                .filter(|&k| magnitude[k] >= SPARC_AMP_TH)
+                .collect();
+            if support.len() < 2 {
+                continue; // "undefined_band"
+            }
+            let (bf, bl) = (support[0], support[support.len() - 1]);
+            let span = freq(bl) - freq(bf);
+            let length: f64 = (bf..bl)
+                .map(|k| ((freq(k + 1) - freq(k)) / span).hypot(magnitude[k + 1] - magnitude[k]))
+                .sum();
+            results[i] = Some(-length);
+        }
+    }
+    results
+}
+
 /// `compute_sparc`: mean adaptive SPARC over onset-wise windows of the position trajectory
-/// resampled at 50 Hz (holding the last position); `None` if no window is defined.
+/// resampled at [`SPARC_FS`] = 3000 Hz (holding the last position); `None` if no window is
+/// defined. Windows not fully covered by reports or shorter than two samples are omitted
+/// from the mean; per-window values come from [`windowed_spectral_arc_lengths`].
 pub fn compute_sparc(
     score_beat: &[f64],
     perf_sec: &[f64],
@@ -535,30 +677,25 @@ pub fn compute_sparc(
         })
         .collect();
     let (covered_from, covered_to) = (points[0].0, points[points.len() - 1].0);
-    let mut planner = RealFftPlanner::new();
-    let values: Vec<f64> = windows
-        .iter()
-        .filter(|&&(t0, t1)| t0 >= covered_from && t1 <= covered_to)
-        .filter_map(|&(t0, t1)| {
-            let left = times.partition_point(|&t| t < t0);
-            let right = times.partition_point(|&t| t < t1);
-            let p = &positions[left..right];
-            if p.len() < 2 {
-                return None;
-            }
-            // np.abs(np.gradient(p, dt)), edge_order 1
-            let n = p.len();
-            let speed: Vec<f64> = (0..n)
-                .map(|i| match i {
-                    0 => (p[1] - p[0]) / dt,
-                    i if i == n - 1 => (p[n - 1] - p[n - 2]) / dt,
-                    i => (p[i + 1] - p[i - 1]) / (2.0 * dt),
-                })
-                .map(f64::abs)
-                .collect();
-            spectral_arc_length(&speed, &mut planner)
-        })
-        .collect();
+    // Sample range of each covered window; windows with the same range share one value
+    // (upstream's `keys`/`unique` mapping). Both bounds are non-decreasing, so duplicate
+    // ranges are adjacent.
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    let mut window_edge: Vec<Option<usize>> = Vec::with_capacity(windows.len());
+    for &(t0, t1) in &windows {
+        if t0 < covered_from || t1 > covered_to {
+            window_edge.push(None); // "uncovered"
+            continue;
+        }
+        let left = times.partition_point(|&t| t < t0);
+        let right = times.partition_point(|&t| t < t1);
+        if edges.last() != Some(&(left, right)) {
+            edges.push((left, right));
+        }
+        window_edge.push(Some(edges.len() - 1));
+    }
+    let computed = windowed_spectral_arc_lengths(&positions, &edges);
+    let values: Vec<f64> = window_edge.iter().filter_map(|&e| computed[e?]).collect();
     (!values.is_empty()).then(|| mean(&values))
 }
 
@@ -622,7 +759,42 @@ mod tests {
     fn sparc_matches_reference() {
         let (perf, beats) = trajectory();
         let sparc = compute_sparc(&beats, &perf, &perf, 5.0).unwrap();
-        assert!((sparc - -14.124139255637598).abs() < 1e-9, "{sparc}");
+        assert!((sparc - -15.664710341468403).abs() < 1e-9, "{sparc}");
+    }
+
+    #[test]
+    fn windowed_routes_agree() {
+        let mut planner = RealFftPlanner::new();
+        let mut direct = |p: &[f64]| {
+            let dt = 1.0 / SPARC_FS;
+            let m = p.len();
+            let speed: Vec<f64> = (0..m)
+                .map(|j| match j {
+                    0 => (p[1] - p[0]) / dt,
+                    j if j == m - 1 => (p[m - 1] - p[m - 2]) / dt,
+                    j => (p[j + 1] - p[j - 1]) / (2.0 * dt),
+                })
+                .map(f64::abs)
+                .collect();
+            spectral_arc_length(&speed, &mut planner)
+        };
+        // Held path with sparse reports: the sliding route is cheaper and must equal the
+        // plain per-window computation.
+        let position: Vec<f64> = (0..9_000).map(|i| f64::from(i / 400)).collect();
+        let edges = [(0usize, 7_500usize), (1_500, 9_000)];
+        let windowed = windowed_spectral_arc_lengths(&position, &edges);
+        for (&(left, right), got) in edges.iter().zip(&windowed) {
+            let want = direct(&position[left..right]).unwrap();
+            let got = got.unwrap();
+            assert!((got - want).abs() < 1e-9, "sliding {got} vs plain {want}");
+        }
+        // Dense speed over small, distant windows: the heuristic picks the plain route.
+        let position: Vec<f64> = (0..256).map(|i| f64::from(i) * 0.001).collect();
+        let edges = [(0usize, 32usize), (200, 232)];
+        let windowed = windowed_spectral_arc_lengths(&position, &edges);
+        for (&(left, right), got) in edges.iter().zip(&windowed) {
+            assert_eq!(*got, direct(&position[left..right]));
+        }
     }
 
     #[test]

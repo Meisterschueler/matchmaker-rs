@@ -89,7 +89,7 @@ def test_attributes_and_module_constants():
         "audio": ["arzt", "dixon", "arzt_tempo", "arzt_multi_fold", "skf", "outerhmm", "pfkorz"],
     }
     assert matchmaker_rs.DEFAULT_KWARGS["midi"]["outerhmm"]["polling_period"] == 0.001
-    assert matchmaker_rs.__reference_version__ == "v0.4.0"
+    assert matchmaker_rs.__reference_version__ == "v0.5.1"
     assert isinstance(matchmaker_rs.__version__, str)
     assert make(tempo=90).tempo == 90.0
     assert Matchmaker(SCORE, PERFORMANCE, "midi").method == "pthmm"
