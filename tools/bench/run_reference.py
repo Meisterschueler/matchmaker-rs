@@ -33,7 +33,7 @@ from matchmaker.features.audio import KorzeniowskiAudioProcessor
 from matchmaker.utils.eval import evaluate_alignment, resolve_gt
 from matchmaker.utils.symbolic import midi_messages_from_performance
 
-METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "pfkorz"]
+METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "pfkorz", "dannenberg"]
 SOUNDFONT_SHA256 = "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F"
 PROCESSORS = {
     "PitchProcessor": "pitch",

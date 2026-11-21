@@ -223,7 +223,7 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 
 ## Roadmap
 
-1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`; processors `pitch`, `chord_onset`.
+1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`, `dannenberg`; processors `pitch`, `chord_onset`.
 2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`, seeded `pfkorz`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux`, `mel`, `mfcc` (mel and MFCC support the frame-level Arzt/Dixon followers; audio outerhmm only uses `cqt_spectral_flux`). Structured `korzeniowski` extraction is available separately, feeds `pfkorz`, and is not accepted by vector followers.
 3. Later: parangonar methods.
 

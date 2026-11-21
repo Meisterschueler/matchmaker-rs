@@ -373,7 +373,11 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
     let kwargs = PyDict::new(py);
     let oltw = matches!(method, Method::Arzt | Method::Dixon);
     kwargs.set_item("processor", if oltw { "chord_onset" } else { "pitch" })?;
-    kwargs.set_item("piano_range", true)?;
+    if method != Method::Dannenberg {
+        // dannenberg's processor arguments (piano_range false, pitch lists) are fixed by
+        // the reference and excluded from its configuration pass-through
+        kwargs.set_item("piano_range", true)?;
+    }
     match method {
         Method::OuterHmm => kwargs.set_item("polling_period", 0.001)?,
         Method::Arzt => {
@@ -385,6 +389,14 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
         Method::Dixon => {
             kwargs.set_item("polling_period", 0.001)?;
             kwargs.set_item("window_size", 30)?;
+        }
+        Method::Dannenberg => {
+            kwargs.set_item("c_m", 0.5)?;
+            kwargs.set_item("c_e", 0.0)?;
+            kwargs.set_item("epsilon", 0.090)?;
+            kwargs.set_item("epsilon_fraction", 0.25)?;
+            kwargs.set_item("window", 50)?;
+            kwargs.set_item("smoothing", 0.5)?;
         }
         Method::Pthmm | Method::Hmm => {}
     }
@@ -880,9 +892,10 @@ impl PyMatchmaker {
             Some(kwargs) => kwargs.copy()?,
             None => default_kwargs(py, method_kind)?,
         };
-        // replaced kwargs fall back to 10 ms windows; only the `event_based` method (outerhmm)
-        // streams events
-        let default_polling = (method_kind != Method::OuterHmm).then_some(0.01);
+        // replaced kwargs fall back to 10 ms windows; only the `event_based` methods
+        // (outerhmm, dannenberg) stream events
+        let default_polling =
+            (!matches!(method_kind, Method::OuterHmm | Method::Dannenberg)).then_some(0.01);
         let polling_period = match pop(&config, "polling_period")? {
             Some(value) if value.is_none() => None,
             Some(value) => Some(value.extract::<f64>()?),

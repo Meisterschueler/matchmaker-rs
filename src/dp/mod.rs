@@ -15,6 +15,7 @@ pub mod arzt;
 pub mod arzt_frame;
 pub mod arzt_multi_fold;
 pub mod arzt_tempo;
+pub mod dannenberg;
 pub mod dixon;
 pub mod dixon_frame;
 

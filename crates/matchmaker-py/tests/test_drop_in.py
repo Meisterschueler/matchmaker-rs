@@ -16,7 +16,7 @@ GOLDEN = ROOT / "tests" / "golden"
 PIECE = "simple_mozart_k265_var1"
 SCORE = DATA / f"{PIECE}.musicxml"
 PERFORMANCE = DATA / f"{PIECE}.mid"
-METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"]
+METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "dannenberg"]
 
 
 def make(method="pthmm", **kwargs):
@@ -139,10 +139,32 @@ def test_dixon_window_size_is_a_parameter():
         make("dixon", kwargs=dict(matchmaker_rs.DEFAULT_KWARGS["midi"]["dixon"], window_size=0))
 
 
+def test_dannenberg_default_kwargs_and_event_stream():
+    # `methods.yaml`: no piano_range (the reference fixes the processor arguments and
+    # excludes piano_range/return_pitch_list from the pass-through), event-based stream
+    assert matchmaker_rs.DEFAULT_KWARGS["midi"]["dannenberg"] == {
+        "processor": "pitch",
+        "c_m": 0.5,
+        "c_e": 0.0,
+        "epsilon": 0.090,
+        "epsilon_fraction": 0.25,
+        "window": 50,
+        "smoothing": 0.5,
+    }
+    mm = make("dannenberg")
+    assert mm.polling_period is None
+    with pytest.raises(ValueError, match="allowed"):
+        make("dannenberg", kwargs={"piano_range": False})
+    with pytest.raises(ValueError, match="allowed"):
+        make("dannenberg", kwargs={"return_pitch_list": True})
+    with pytest.raises(ValueError, match="window"):
+        make("dannenberg", kwargs=dict(matchmaker_rs.DEFAULT_KWARGS["midi"]["dannenberg"], window=0))
+
+
 @pytest.mark.parametrize(
     "kwargs,error",
     [
-        ({"method": "foo"}, r"\['pthmm', 'hmm', 'outerhmm', 'arzt', 'dixon'\]"),
+        ({"method": "foo"}, r"\['pthmm', 'hmm', 'outerhmm', 'arzt', 'dixon', 'dannenberg'\]"),
         ({"input_type": "live"}, r"\['midi', 'audio'\]"),
     ],
 )

@@ -22,7 +22,7 @@ env:
   RUNS_RUST: 5
   RUNS_PYTHON: 5
   # methods compared against the reference
-  METHODS: pthmm,hmm,outerhmm,arzt,dixon
+  METHODS: pthmm,hmm,outerhmm,arzt,dixon,dannenberg
 
 jobs:
   bench:

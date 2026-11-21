@@ -35,7 +35,7 @@ from matchmaker.utils.symbolic import (
 
 REFERENCE_TAG = "v0.5.1"
 PIECES = ["simple_mozart_k265_var1", "mozart_k265_var1", "Bach-fugue_bwv_858"]
-METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"]
+METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "dannenberg"]
 MAX_PROBABILITY_VALUES = 5_000_000
 
 KIND_CODES = {"note_on": 0, "note_off": 1, "control_change": 2, "program_change": 3}
@@ -310,6 +310,9 @@ class Recorder:
             probs = getattr(self, "forward_variable", None)
             if probs is None:
                 probs = getattr(self, "state_probabilities", None)
+            if probs is None:
+                # dannenberg: the DP rating column plays the state-distribution role
+                probs = getattr(self, "_values", None)
             recorder.probabilities.append(None if probs is None else np.array(probs, dtype="<f8"))
             tempo = getattr(self, "tempo_model", None)
             recorder.beat_period.append(float(tempo.beat_period) if tempo is not None else np.nan)
@@ -339,7 +342,7 @@ def dump_method(out: Path, method: str, score_path: Path, perf_path: Path, match
     d = out / method
     follower = mm.score_follower
     save(d / "score_positions.npy", np.asarray(follower.score_positions))
-    is_list = method == "hmm"
+    is_list = method in ("hmm", "dannenberg")
     save(d / "observations_features.npy", pad_rows(rec.features) if is_list else (np.stack(rec.features) if rec.features else np.zeros((0, 88), np.float32)))
     save(d / "observations_times.npy", np.array(rec.times, dtype="<f8"))
     save(d / "positions.npy", np.array(rec.positions, dtype="<f8"))

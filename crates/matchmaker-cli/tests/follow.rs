@@ -131,6 +131,43 @@ fn oltw_parameters_are_set_per_method() {
 }
 
 #[test]
+fn dannenberg_prints_the_golden_path_and_rejects_fixed_processor_args() {
+    let out = follow("dannenberg", &[]);
+    assert!(out.status.success());
+    let printed: Vec<(f64, f64)> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let (t, b) = line.split_once('\t').unwrap();
+            (t.parse().unwrap(), b.parse().unwrap())
+        })
+        .collect();
+    let golden = golden_path("dannenberg");
+    assert_eq!(printed.len(), golden.len());
+    for (i, (p, g)) in printed.iter().zip(&golden).enumerate() {
+        assert!(
+            (p.0 - g.0).abs() < 1e-6 && (p.1 - g.1).abs() < 1e-6,
+            "entry {i}: {p:?} vs {g:?}"
+        );
+    }
+    assert!(
+        follow("dannenberg", &["c_m=0.7", "window=30", "smoothing=0.9"])
+            .status
+            .success()
+    );
+    // the reference excludes these from dannenberg's configuration pass-through
+    for entry in ["piano_range=false", "return_pitch_list=true"] {
+        let out = follow("dannenberg", &[entry]);
+        assert_eq!(out.status.code(), Some(1), "{entry}");
+        let key = entry.split_once('=').unwrap().0;
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains(key),
+            "{entry}"
+        );
+    }
+}
+
+#[test]
 fn export_with_ground_truth_writes_evaluation() {
     let dir = std::env::temp_dir().join("matchmaker_cli_export");
     let _ = std::fs::remove_dir_all(&dir);

@@ -319,6 +319,68 @@ fn event_based_streaming_gives_one_observation_per_note() {
 }
 
 #[test]
+fn dannenberg_defaults_and_keys() {
+    let mut config = MethodConfig::for_method(Method::Dannenberg);
+    assert_eq!(
+        (config.processor, config.piano_range, config.polling_period),
+        (ProcessorKind::Pitch, false, None)
+    );
+    for (key, value, read) in [
+        ("c_m", 0.7, &|c: &MethodConfig| c.c_m),
+        ("c_e", 0.1, &|c: &MethodConfig| c.c_e),
+        ("epsilon", 0.05, &|c: &MethodConfig| c.epsilon),
+        ("epsilon_fraction", 0.5, &|c: &MethodConfig| {
+            c.epsilon_fraction
+        }),
+        ("smoothing", 0.9, &|c: &MethodConfig| c.smoothing),
+    ] as [(&str, f64, &dyn Fn(&MethodConfig) -> Option<f64>); 5]
+    {
+        config
+            .set(Method::Dannenberg, key, &ConfigValue::Float(value))
+            .unwrap();
+        assert_eq!(read(&config), Some(value), "{key}");
+        let err = config.set(Method::Dannenberg, key, &ConfigValue::Float(f64::NAN));
+        assert_eq!(invalid_key(err.unwrap_err()), key);
+    }
+    config
+        .set(Method::Dannenberg, "window", &ConfigValue::Int(30))
+        .unwrap();
+    assert_eq!(config.window, Some(30));
+    // the reference excludes these two from the configuration pass-through
+    for key in ["piano_range", "return_pitch_list", "distance_func"] {
+        let err = config.set(Method::Dannenberg, key, &ConfigValue::Bool(true));
+        let err = err.unwrap_err();
+        assert!(err.to_string().contains("allowed"), "{err}");
+        assert_eq!(invalid_key(err), key);
+    }
+}
+
+#[test]
+fn dannenberg_rejects_zero_window_and_non_pitch_processors() {
+    let mut config = MethodConfig::for_method(Method::Dannenberg);
+    config
+        .set(Method::Dannenberg, "window", &ConfigValue::Int(0))
+        .unwrap();
+    let err = Matchmaker::with_config(data(SCORE), Method::Dannenberg, config, None, true).err();
+    assert_eq!(invalid_key(err.unwrap()), "window");
+
+    let mut config = MethodConfig::for_method(Method::Dannenberg);
+    config.processor = ProcessorKind::ChordOnset;
+    let err = Matchmaker::with_config(data(SCORE), Method::Dannenberg, config, None, true).err();
+    assert_eq!(invalid_key(err.unwrap()), "processor");
+}
+
+#[test]
+fn dannenberg_follows_the_performance_event_based() {
+    let mut mm = Matchmaker::new(data(SCORE), Method::Dannenberg, None, true).unwrap();
+    assert_eq!(mm.polling_period(), None);
+    let positions = mm.run_file(data(PERFORMANCE)).unwrap();
+    assert!(!positions.is_empty());
+    let last_onset = f64::from(*mm.score_positions().last().unwrap());
+    assert!(positions.iter().all(|p| (0.0..=last_onset).contains(p)));
+}
+
+#[test]
 fn score_annotations_cover_the_onsets() {
     let mm = Matchmaker::new(data(SCORE), Method::Pthmm, None, true).unwrap();
     let onsets = mm.score_positions();

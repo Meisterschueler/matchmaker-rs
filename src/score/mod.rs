@@ -242,6 +242,31 @@ impl Score {
         chords
     }
 
+    /// Port of the `score_cevts` reference builder (`matchmaker/registry.py`): one MIDI
+    /// pitch set per unique onset beat as a bitmask (bit = pitch 0–127), and those beats.
+    ///
+    /// ```
+    /// use matchmaker_rs::score::Score;
+    /// let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;
+    /// let (cevts, onsets) = score.score_cevts();
+    /// assert_eq!(cevts.len(), onsets.len());
+    /// assert!(cevts.iter().all(|&c| c != 0));
+    /// # Ok::<(), matchmaker_rs::Error>(())
+    /// ```
+    pub fn score_cevts(&self) -> (Vec<u128>, Vec<f32>) {
+        let onsets = self.unique_onsets();
+        let mut cevts = vec![0u128; onsets.len()];
+        for n in &self.notes {
+            let bit = u32::try_from(n.pitch).ok().filter(|&p| p < 128);
+            if let (Some(bit), Ok(i)) =
+                (bit, onsets.binary_search_by(|o| o.total_cmp(&n.onset_beat)))
+            {
+                cevts[i] |= 1u128 << bit;
+            }
+        }
+        (cevts, onsets)
+    }
+
     /// Port of `onset_pianoroll(note_array, "onset_beat", piano_range)`: one binary pitch vector
     /// per unique onset (88 keys from MIDI 21, or 128) and the onset beats.
     ///

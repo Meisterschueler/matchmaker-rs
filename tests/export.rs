@@ -101,6 +101,7 @@ fn export_equals_golden_for_every_method() {
         Method::OuterHmm,
         Method::Arzt,
         Method::Dixon,
+        Method::Dannenberg,
     ] {
         let name = method.name();
         let out = std::env::temp_dir().join(format!("matchmaker_export_{name}"));
@@ -144,7 +145,7 @@ fn export_equals_golden_for_every_method() {
         match method {
             Method::Hmm => assert!(out.join("hmm/beat_period.npy").exists()),
             Method::OuterHmm => assert!(out.join("outerhmm/is_continuation.npy").exists()),
-            Method::Pthmm | Method::Arzt | Method::Dixon => {}
+            Method::Pthmm | Method::Arzt | Method::Dixon | Method::Dannenberg => {}
         }
 
         let ctx = Ctx::new(name, PIECE, "");

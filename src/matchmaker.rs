@@ -22,6 +22,7 @@ use crate::dp::arzt::{ArztEvent, ArztEventConfig};
 use crate::dp::arzt_frame::ArztFrame;
 use crate::dp::arzt_multi_fold::{ArztMultiFoldCandidate, ArztMultiFoldFrame};
 use crate::dp::arzt_tempo::ArztTempoFrame;
+use crate::dp::dannenberg::{DannenbergConfig, DannenbergEvent};
 use crate::dp::dixon::{DixonEvent, DixonEventConfig};
 use crate::dp::dixon_frame::DixonFrame;
 use crate::error::{Error, Result};
@@ -62,11 +63,14 @@ pub enum Method {
     Arzt,
     /// `dixon`: event-level online time warping with a sparse, path-normalised cost matrix.
     Dixon,
+    /// `dannenberg`: windowed dynamic-programming matcher over score compound events.
+    Dannenberg,
 }
 
 impl Method {
     /// Reference names of the supported methods.
-    pub const AVAILABLE: [&'static str; 5] = ["pthmm", "hmm", "outerhmm", "arzt", "dixon"];
+    pub const AVAILABLE: [&'static str; 6] =
+        ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "dannenberg"];
 
     /// Keys [`MethodConfig::set`] accepts for this method.
     pub fn config_keys(self) -> &'static [&'static str] {
@@ -93,6 +97,17 @@ impl Method {
                 "max_run_count",
                 "distance_func",
             ],
+            // the reference excludes piano_range and return_pitch_list from passthrough
+            Method::Dannenberg => &[
+                "processor",
+                "polling_period",
+                "c_m",
+                "c_e",
+                "epsilon",
+                "epsilon_fraction",
+                "window",
+                "smoothing",
+            ],
             _ => &["processor", "piano_range", "polling_period"],
         }
     }
@@ -105,6 +120,7 @@ impl Method {
             Method::OuterHmm => "outerhmm",
             Method::Arzt => "arzt",
             Method::Dixon => "dixon",
+            Method::Dannenberg => "dannenberg",
         }
     }
 }
@@ -119,6 +135,7 @@ impl FromStr for Method {
             "outerhmm" => Ok(Method::OuterHmm),
             "arzt" => Ok(Method::Arzt),
             "dixon" => Ok(Method::Dixon),
+            "dannenberg" => Ok(Method::Dannenberg),
             _ => Err(Error::InvalidMethod {
                 method: name.to_string(),
                 available: Method::AVAILABLE.iter().map(|s| s.to_string()).collect(),
@@ -830,11 +847,24 @@ pub struct MethodConfig {
     pub max_run_count: Option<usize>,
     /// `arzt`, `dixon`: local cost (default `cosine` / `euclidean`).
     pub distance_func: Option<Distance>,
+    /// `dannenberg`: cost per missing score note (default 0.5).
+    pub c_m: Option<f64>,
+    /// `dannenberg`: cost per extra performance note (default 0.0).
+    pub c_e: Option<f64>,
+    /// `dannenberg`: absolute grouping threshold in seconds (default 0.090).
+    pub epsilon: Option<f64>,
+    /// `dannenberg`: relative grouping fraction (default 0.25).
+    pub epsilon_fraction: Option<f64>,
+    /// `dannenberg`: score cevts ahead of the best match (default 50, at least 1).
+    pub window: Option<usize>,
+    /// `dannenberg`: tempo smoothing coefficient (default 0.5).
+    pub smoothing: Option<f64>,
 }
 
 impl MethodConfig {
     /// The `default_kwargs` of `method`: piano range, `pitch` (`arzt`, `dixon`: `chord_onset`) and
-    /// windows of 10 ms (`outerhmm`, `arzt`, `dixon`: 1 ms).
+    /// windows of 10 ms (`outerhmm`, `arzt`, `dixon`: 1 ms). `dannenberg` is event-based
+    /// (no polling) on raw-pitch lists (`piano_range: false`, `return_pitch_list: true`).
     pub fn for_method(method: Method) -> Self {
         let oltw = matches!(method, Method::Arzt | Method::Dixon);
         MethodConfig {
@@ -843,18 +873,26 @@ impl MethodConfig {
             } else {
                 ProcessorKind::Pitch
             },
-            piano_range: true,
-            polling_period: Some(if oltw || method == Method::OuterHmm {
-                0.001
+            piano_range: method != Method::Dannenberg,
+            polling_period: if method == Method::Dannenberg {
+                None
+            } else if oltw || method == Method::OuterHmm {
+                Some(0.001)
             } else {
-                0.01
-            }),
+                Some(0.01)
+            },
             patience: None,
             other_prob: None,
             step_size: None,
             window_size: None,
             max_run_count: None,
             distance_func: None,
+            c_m: None,
+            c_e: None,
+            epsilon: None,
+            epsilon_fraction: None,
+            window: None,
+            smoothing: None,
         }
     }
 
@@ -886,15 +924,36 @@ impl MethodConfig {
             }
             ("other_prob", ConfigValue::Float(p)) => self.other_prob = Some(*p),
             ("other_prob", ConfigValue::Int(p)) => self.other_prob = Some(*p as f64),
-            ("step_size" | "window_size" | "max_run_count", ConfigValue::Int(n)) => {
+            ("step_size" | "window_size" | "max_run_count" | "window", ConfigValue::Int(n)) => {
                 let n = usize::try_from(*n).map_err(|_| invalid("must not be negative".into()))?;
                 match key {
                     "step_size" => self.step_size = Some(n),
                     "window_size" => self.window_size = Some(n),
+                    "window" => self.window = Some(n),
                     _ => self.max_run_count = Some(n),
                 }
             }
             ("distance_func", ConfigValue::Str(name)) => self.distance_func = Some(name.parse()?),
+            (
+                "c_m" | "c_e" | "epsilon" | "epsilon_fraction" | "smoothing",
+                ConfigValue::Float(_) | ConfigValue::Int(_),
+            ) => {
+                let v = match value {
+                    ConfigValue::Float(v) => *v,
+                    ConfigValue::Int(v) => *v as f64,
+                    _ => unreachable!(),
+                };
+                if !v.is_finite() {
+                    return Err(invalid("must be a finite number".into()));
+                }
+                match key {
+                    "c_m" => self.c_m = Some(v),
+                    "c_e" => self.c_e = Some(v),
+                    "epsilon" => self.epsilon = Some(v),
+                    "epsilon_fraction" => self.epsilon_fraction = Some(v),
+                    _ => self.smoothing = Some(v),
+                }
+            }
             _ => return Err(invalid(format!("unsupported value {value:?}"))),
         }
         Ok(())
@@ -921,6 +980,12 @@ impl MethodConfig {
                 "hmm needs the pitch processor (pitch list)",
             ));
         }
+        if method == Method::Dannenberg && self.processor != ProcessorKind::Pitch {
+            return Err(invalid(
+                "processor",
+                "dannenberg needs the pitch processor (pitch list)",
+            ));
+        }
         if method == Method::OuterHmm && !self.piano_range {
             return Err(invalid(
                 "piano_range",
@@ -931,6 +996,7 @@ impl MethodConfig {
             ("step_size", self.step_size),
             ("window_size", self.window_size),
             ("max_run_count", self.max_run_count),
+            ("window", self.window),
         ] {
             if size == Some(0) {
                 return Err(invalid(key, "must be at least 1"));
@@ -1009,7 +1075,7 @@ impl Matchmaker {
         let processor: Box<dyn Processor> = match config.processor {
             ProcessorKind::Pitch => Box::new(PitchProcessor::new(
                 config.piano_range,
-                method == Method::Hmm,
+                matches!(method, Method::Hmm | Method::Dannenberg),
             )),
             ProcessorKind::ChordOnset => Box::new(ChordOnsetProcessor::new(config.piano_range)),
         };
@@ -1057,6 +1123,25 @@ impl Matchmaker {
                         max_run_count: config.max_run_count.unwrap_or(defaults.max_run_count),
                         distance: config.distance_func.unwrap_or(defaults.distance),
                     },
+                ))
+            }
+            Method::Dannenberg => {
+                let (cevts, onsets) = score.score_cevts();
+                let defaults = DannenbergConfig::default();
+                Box::new(DannenbergEvent::new(
+                    cevts,
+                    onsets,
+                    DannenbergConfig {
+                        c_m: config.c_m.unwrap_or(defaults.c_m),
+                        c_e: config.c_e.unwrap_or(defaults.c_e),
+                        epsilon: config.epsilon.unwrap_or(defaults.epsilon),
+                        epsilon_fraction: config
+                            .epsilon_fraction
+                            .unwrap_or(defaults.epsilon_fraction),
+                        window: config.window.unwrap_or(defaults.window),
+                        smoothing: config.smoothing.unwrap_or(defaults.smoothing),
+                    },
+                    tempo,
                 ))
             }
         };
