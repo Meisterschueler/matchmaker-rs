@@ -12,6 +12,7 @@ enum Dtype {
     I64,
     F32,
     F64,
+    Unicode(usize),
 }
 
 impl Dtype {
@@ -22,6 +23,10 @@ impl Dtype {
             "<i8" => Ok(Dtype::I64),
             "<f4" => Ok(Dtype::F32),
             "<f8" => Ok(Dtype::F64),
+            d if d.starts_with("<U") => d[2..]
+                .parse()
+                .map(Dtype::Unicode)
+                .map_err(|_| format!("bad Unicode dtype {d}")),
             d => Err(format!("unsupported dtype {d}")),
         }
     }
@@ -31,6 +36,7 @@ impl Dtype {
             Dtype::Bool => 1,
             Dtype::I32 | Dtype::F32 => 4,
             Dtype::I64 | Dtype::F64 => 8,
+            Dtype::Unicode(length) => length * 4,
         }
     }
 
@@ -41,6 +47,7 @@ impl Dtype {
             Dtype::I64 => i64::from_le_bytes(b[..8].try_into().unwrap()) as f64,
             Dtype::F32 => f64::from(f32::from_le_bytes(b[..4].try_into().unwrap())),
             Dtype::F64 => f64::from_le_bytes(b[..8].try_into().unwrap()),
+            Dtype::Unicode(_) => panic!("use string_field for Unicode fields"),
         }
     }
 }
@@ -139,6 +146,29 @@ impl NpyArray {
         self.data
             .chunks_exact(self.item_size)
             .map(|rec| dtype.read(&rec[*offset..]))
+            .collect()
+    }
+
+    /// Decode a fixed-width NumPy Unicode record field.
+    pub fn string_field(&self, name: &str) -> Vec<String> {
+        let (_, dtype, offset) = self
+            .fields
+            .iter()
+            .find(|(field, _, _)| field == name)
+            .unwrap_or_else(|| panic!("no field {name}"));
+        assert!(matches!(dtype, Dtype::Unicode(_)));
+        self.data
+            .chunks_exact(self.item_size)
+            .map(|record| {
+                record[*offset..*offset + dtype.size()]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|bytes| u32::from_le_bytes(*bytes))
+                    .take_while(|value| *value != 0)
+                    .map(|value| char::from_u32(value).expect("valid Unicode code point"))
+                    .collect()
+            })
             .collect()
     }
 }

@@ -16,7 +16,7 @@ GOLDEN = ROOT / "tests" / "golden"
 PIECE = "simple_mozart_k265_var1"
 SCORE = DATA / f"{PIECE}.musicxml"
 PERFORMANCE = DATA / f"{PIECE}.mid"
-METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "dannenberg"]
+METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "dannenberg", "OTM"]
 
 
 def make(method="pthmm", **kwargs):
@@ -164,7 +164,7 @@ def test_dannenberg_default_kwargs_and_event_stream():
 @pytest.mark.parametrize(
     "kwargs,error",
     [
-        ({"method": "foo"}, r"\['pthmm', 'hmm', 'outerhmm', 'arzt', 'dixon', 'dannenberg'\]"),
+        ({"method": "foo"}, r"\['pthmm', 'hmm', 'outerhmm', 'arzt', 'dixon', 'dannenberg', 'OTM'\]"),
         ({"input_type": "live"}, r"\['midi', 'audio'\]"),
     ],
 )

@@ -51,6 +51,7 @@ fn golden_notes(dir: &Path) -> Vec<ScoreNote> {
     (0..beats.len())
         .map(|i| ScoreNote {
             id: format!("n{i}"),
+            is_grace: false,
             pitch: pitches[i] as i32,
             onset_beat: beats[i] as f32,
             duration_beat: 1.0,

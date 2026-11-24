@@ -552,6 +552,7 @@ fn handle_note(
             note_index = Some(part.notes.len());
             part.notes.push(Note {
                 id: note_id.clone(),
+                is_grace,
                 midi_pitch: mp,
                 voice,
                 start: position,

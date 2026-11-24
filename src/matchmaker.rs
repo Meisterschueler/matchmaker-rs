@@ -25,7 +25,9 @@ use crate::dp::arzt_tempo::ArztTempoFrame;
 use crate::dp::dannenberg::{DannenbergConfig, DannenbergEvent};
 use crate::dp::dixon::{DixonEvent, DixonEventConfig};
 use crate::dp::dixon_frame::DixonFrame;
+use crate::dp::otm::{OnlineTransformerMatcher, OtmConfig};
 use crate::error::{Error, Result};
+use crate::features::parangonar::ParangonarProcessor;
 use crate::features::{
     AudioProcessor, KorzeniowskiObservation, Observation, Processor,
     chord_onset::ChordOnsetProcessor, chroma::ChromaProcessor, cqt::CqtProcessor,
@@ -65,12 +67,21 @@ pub enum Method {
     Dixon,
     /// `dannenberg`: windowed dynamic-programming matcher over score compound events.
     Dannenberg,
+    /// Parangonar's pretrained event-based Online Transformer Matcher.
+    Otm,
 }
 
 impl Method {
     /// Reference names of the supported methods.
-    pub const AVAILABLE: [&'static str; 6] =
-        ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "dannenberg"];
+    pub const AVAILABLE: [&'static str; 7] = [
+        "pthmm",
+        "hmm",
+        "outerhmm",
+        "arzt",
+        "dixon",
+        "dannenberg",
+        "OTM",
+    ];
 
     /// Keys [`MethodConfig::set`] accepts for this method.
     pub fn config_keys(self) -> &'static [&'static str] {
@@ -108,6 +119,18 @@ impl Method {
                 "window",
                 "smoothing",
             ],
+            Method::Otm => &[
+                "processor",
+                "polling_period",
+                "token_number",
+                "dim_model",
+                "dim_class",
+                "num_heads",
+                "num_decoder_layers",
+                "dropout_p",
+                "init_beat_period",
+                "lookback",
+            ],
             _ => &["processor", "piano_range", "polling_period"],
         }
     }
@@ -121,6 +144,7 @@ impl Method {
             Method::Arzt => "arzt",
             Method::Dixon => "dixon",
             Method::Dannenberg => "dannenberg",
+            Method::Otm => "OTM",
         }
     }
 }
@@ -136,6 +160,7 @@ impl FromStr for Method {
             "arzt" => Ok(Method::Arzt),
             "dixon" => Ok(Method::Dixon),
             "dannenberg" => Ok(Method::Dannenberg),
+            "OTM" => Ok(Method::Otm),
             _ => Err(Error::InvalidMethod {
                 method: name.to_string(),
                 available: Method::AVAILABLE.iter().map(|s| s.to_string()).collect(),
@@ -219,17 +244,20 @@ pub enum ProcessorKind {
     Pitch,
     /// `chord_onset`: one binary vector per chord.
     ChordOnset,
+    /// Event-based single notes for Parangonar matchers.
+    Parangonar,
 }
 
 impl ProcessorKind {
     /// Reference names of the supported processors.
-    pub const AVAILABLE: [&'static str; 2] = ["pitch", "chord_onset"];
+    pub const AVAILABLE: [&'static str; 3] = ["pitch", "chord_onset", "parangonar"];
 
     /// Reference name of the processor.
     pub fn name(self) -> &'static str {
         match self {
             ProcessorKind::Pitch => "pitch",
             ProcessorKind::ChordOnset => "chord_onset",
+            ProcessorKind::Parangonar => "parangonar",
         }
     }
 }
@@ -241,6 +269,7 @@ impl FromStr for ProcessorKind {
         match name {
             "pitch" => Ok(ProcessorKind::Pitch),
             "chord_onset" => Ok(ProcessorKind::ChordOnset),
+            "parangonar" => Ok(ProcessorKind::Parangonar),
             _ => Err(Error::InvalidParameter {
                 key: "processor".into(),
                 reason: format!(
@@ -859,6 +888,10 @@ pub struct MethodConfig {
     pub window: Option<usize>,
     /// `dannenberg`: tempo smoothing coefficient (default 0.5).
     pub smoothing: Option<f64>,
+    /// `OTM`: accepted compatibility parameter (upstream starts at 0.5).
+    pub init_beat_period: Option<f64>,
+    /// `OTM`: positive integer tempo lookback in beats (default 1).
+    pub lookback: Option<usize>,
 }
 
 impl MethodConfig {
@@ -868,13 +901,15 @@ impl MethodConfig {
     pub fn for_method(method: Method) -> Self {
         let oltw = matches!(method, Method::Arzt | Method::Dixon);
         MethodConfig {
-            processor: if oltw {
+            processor: if method == Method::Otm {
+                ProcessorKind::Parangonar
+            } else if oltw {
                 ProcessorKind::ChordOnset
             } else {
                 ProcessorKind::Pitch
             },
-            piano_range: method != Method::Dannenberg,
-            polling_period: if method == Method::Dannenberg {
+            piano_range: !matches!(method, Method::Dannenberg | Method::Otm),
+            polling_period: if matches!(method, Method::Dannenberg | Method::Otm) {
                 None
             } else if oltw || method == Method::OuterHmm {
                 Some(0.001)
@@ -893,6 +928,8 @@ impl MethodConfig {
             epsilon_fraction: None,
             window: None,
             smoothing: None,
+            init_beat_period: None,
+            lookback: None,
         }
     }
 
@@ -912,6 +949,47 @@ impl MethodConfig {
                 method.config_keys()
             )));
         }
+        if method == Method::Otm && key == "dropout_p" {
+            return match value {
+                ConfigValue::Float(value) if value.is_finite() && (0.0..=1.0).contains(value) => {
+                    Ok(())
+                }
+                ConfigValue::Int(0 | 1) => Ok(()),
+                _ => Err(invalid(
+                    "must be finite and between 0 and 1 (disabled in eval mode)".into(),
+                )),
+            };
+        }
+        if method == Method::Otm
+            && matches!(
+                key,
+                "token_number" | "dim_model" | "dim_class" | "num_heads" | "num_decoder_layers"
+            )
+        {
+            let expected = match key {
+                "token_number" => 91.0,
+                "dim_model" => 64.0,
+                "dim_class" => 2.0,
+                "num_heads" => 8.0,
+                _ => 6.0,
+            };
+            let actual = match value {
+                ConfigValue::Int(value) => *value as f64,
+                ConfigValue::Float(value) => *value,
+                _ => {
+                    return Err(invalid(format!(
+                        "fixed pretrained architecture requires {expected}"
+                    )));
+                }
+            };
+            return if actual == expected {
+                Ok(())
+            } else {
+                Err(invalid(format!(
+                    "fixed pretrained architecture requires {expected}, got {actual}"
+                )))
+            };
+        }
         match (key, value) {
             ("processor", ConfigValue::Str(name)) => self.processor = name.parse()?,
             ("piano_range", ConfigValue::Bool(b)) => self.piano_range = *b,
@@ -924,18 +1002,22 @@ impl MethodConfig {
             }
             ("other_prob", ConfigValue::Float(p)) => self.other_prob = Some(*p),
             ("other_prob", ConfigValue::Int(p)) => self.other_prob = Some(*p as f64),
-            ("step_size" | "window_size" | "max_run_count" | "window", ConfigValue::Int(n)) => {
+            (
+                "step_size" | "window_size" | "max_run_count" | "window" | "lookback",
+                ConfigValue::Int(n),
+            ) => {
                 let n = usize::try_from(*n).map_err(|_| invalid("must not be negative".into()))?;
                 match key {
                     "step_size" => self.step_size = Some(n),
                     "window_size" => self.window_size = Some(n),
                     "window" => self.window = Some(n),
+                    "lookback" => self.lookback = Some(n),
                     _ => self.max_run_count = Some(n),
                 }
             }
             ("distance_func", ConfigValue::Str(name)) => self.distance_func = Some(name.parse()?),
             (
-                "c_m" | "c_e" | "epsilon" | "epsilon_fraction" | "smoothing",
+                "c_m" | "c_e" | "epsilon" | "epsilon_fraction" | "smoothing" | "init_beat_period",
                 ConfigValue::Float(_) | ConfigValue::Int(_),
             ) => {
                 let v = match value {
@@ -951,6 +1033,7 @@ impl MethodConfig {
                     "c_e" => self.c_e = Some(v),
                     "epsilon" => self.epsilon = Some(v),
                     "epsilon_fraction" => self.epsilon_fraction = Some(v),
+                    "init_beat_period" => self.init_beat_period = Some(v),
                     _ => self.smoothing = Some(v),
                 }
             }
@@ -965,6 +1048,25 @@ impl MethodConfig {
             key: key.into(),
             reason: reason.into(),
         };
+        if method == Method::Otm {
+            if self.processor != ProcessorKind::Parangonar {
+                return Err(invalid("processor", "OTM requires parangonar"));
+            }
+            if self.polling_period.is_some() {
+                return Err(invalid(
+                    "polling_period",
+                    "OTM requires event-based input (None)",
+                ));
+            }
+            if self
+                .init_beat_period
+                .is_some_and(|p| !p.is_finite() || p <= 0.0)
+            {
+                return Err(invalid("init_beat_period", "must be finite and positive"));
+            }
+        } else if self.processor == ProcessorKind::Parangonar {
+            return Err(invalid("processor", "parangonar is only supported by OTM"));
+        }
         if self
             .polling_period
             .is_some_and(|p| !(p.is_finite() && p > 0.0))
@@ -997,6 +1099,7 @@ impl MethodConfig {
             ("window_size", self.window_size),
             ("max_run_count", self.max_run_count),
             ("window", self.window),
+            ("lookback", self.lookback),
         ] {
             if size == Some(0) {
                 return Err(invalid(key, "must be at least 1"));
@@ -1078,8 +1181,16 @@ impl Matchmaker {
                 matches!(method, Method::Hmm | Method::Dannenberg),
             )),
             ProcessorKind::ChordOnset => Box::new(ChordOnsetProcessor::new(config.piano_range)),
+            ProcessorKind::Parangonar => Box::new(ParangonarProcessor),
         };
         let follower: Box<dyn OnlineAlignment> = match method {
+            Method::Otm => Box::new(OnlineTransformerMatcher::new(
+                score.otm_notes(),
+                OtmConfig {
+                    init_beat_period: config.init_beat_period.unwrap_or(0.5),
+                    lookback: config.lookback.unwrap_or(1),
+                },
+            )?),
             Method::Pthmm => Box::new(PitchHmm::new(&score, true, config.piano_range)),
             Method::Hmm => Box::new(PitchIoiHmm::new(
                 &score,
@@ -1173,6 +1284,12 @@ impl Matchmaker {
     /// Feed one message of a live source (FR-005); returns the positions of the windows it
     /// closes. Times must not decrease.
     pub fn push(&mut self, msg: MidiMessage) -> Result<Vec<f64>> {
+        if !msg.time.is_finite() {
+            return Err(Error::InvalidParameter {
+                key: "time".into(),
+                reason: "must be finite".into(),
+            });
+        }
         if msg.time < self.last_time {
             return Err(Error::InvalidParameter {
                 key: "time".into(),
@@ -1186,7 +1303,7 @@ impl Matchmaker {
                 time: msg.time,
                 messages: vec![msg],
             };
-            return Ok(self.process_frame(&frame).into_iter().collect());
+            return Ok(self.process_frame_checked(&frame)?.into_iter().collect());
         };
         let mut positions = Vec::new();
         // same comparisons as midi_messages_to_framed_midi: window k holds k*pp < t <= (k+1)*pp
@@ -1229,6 +1346,31 @@ impl Matchmaker {
         }
         let obs = self.processor.process(frame)?;
         self.follow(&obs)
+    }
+
+    fn process_frame_checked(&mut self, frame: &Frame) -> Result<Option<f64>> {
+        let _span = tracing::trace_span!("stream").entered();
+        if let Some(recording) = &mut self.recording {
+            recording.frames.push(frame.clone());
+        }
+        let Some(obs) = self.processor.try_process(frame)? else {
+            return Ok(None);
+        };
+        if let Some(recording) = &mut self.recording {
+            recording.processor_outputs.push(obs.clone());
+        }
+        if !self.follower.is_still_following() {
+            return Ok(None);
+        }
+        let position = self.follower.try_call(&obs)?;
+        if let Some(recording) = &mut self.recording {
+            recording.steps.push(Step {
+                observation: obs,
+                position,
+                debug: self.follower.debug_state(),
+            });
+        }
+        Ok(Some(position))
     }
 
     fn follow(&mut self, obs: &Observation) -> Option<f64> {

@@ -11,6 +11,8 @@ metrics 1e-4 (hmm: 0.01), the rest exact; messages are compared as a multiset (t
 and note arrays on the fields both sides have. Standalone cqt and cqt_spectral_flux exports use the
 amended cqt limit (contracts/audio-api.md, research R13): per element 1e-5 + 1e-5 * |reference| + 1e-5 *
 the largest reference bin of the same frame.
+OTM tokens, masks, indices and note IDs are exact; logits use float32
+rtol=atol=1e-4, and tempo state, positions and public path use atol=1e-6.
 """
 
 import json
@@ -19,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-METHODS = ("pthmm", "hmm", "outerhmm", "arzt", "dixon")
+METHODS = ("pthmm", "hmm", "outerhmm", "arzt", "dixon", "OTM")
 STAGES = ("score", "stream", "processor", *METHODS)
 # file name -> (rtol, atol); everything else must be equal (`beat_period.npy` included)
 TOLERANCES = {
@@ -36,7 +38,14 @@ def first_difference(name, expected, actual, stage=None, tolerance=None):
     rtol, atol = tolerance or TOLERANCES.get(name, (0.0, 0.0))
     if name == "probabilities.npy":
         rtol, atol = PROBABILITIES_RTOL[stage], 1e-300
-    bad = ~np.isclose(actual, expected, rtol=rtol, atol=atol, equal_nan=True)
+    if stage == "OTM" and name == "model_logits.npy":
+        rtol, atol = 1e-4, 1e-4
+    elif stage == "OTM" and name == "tempo_state.npy":
+        rtol, atol = 0.0, 1e-6
+    if expected.dtype.kind in "US" or actual.dtype.kind in "US":
+        bad = actual != expected
+    else:
+        bad = ~np.isclose(actual, expected, rtol=rtol, atol=atol, equal_nan=True)
     if not bad.any():
         return None
     index = tuple(np.argwhere(bad)[0])
@@ -71,6 +80,10 @@ def compare_file(stage, rel, expected_path, actual_path):
     expected, actual = np.load(expected_path), np.load(actual_path)
     if expected.dtype.names is None:
         return first_difference(rel.name, expected, actual, stage)
+    if actual.dtype.names is None:
+        return "expected structured array"
+    if stage == "OTM" and set(expected.dtype.names) != set(actual.dtype.names):
+        return f"fields differ: expected {expected.dtype.names}, actual {actual.dtype.names}"
     fields = [f for f in expected.dtype.names if f in actual.dtype.names]
     if rel.name == "messages.npy":
         order = ["time", *(f for f in fields if f != "time")]
@@ -1042,6 +1055,17 @@ def main(golden_dir, export_dir):
         golden, export = golden_dir / stage, export_dir / stage
         if not (golden.is_dir() and export.is_dir()):
             continue
+        if stage == "OTM":
+            required = (
+                "score_positions.npy", "score_notes.npy", "observations_features.npy",
+                "observations_times.npy", "token_windows.npy", "token_windows_present.npy",
+                "model_logits.npy", "model_logits_present.npy", "tempo_state.npy",
+                "current_index.npy", "positions.npy", "internal_path.npy", "alignment_path.npy",
+            )
+            for name in required:
+                if not (export / name).is_file():
+                    print(f"first differing stage: OTM, missing file OTM/{name}")
+                    return 1
         for expected in sorted(p for p in golden.rglob("*") if p.is_file()):
             rel = expected.relative_to(golden)
             actual = export / rel

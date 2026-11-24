@@ -30,6 +30,7 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `outerhmm` | MIDI | `pitch`, `chord_onset` | outer-product HMM with pitch-error model |
 | `arzt` | MIDI | `chord_onset`, `pitch` | event-level online time warping over the onset pianoroll |
 | `dixon` | MIDI | `chord_onset`, `pitch` | event-level online time warping with sparse path-normalized costs |
+| `OTM` | MIDI | `parangonar` | Parangonar's pretrained Online Transformer Matcher; one note event per step, CPU-only |
 | `arzt` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt`, `mel`, `mfcc` | frame-level online time warping; defaults to `chroma` at 30 fps |
 | `dixon` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt`, `mel`, `mfcc` | frame-level online time warping; defaults to `lse` at 50 fps |
 | `arzt_tempo` | Audio | `chroma`, `lse`, `mel`, `mfcc` | seeded tempo-aware Arzt; defaults to `chroma` at 30 fps |
@@ -39,6 +40,23 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `pfkorz` | Audio | `korzeniowski` | seeded particle filter over an analytical score model; seed 1984, 500 particles, 44100 Hz, hop 1470 |
 
 Select with `--method` and `--processor`; override parameters with `--set KEY=VALUE`.
+`OTM` uses `polling_period=None`, an initial 0.5 seconds per beat and `lookback=1`.
+It bundles converted Apache-2.0 weights; no Python, PyTorch or network access is needed at
+runtime. The model architecture is fixed; incompatible dimensions and non-event polling
+are rejected. `dropout_p` is accepted but disabled during inference. Upstream `__call__`
+always initializes at 0.5 even when `init_beat_period` is supplied; this port preserves that
+behavior. Rust callers should use `try_call`/`try_process` to propagate input errors; the
+legacy infallible trait methods log rejection (OTM `call` returns NaN without updating its
+path). The facade, CLI and Python use the checked path.
+`OPTM`, `SLT_OLTW` and `SL_OLTW` are not yet ported.
+OTM exports include event-aligned token/logit presence masks and tempo state:
+
+```text
+cargo run --release -p matchmaker-cli -- follow tests/data/simple_mozart_k265_var1.musicxml tests/data/simple_mozart_k265_var1.mid --method OTM --export target/otm-export/
+```
+
+See the [OTM validation guide](specs/006-online-transformer-matcher/quickstart.md) for
+reference parity and benchmarks.
 For `arzt_multi_fold`, pass `--no-unfold` when the score has repeats so the follower receives
 the folded score and can compare repeat hypotheses. With the default maximal unfolding, this
 reference-compatible method may have only one unique candidate.

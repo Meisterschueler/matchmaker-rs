@@ -903,6 +903,7 @@ mod tests {
     fn note(pitch: i32, beat: f32, quarter: f32) -> ScoreNote {
         ScoreNote {
             id: format!("n{pitch}-{beat}"),
+            is_grace: false,
             pitch,
             onset_beat: beat,
             duration_beat: 1.0,

@@ -371,6 +371,11 @@ fn config_value(value: &Bound<'_, PyAny>) -> PyResult<ConfigValue> {
 /// `DEFAULT_KWARGS["midi"][method]` of the reference's `methods.yaml`.
 fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, PyDict>> {
     let kwargs = PyDict::new(py);
+    if method == Method::Otm {
+        kwargs.set_item("processor", "parangonar")?;
+        kwargs.set_item("polling_period", py.None())?;
+        return Ok(kwargs);
+    }
     let oltw = matches!(method, Method::Arzt | Method::Dixon);
     kwargs.set_item("processor", if oltw { "chord_onset" } else { "pitch" })?;
     if method != Method::Dannenberg {
@@ -398,7 +403,7 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
             kwargs.set_item("window", 50)?;
             kwargs.set_item("smoothing", 0.5)?;
         }
-        Method::Pthmm | Method::Hmm => {}
+        Method::Pthmm | Method::Hmm | Method::Otm => {}
     }
     Ok(kwargs)
 }
@@ -894,8 +899,11 @@ impl PyMatchmaker {
         };
         // replaced kwargs fall back to 10 ms windows; only the `event_based` methods
         // (outerhmm, dannenberg) stream events
-        let default_polling =
-            (!matches!(method_kind, Method::OuterHmm | Method::Dannenberg)).then_some(0.01);
+        let default_polling = (!matches!(
+            method_kind,
+            Method::OuterHmm | Method::Dannenberg | Method::Otm
+        ))
+        .then_some(0.01);
         let polling_period = match pop(&config, "polling_period")? {
             Some(value) if value.is_none() => None,
             Some(value) => Some(value.extract::<f64>()?),
@@ -903,6 +911,7 @@ impl PyMatchmaker {
         };
         let configured_processor: String = match pop(&config, "processor")? {
             Some(value) => value.extract()?,
+            None if method_kind == Method::Otm => "parangonar".into(),
             None => "pitch".into(),
         };
 

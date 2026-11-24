@@ -260,6 +260,7 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
     let mut name = match kind {
         ProcessorKind::Pitch => format!("pitch_{range}_{}", if list { "list" } else { "vector" }),
         ProcessorKind::ChordOnset => format!("chord_onset_{range}"),
+        ProcessorKind::Parangonar => "parangonar".into(),
     };
     // golden names imply the window: 10 ms for `pitch`, 1 ms for `chord_onset`
     let golden_window = if kind == ProcessorKind::Pitch {
@@ -278,7 +279,22 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
     let method_dir = dir.join(mm.method().name());
     let steps = &recording.steps;
     let fed: Vec<&Observation> = steps.iter().map(|s| &s.observation).collect();
-    observations(&method_dir, "observations_", &fed)?;
+    if mm.method() == Method::Otm {
+        i8s(
+            &method_dir.join("observations_features.npy"),
+            &[fed.len()],
+            fed.iter()
+                .map(|observation| observation.features[0] as usize),
+        )?;
+        f8(
+            &method_dir.join("observations_times.npy"),
+            &[fed.len()],
+            fed.iter().map(|observation| observation.perf_time),
+        )?;
+        write_otm_diagnostics(mm, &method_dir)?;
+    } else {
+        observations(&method_dir, "observations_", &fed)?;
+    }
     f4(
         &method_dir.join("score_positions.npy"),
         &[mm.follower_score_positions().len()],
@@ -321,7 +337,7 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
                 .filter_map(|s| s.debug.is_continuation)
                 .collect::<Vec<_>>(),
         )?,
-        Method::Pthmm | Method::Arzt | Method::Dixon | Method::Dannenberg => {}
+        Method::Pthmm | Method::Arzt | Method::Dixon | Method::Dannenberg | Method::Otm => {}
     }
     let path = mm.alignment_path();
     f8(
@@ -329,19 +345,130 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
         &[2, path.perf_time.len()],
         path.perf_time.iter().chain(&path.score_beat).copied(),
     )?;
-    write_json(
-        &method_dir.join("meta.json"),
-        &json!({
-            "reference": {"implementation": "matchmaker-rs", "version": version},
-            "generator": "matchmaker-rs export",
-            "config": {
-                "method": mm.method().name(),
-                "processor": kind.name(),
-                "piano_range": config.piano_range,
-                "polling_period": config.polling_period,
-                "tempo": mm.tempo(),
-            },
-        }),
+    let mut metadata = json!({
+        "reference": {"implementation": "matchmaker-rs", "version": version},
+        "generator": "matchmaker-rs export",
+        "config": {
+            "method": mm.method().name(),
+            "processor": kind.name(),
+            "piano_range": config.piano_range,
+            "polling_period": config.polling_period,
+            "tempo": mm.tempo(),
+        },
+    });
+    if mm.method() == Method::Otm {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../assets/otm/model.json")).map_err(|error| {
+                Error::InvalidParameter {
+                    key: "otm_model".into(),
+                    reason: error.to_string(),
+                }
+            })?;
+        metadata["model"] = json!({
+            "format": manifest["format"], "format_version": manifest["version"],
+            "source": manifest["source"], "source_sha256": manifest["source_sha256"],
+            "source_url": manifest["source_url"],
+            "sha256": manifest["sha256"], "license": manifest["license"],
+        });
+        metadata["reference"]["upstream_tag"] = json!("v0.5.1");
+        metadata["reference"]["parangonar"] = json!("3.4.1");
+        metadata["reference"]["lockfile_sha256"] =
+            json!("999f89909bcb999a7b8d79a3ff0e9cdd535871ef85c27a866fbecbd206537bb4");
+        metadata["tolerances"] = json!({
+            "tokens": "exact", "positions_atol": 1e-6, "alignment_path_atol": 1e-6,
+            "model_logits_atol": 1e-4, "model_logits_rtol": 1e-4, "tempo_state_atol": 1e-6,
+        });
+    }
+    write_json(&method_dir.join("meta.json"), &metadata)
+}
+
+fn write_otm_diagnostics(mm: &Matchmaker, dir: &Path) -> Result<()> {
+    let recording = mm.recording().ok_or_else(|| Error::InvalidParameter {
+        key: "export".into(),
+        reason: "OTM diagnostics require a recorded run".into(),
+    })?;
+    let diagnostics: Vec<_> = recording
+        .steps
+        .iter()
+        .map(|step| {
+            step.debug
+                .otm
+                .as_ref()
+                .ok_or_else(|| Error::InvalidParameter {
+                    key: "export".into(),
+                    reason: "OTM follower did not provide diagnostics".into(),
+                })
+        })
+        .collect::<Result<_>>()?;
+    let count = diagnostics.len();
+    let tokens: Vec<_> = diagnostics
+        .iter()
+        .flat_map(|state| state.tokens.unwrap_or([[0; 7]; 26]).into_iter().flatten())
+        .collect();
+    i8s(
+        &dir.join("token_windows.npy"),
+        &[count, 26, 7],
+        tokens.into_iter(),
+    )?;
+    flags(
+        &dir.join("token_windows_present.npy"),
+        &diagnostics
+            .iter()
+            .map(|state| state.tokens.is_some())
+            .collect::<Vec<_>>(),
+    )?;
+    f4(
+        &dir.join("model_logits.npy"),
+        &[count, 26, 2],
+        diagnostics
+            .iter()
+            .flat_map(|state| state.logits.clone().unwrap_or_else(|| vec![0.0; 52])),
+    )?;
+    flags(
+        &dir.join("model_logits_present.npy"),
+        &diagnostics
+            .iter()
+            .map(|state| state.logits.is_some())
+            .collect::<Vec<_>>(),
+    )?;
+    f8(
+        &dir.join("tempo_state.npy"),
+        &[count, 2],
+        diagnostics.iter().flat_map(|state| state.tempo),
+    )?;
+    i8s(
+        &dir.join("internal_path.npy"),
+        &[2, count],
+        (0..2).flat_map(|row| diagnostics.iter().map(move |state| state.warping[row])),
+    )?;
+    let notes = mm.score().otm_notes();
+    let mut bytes = Vec::new();
+    for note in &notes {
+        bytes.extend(note.pitch.to_le_bytes());
+        bytes.extend(note.onset_beat.to_le_bytes());
+        bytes.extend(note.duration_beat.to_le_bytes());
+        bytes.extend(note.voice.to_le_bytes());
+        let id: Vec<_> = note.id.chars().collect();
+        if id.len() > 256 {
+            return Err(Error::InvalidParameter {
+                key: "score.id".into(),
+                reason: "OTM export IDs may contain at most 256 characters".into(),
+            });
+        }
+        for index in 0..256 {
+            bytes.extend(
+                id.get(index)
+                    .map_or(0, |character| *character as u32)
+                    .to_le_bytes(),
+            );
+        }
+        bytes.push(u8::from(note.is_grace));
+    }
+    npy(
+        &dir.join("score_notes.npy"),
+        "[('pitch', '<i4'), ('onset_beat', '<f4'), ('duration_beat', '<f4'), ('voice', '<i4'), ('id', '<U256'), ('is_grace', '|b1')]",
+        &[notes.len()],
+        &bytes,
     )
 }
 

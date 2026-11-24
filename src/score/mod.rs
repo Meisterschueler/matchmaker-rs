@@ -49,6 +49,8 @@ pub enum AnnotationLevel {
 pub struct ScoreNote {
     /// Note id (`-<repetition>` suffix after unfolding).
     pub id: String,
+    /// Explicit MusicXML grace-note identity (not inferred from duration).
+    pub is_grace: bool,
     /// MIDI pitch.
     pub pitch: i32,
     /// Onset in beats of the time-signature denominator (`float32` like partitura).
@@ -80,6 +82,36 @@ pub struct Score {
 }
 
 impl Score {
+    /// Grace-aware note array for `matchmaker.external.OnlineParangonarAlignment`.
+    /// Replaces all IDs if any are absent or duplicated, as the reference adapter does.
+    pub fn otm_notes(&self) -> Vec<ScoreNote> {
+        let mut notes = self.notes.clone();
+        let mut ids = BTreeSet::new();
+        if notes
+            .iter()
+            .any(|note| note.id.is_empty() || !ids.insert(note.id.clone()))
+        {
+            for (index, note) in notes.iter_mut().enumerate() {
+                note.id = format!("s{index}");
+            }
+        }
+        // np.sort breaks onset ties by the remaining structured-array fields.
+        notes.sort_by(|a, b| {
+            a.onset_beat
+                .total_cmp(&b.onset_beat)
+                .then(a.duration_beat.total_cmp(&b.duration_beat))
+                .then(a.onset_quarter.total_cmp(&b.onset_quarter))
+                .then(a.duration_quarter.total_cmp(&b.duration_quarter))
+                .then(a.onset_div.cmp(&b.onset_div))
+                .then(a.duration_div.cmp(&b.duration_div))
+                .then(a.pitch.cmp(&b.pitch))
+                .then(a.voice.cmp(&b.voice))
+                .then(a.id.cmp(&b.id))
+                .then(a.is_grace.cmp(&b.is_grace))
+        });
+        notes
+    }
+
     /// Load a score file (`.musicxml`, `.xml`, `.mxl`, `.mid`, `.midi`); `unfold` is
     /// pymatchmaker's `unfold_score` (default `true`).
     pub fn load(path: impl AsRef<Path>, unfold: bool) -> Result<Score> {
@@ -338,6 +370,7 @@ fn note_array(part: &Part) -> std::result::Result<Vec<ScoreNote>, String> {
         let (on_quarter, off_quarter) = (eval(&quarter_map, on)?, eval(&quarter_map, off)?);
         notes.push(ScoreNote {
             id: n.id.clone().unwrap_or_default(),
+            is_grace: n.is_grace,
             pitch: n.midi_pitch,
             onset_beat: on_beat as f32,
             duration_beat: (off_beat - on_beat) as f32,

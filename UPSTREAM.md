@@ -9,6 +9,7 @@ matchmaker-rs is a port. This file says what it ports, from which version, and h
 | pymatchmaker | 0.5.1 | `tools/golden/uv.lock` |
 | partitura | 1.9.0 | `tools/golden/uv.lock` |
 | python-hiddenmarkov | 0.1.4 | `tools/golden/uv.lock` |
+| Parangonar | 3.4.1 | `tools/golden/uv.lock`; OTM source and converted checkpoint |
 
 The reference sources are installed by `uv sync --locked` into `tools/golden/.venv/Lib/site-packages/` (`matchmaker/`, `partitura/`, `hiddenmarkov/`).
 
@@ -36,6 +37,9 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/score/audio.rs` | `matchmaker/utils/misc.py`, `matchmaker/registry.py`, `partitura/utils/fluidsynth.py` | peak-normalized synthesized score, whole-signal score features, frame-to-beat map (swap points `normalize_level`, `extract_score_features`; research R11) |
 | `src/features/pitch.rs` | `matchmaker/features/midi.py` | `PitchProcessor` |
 | `src/features/chord_onset.rs` | `matchmaker/features/midi.py` | `ChordOnsetProcessor` |
+| `src/features/parangonar.rs` | `matchmaker/external.py` | event-based `ParangonarProcessor` |
+| `src/dp/otm.rs` | `parangonar/match/online_matchers.py` | `OnlineTransformerMatcher.__call__`, `TempoModel`, CPython integer-set token ordering |
+| `src/dp/otm_model.rs` | `parangonar/match/pretrained_models.py`, `parangonar/match/online_matchers.py` | fixed CPU `AlignmentTransformer` and `tokenize` |
 | `src/io/stream.rs` | `matchmaker/io/midi.py`, `matchmaker/utils/symbolic.py` | `MidiStream`, `Buffer`, `midi_messages_to_framed_midi` |
 | `src/performance.rs` | `partitura/io/importmidi.py`, `matchmaker/utils/symbolic.py` | `load_performance_midi`, `midi_messages_from_performance` |
 | `src/prob/pthmm.rs` | `matchmaker/prob/hmm.py` | `PitchHMM` |
@@ -73,6 +77,18 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `tools/bench/run_reference.py` | `matchmaker/matchmaker.py`, `matchmaker/utils/eval.py` | pinned MIDI/audio benchmark runner |
 
 Not ported: standalone onset updates of `ArztTempoModel`, and live audio/MIDI devices and thread/queue plumbing — including 0.5.1's `wait=True` feeder thread of `AudioStream.run_offline`, which paces file blocks at playback deadlines (offline block iteration is unchanged and stays ported). `dannenberg` ports `dp/dannenberg.py` as written: the compound-event grouping test (`_is_new_cevt`) is computed and its result discarded, as upstream does; pitch sets are `u128` bitmasks with unchanged set algebra. 0.5.1's `PitchIOIHMM.step` fast path (forward step restricted to reached states, `max(sum, 1e-6)` guard) and the inserted-states observation shortcut of `BernoulliPitchObservationModel` are value-preserving optimizations already realized by the banded transitions in `src/prob/hidden_markov.rs`; 0.5.1's `_iter_first_unfolded_parts(part, 4)` matches the existing lazy `iter_unfolded_parts` in `src/score/unfold.rs` — all three are recorded in doc comments, not re-ported. The SPARC smoothness metric follows 0.5.1: the held position path is resampled at 3000 Hz and per-window values come from the reference's sliding-spectrum computation (`windowed_spectral_arc_lengths`), falling back to plain per-window FFTs by the same cost heuristic; the port returns the mean only (no per-window diagnostics list). `skf.py` is ported except for its raw-audio input branch (`_extract_features` computing an FFT when a frame is not a spectrum) and its console prints. `particle_filter_korzeniowski.py` is ported with a seeded MT19937 stream, default seed 1984 and facade count 500; NumPy stream identity is not promised, while same-runtime/config/seed Rust runs are exact. Its score model is analytical and particle-state exports are bounded. Audio `outerhmm` ports `prob/outer_product_hmm_audio.py` with the upstream Apache-2.0 pitch-template archive (SHA-256 recorded in C08 evidence); the upstream distribution does not identify its training corpus. Unsupported synthesized rows use RustySynth and their measured FluidSynth difference is reported separately from the fixed-template replay. The reference registry does not forward sample_rate to the follower constructor; the port preserves the fixed 16 kHz follower rate while using the configured hop. The reference chooses `skf` templates by trying FluidSynth with Partitura's bundled MuseScore SoundFont and falling back to Gaussian peaks on any error; this port makes the mode explicit and uses the pinned SF2 for the benchmark reference. Audio ground-truth CLI evaluation accepts direct `perf_sec`/`score_beat` TSV; note-ID `.match` evaluation still requires an explicit MIDI performance. `cqt` does not reproduce `soxr_hq` bit for bit (libsoxr is LGPL C with SIMD paths, so there is no pure-Rust port to reuse): a Kaiser-windowed sinc fitted to its measured response halves the rate, everything is computed in `f64`, and the features meet the reference to the amended per-frame limit of the contract instead of the `float32` per-element one; early downsampling by more than 2 (above about 70 kHz) is rejected instead of ported (research R13). `CQTSpectralFluxProcessor` keeps `fmin`, `n_bins` and `bins_per_octave` at the 88 keys and reports a shape error where NumPy would broadcast a one-frame history. The reference score-audio pipeline remains blocked for `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold` and `skf`: the score's matrix stays as flux history after no-op reset; flux is accepted only by standalone extraction and the note-array-based `outerhmm` (research C07). The CI workflows download the pinned FreePats archive from a fixed HTTPS URL, verify its archive and extracted SF2 hashes, and provide the SoundFont to audio tests as a temporary artifact.
+
+Parangonar `OTM` is MIDI-only with processor `parangonar` and no polling.
+`OPTM`, `SLT_OLTW`, and `SL_OLTW` remain unported; offline `DualDTWNoteMatcher` is not a
+registered pymatchmaker score follower. OTM mirrors the released `__call__`, including its
+hardcoded initial 0.5-second beat period and greedy branch's grace-note tempo update.
+NumPy 2 and SciPy's weighted-endpoint interpolation are reproduced in float32; public event
+times remain float64. Source/compact hashes and tensor shapes are recorded in
+`assets/otm/model.json`; `tools/golden/export_otm_weights.py` deterministically converts the
+checkpoint without shipping optimizer state or unused positional rows. `NOTICE` and
+`assets/otm/LICENSE` retain Apache-2.0 attribution, following the project owner's explicit
+license determination recorded in `specs/006-online-transformer-matcher/research.md`.
+The inspected upstream package does not document the model's training corpus.
 
 ## Procedure: a new upstream release
 

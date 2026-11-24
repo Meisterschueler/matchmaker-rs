@@ -69,6 +69,19 @@ pub struct SkfStepDebug {
     pub candidates: usize,
 }
 
+/// Event-level token, prediction, and tempo diagnostics of OTM.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OtmStepDebug {
+    /// Model input; absent when greedy matching skipped inference.
+    pub tokens: Option<[[usize; 7]; 26]>,
+    /// Row-major `(26, 2)` logits; absent when inference was skipped.
+    pub logits: Option<Vec<f32>>,
+    /// Previous matched score onset and estimated seconds per beat.
+    pub tempo: [f64; 2],
+    /// Internal `(score-onset index, performance-event index)` path entry.
+    pub warping: [usize; 2],
+}
+
 /// Inspectable follower state after a call, for the export of a run (FR-018).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StepDebug {
@@ -86,10 +99,17 @@ pub struct StepDebug {
     pub multi_fold: Option<MultiFoldStepDebug>,
     /// Chord/age hypotheses of the switching Kalman filter; absent for other followers.
     pub skf: Option<SkfStepDebug>,
+    /// Transformer inputs/output and tempo state; absent for non-OTM followers.
+    pub otm: Option<OtmStepDebug>,
 }
 
 /// A score follower (`OnlineAlignment`).
 pub trait OnlineAlignment {
+    /// Validated call for followers that can reject an observation.
+    fn try_call(&mut self, obs: &Observation) -> crate::error::Result<f64> {
+        Ok(self.call(obs))
+    }
+
     /// One observation in, current score position (beats) out (`__call__`).
     fn call(&mut self, obs: &Observation) -> f64;
 

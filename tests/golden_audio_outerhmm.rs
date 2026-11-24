@@ -28,6 +28,7 @@ fn notes(dir: &Path) -> Vec<ScoreNote> {
     (0..beats.len())
         .map(|index| ScoreNote {
             id: format!("n{index}"),
+            is_grace: false,
             pitch: pitches[index] as i32,
             onset_beat: beats[index] as f32,
             duration_beat: durations[index] as f32,

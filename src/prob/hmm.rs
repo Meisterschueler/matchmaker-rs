@@ -176,6 +176,7 @@ impl OnlineAlignment for PitchIoiHmm {
             tempo: None,
             multi_fold: None,
             skf: None,
+            otm: None,
         }
     }
 }

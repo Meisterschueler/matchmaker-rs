@@ -12,10 +12,23 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import sys
 import types
 from importlib.metadata import version
 from pathlib import Path
+
+def otm_requested() -> bool:
+    for i, arg in enumerate(sys.argv[1:]):
+        if arg.startswith("--methods="):
+            return "OTM" in arg.split("=", 1)[1].split(",")
+        if arg == "--methods" and i + 2 < len(sys.argv):
+            return "OTM" in sys.argv[i + 2].split(",")
+    return False
+
+
+if otm_requested():
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import mido
 import numpy as np
@@ -36,6 +49,7 @@ from matchmaker.utils.symbolic import (
 REFERENCE_TAG = "v0.5.1"
 PIECES = ["simple_mozart_k265_var1", "mozart_k265_var1", "Bach-fugue_bwv_858"]
 METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "dannenberg"]
+ALL_METHODS = [*METHODS, "OTM"]
 MAX_PROBABILITY_VALUES = 5_000_000
 
 KIND_CODES = {"note_on": 0, "note_off": 1, "control_change": 2, "program_change": 3}
@@ -328,6 +342,9 @@ def evaluation(mm: Matchmaker, path: np.ndarray, match_path: Path, perf_path: Pa
 
 
 def dump_method(out: Path, method: str, score_path: Path, perf_path: Path, match_path: Path | None) -> None:
+    if method == "OTM":
+        dump_otm(out, score_path, perf_path, match_path)
+        return
     mm = Matchmaker(
         score_file=str(score_path),
         performance_file=str(perf_path),
@@ -382,6 +399,100 @@ def dump_method(out: Path, method: str, score_path: Path, perf_path: Path, match
     print(f"  {method}: {len(rec.positions)} steps, path {path.shape[1]}, states {n_states}")
 
 
+def dump_otm(out: Path, score_path: Path, perf_path: Path, match_path: Path | None) -> None:
+    from parangonar.match.online_matchers import ALIGNMENT_TRANSFORMER_CHECKPOINT
+
+    if matchmaker.__version__ != "0.5.1" or version("parangonar") != "3.4.1":
+        raise RuntimeError("OTM goldens require pymatchmaker 0.5.1 and parangonar 3.4.1")
+    checkpoint_hash = hashlib.sha256(Path(ALIGNMENT_TRANSFORMER_CHECKPOINT).read_bytes()).hexdigest()
+    if checkpoint_hash != "9ec8a1b8e6731c01a9bb359635dab3fa0b9e60045bbbf18f27227237b249af97":
+        raise RuntimeError(f"unexpected OTM checkpoint SHA-256: {checkpoint_hash}")
+    mm = Matchmaker(
+        score_file=str(score_path), performance_file=str(perf_path),
+        input_type="midi", method="OTM",
+    )
+    follower = mm.score_follower
+    matcher = follower.matcher
+    windows, logits, pitches, times, positions, indices, tempo = [], [], [], [], [], [], []
+    current = []
+
+    def capture(_model, inputs, output):
+        current.append((
+            inputs[0].detach().cpu().numpy()[0].copy(),
+            output.detach().cpu().numpy().reshape(26, 2).copy(),
+        ))
+
+    handle = matcher.model.register_forward_hook(capture)
+    base = type(follower)
+
+    def record(self, observation, perf_time):
+        current.clear()
+        position = base.__call__(self, observation, perf_time)
+        assert len(current) <= 1
+        windows.append(current[0][0] if current else None)
+        logits.append(current[0][1] if current else None)
+        pitches.append(int(observation["pitch"]))
+        times.append(float(perf_time))
+        positions.append(float(position))
+        indices.append(int(self.current_index))
+        tempo.append((float(matcher._prev_score_onset), float(matcher.tempo_model.beat_period)))
+        return position
+
+    follower.__class__ = type("RecordingOTM", (base,), {"__call__": record})
+    try:
+        yielded = list(mm.run(verbose=False))
+    finally:
+        handle.remove()
+    assert yielded == positions
+    d = out / "OTM"
+    # Keep upstream's full structured sort: extra fields break ties in np.sort.
+    notes = matcher.score_note_array_full
+    compact = np.empty(len(notes), dtype=[
+        ("pitch", "<i4"), ("onset_beat", "<f4"), ("duration_beat", "<f4"),
+        ("voice", "<i4"), ("id", "<U256"), ("is_grace", "?"),
+    ])
+    for field in compact.dtype.names:
+        compact[field] = notes[field]
+    present = np.array([window is not None for window in windows], dtype=bool)
+    token_rows = np.zeros((len(windows), 26, 7), dtype="<i8")
+    logit_rows = np.zeros((len(logits), 26, 2), dtype="<f4")
+    for i, window in enumerate(windows):
+        if window is not None:
+            token_rows[i] = window
+            logit_rows[i] = logits[i]
+    save(d / "score_positions.npy", np.asarray(follower.score_positions, dtype="<f4"))
+    save(d / "score_notes.npy", compact)
+    save(d / "observations_features.npy", np.asarray(pitches, dtype="<i4"))
+    save(d / "observations_times.npy", np.asarray(times, dtype="<f8"))
+    save(d / "token_windows.npy", token_rows)
+    save(d / "token_windows_present.npy", present)
+    save(d / "model_logits.npy", logit_rows)
+    save(d / "model_logits_present.npy", present)
+    save(d / "tempo_state.npy", np.asarray(tempo, dtype="<f8").reshape(-1, 2))
+    save(d / "current_index.npy", np.asarray(indices, dtype="<i8"))
+    save(d / "positions.npy", np.asarray(positions, dtype="<f8"))
+    save(d / "internal_path.npy", np.asarray(matcher._warping_path, dtype="<i8").reshape(-1, 2).T)
+    path = np.asarray(follower.alignment_path, dtype="<f8").reshape(2, -1)
+    save(d / "alignment_path.npy", path)
+    if match_path is not None and match_path.exists():
+        write_json(d / "evaluation.json", evaluation(mm, path, match_path, perf_path))
+    write_json(d / "meta.json", {
+        "reference": {**reference_meta(), "parangonar": version("parangonar")},
+        "generator": "tools/golden/generate.py",
+        "inputs": {"score": score_path.name, "performance": perf_path.name,
+                   "ground_truth": match_path.name if match_path else None},
+        "config": {"method": "OTM", "processor": "ParangonarProcessor",
+                   "polling_period": None, "device": "cpu"},
+        "model": {"format": "pytorch checkpoint", "format_version": "parangonar-3.4.1",
+                  "source": "https://github.com/sildater/parangonar/blob/3.4.1/parangonar/assets/alignment_transformer_checkpoint.pt",
+                  "sha256": checkpoint_hash},
+        "tolerances": {"model_logits_atol": 1e-4, "model_logits_rtol": 1e-4,
+                       "positions_atol": 1e-6, "alignment_path_atol": 1e-6,
+                       "tempo_state_atol": 1e-6, "tokens": "exact"},
+    })
+    print(f"  OTM: {len(positions)} steps, {present.sum()} model calls, path {path.shape[1]}")
+
+
 # --------------------------------------------------------------------------- variants
 def make_wrongnote_midi(src: Path, dst: Path, index: int = 4, shift: int = 1) -> None:
     """Copy ``src`` with the ``index``-th note (by note-on order) shifted by ``shift`` semitones."""
@@ -415,39 +526,57 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--methods", default=",".join(METHODS),
+                        help="comma-separated methods; OTM is opt-in")
     args = parser.parse_args()
     data, out = args.data.resolve(), args.out.resolve()
+    methods = args.methods.split(",")
+    if not methods or any(method not in ALL_METHODS for method in methods):
+        parser.error(f"--methods must contain only {', '.join(ALL_METHODS)}")
+    if "OTM" in methods:
+        import torch
+        torch.set_num_threads(1)
+    otm_only = methods == ["OTM"]
 
     for piece in PIECES:
         print(piece)
         score_path, perf_path, match_path = (data / f"{piece}{e}" for e in (".musicxml", ".mid", ".match"))
         po = out / piece
-        info = dump_score(po, score_path)
-        stream = dump_stream(po, perf_path)
-        dump_processors(po, stream)
-        for method in METHODS:
+        if not otm_only:
+            dump_score(po, score_path)
+            stream = dump_stream(po, perf_path)
+            dump_processors(po, stream)
+        for method in methods:
             dump_method(po, method, score_path, perf_path, match_path)
 
     print("simple_mozart_k265_var1_midiscore")
     piece = "simple_mozart_k265_var1"
     po = out / f"{piece}_midiscore"
-    dump_score(po, data / f"{piece}.mid")
-    for method in METHODS:
+    if not otm_only:
+        dump_score(po, data / f"{piece}.mid")
+    for method in methods:
         dump_method(po, method, data / f"{piece}.mid", data / f"{piece}.mid", None)
 
     print("simple_mozart_k265_var1_wrongnote")
     wrong = data / f"{piece}_wrongnote.mid"
     if not wrong.exists():
+        if otm_only:
+            raise FileNotFoundError(f"OTM generation requires the existing fixture {wrong}")
         make_wrongnote_midi(data / f"{piece}.mid", wrong)
     po = out / f"{piece}_wrongnote"
-    dump_stream(po, wrong)
-    for method in METHODS:
+    if not otm_only:
+        dump_stream(po, wrong)
+    for method in methods:
         dump_method(po, method, data / f"{piece}.musicxml", wrong, None)
 
-    for fixture in sorted(data.glob("fixture_*.musicxml")):
-        print(fixture.stem)
-        po = out / fixture.stem
-        dump_score(po, fixture)
+    if not otm_only:
+        for fixture in sorted(data.glob("fixture_*.musicxml")):
+            print(fixture.stem)
+            po = out / fixture.stem
+            dump_score(po, fixture)
+    if "OTM" in methods:
+        fixture = data / "otm" / "grace.musicxml"
+        dump_otm(out / "otm_grace", fixture, fixture.with_suffix(".mid"), None)
 
 
 if __name__ == "__main__":

@@ -111,7 +111,7 @@ fn audio_melody_wav(name: &str, duration_seconds: usize) -> PathBuf {
 #[test]
 fn empty_performance_gives_an_empty_path() {
     let performance = midi_file("empty", &[]);
-    for method in ALL_METHODS {
+    for method in ALL_METHODS.into_iter().chain([Method::Otm]) {
         let mut mm = Matchmaker::new(data(SCORE), method, None, true).unwrap();
         let positions = mm.run_file(&performance).unwrap();
         assert!(positions.is_empty(), "{method:?}");
