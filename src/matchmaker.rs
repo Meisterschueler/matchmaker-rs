@@ -1287,11 +1287,7 @@ impl Matchmaker {
                     window_size: config.window_size.unwrap_or(40),
                     max_run_count: config.max_run_count.unwrap_or(10),
                     init_tempo: config.init_beat_period.unwrap_or_else(|| {
-                        let timed = score
-                            .notes
-                            .iter()
-                            .filter(|note| note.duration_quarter > 0.0)
-                            .next();
+                        let timed = score.notes.iter().find(|note| note.duration_quarter > 0.0);
                         match timed {
                             Some(note) if note.duration_quarter != 0.0 => {
                                 60.0 / 90.0 / f64::from(note.duration_beat / note.duration_quarter)

@@ -456,22 +456,20 @@ impl OnlineAlignment for OptmMatcher {
             .into_iter()
             .rev()
             .collect();
-        if let Ok(tokens) = tokenize(&score, &performance) {
-            if let Ok(logits) = self.model.forward(&tokens) {
-                let mut pred = 0usize;
-                for index in 1..26 {
-                    if logits[index * 2 + 1] > logits[pred * 2 + 1] {
-                        pred = index;
-                    }
+        if let Ok(tokens) = tokenize(&score, &performance)
+            && let Ok(logits) = self.model.forward(&tokens)
+        {
+            let mut pred = 0usize;
+            for index in 1..26 {
+                if logits[index * 2 + 1] > logits[pred * 2 + 1] {
+                    pred = index;
                 }
-                let relative = pred as i64
-                    - performance.len() as i64
-                    - 1
-                    - (self.current as i64 - start as i64);
-                let absolute = (relative + self.current as i64)
-                    .clamp(0, self.positions.len().saturating_sub(1) as i64);
-                self.current = absolute as usize;
             }
+            let relative =
+                pred as i64 - performance.len() as i64 - 1 - (self.current as i64 - start as i64);
+            let absolute = (relative + self.current as i64)
+                .clamp(0, self.positions.len().saturating_sub(1) as i64);
+            self.current = absolute as usize;
         }
         self.input_index += 1;
         self.path
