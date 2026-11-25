@@ -202,8 +202,8 @@ impl Performance {
     }
 
     /// Port of `midi_messages_from_performance`: per note a note-on and a note-off message,
-    /// then control and program changes, all sorted by time. The sort is stable (the
-    /// reference uses NumPy's unstable `argsort`; see research R5).
+    /// then control and program changes, sorted by time using NumPy's scalar `argsort`.
+    /// SIMD-accelerated NumPy builds may order equal timestamps differently.
     pub fn messages(&self) -> Vec<MidiMessage> {
         let mut messages = Vec::new();
         for part in &self.parts {
@@ -240,7 +240,7 @@ impl Performance {
                 });
             }
         }
-        messages.sort_by(|a, b| a.time.total_cmp(&b.time));
+        crate::utils::np_sort::sort_messages(&mut messages);
         messages
     }
 }
@@ -255,5 +255,75 @@ mod tests {
         let changes = [(0, 500_000), (960, 1_000_000)];
         assert_eq!(adjust_time(480, &changes, 480), 0.5);
         assert_eq!(adjust_time(1440, &changes, 480), 2.0);
+    }
+
+    #[test]
+    fn simultaneous_messages_follow_scalar_numpy_order() {
+        let notes = (0..9)
+            .map(|index| {
+                let onset = f64::from((index * 3) % 4);
+                PerformedNote {
+                    pitch: 60 + index,
+                    velocity: 1,
+                    channel: 0,
+                    note_on: onset,
+                    note_off: onset + f64::from(index % 3 + 1),
+                }
+            })
+            .collect();
+        let performance = Performance {
+            parts: vec![PerformedPart {
+                notes,
+                controls: vec![Control {
+                    time: 2.0,
+                    number: 64,
+                    value: 1,
+                    channel: 0,
+                }],
+                programs: vec![Program {
+                    time: 1.0,
+                    program: 5,
+                    channel: 0,
+                }],
+            }],
+        };
+        let actual: Vec<_> = performance
+            .messages()
+            .into_iter()
+            .map(|message| (message.time, message.kind))
+            .collect();
+        let on = |note| MidiMessageKind::NoteOn { note, velocity: 1 };
+        let off = |note| MidiMessageKind::NoteOff { note };
+        assert_eq!(
+            actual,
+            [
+                (0.0, on(60)),
+                (0.0, on(68)),
+                (0.0, on(64)),
+                (1.0, on(67)),
+                (1.0, on(63)),
+                (1.0, MidiMessageKind::ProgramChange { program: 5 }),
+                (1.0, off(60)),
+                (2.0, on(62)),
+                (2.0, off(63)),
+                (
+                    2.0,
+                    MidiMessageKind::ControlChange {
+                        control: 64,
+                        value: 1
+                    }
+                ),
+                (2.0, on(66)),
+                (2.0, off(64)),
+                (3.0, on(65)),
+                (3.0, off(66)),
+                (3.0, on(61)),
+                (3.0, off(67)),
+                (3.0, off(68)),
+                (5.0, off(61)),
+                (5.0, off(62)),
+                (6.0, off(65)),
+            ]
+        );
     }
 }

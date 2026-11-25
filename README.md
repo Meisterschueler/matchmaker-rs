@@ -48,7 +48,9 @@ always initializes at 0.5 even when `init_beat_period` is supplied; this port pr
 behavior. Rust callers should use `try_call`/`try_process` to propagate input errors; the
 legacy infallible trait methods log rejection (OTM `call` returns NaN without updating its
 path). The facade, CLI and Python use the checked path.
-`OPTM`, `SLT_OLTW` and `SL_OLTW` are also ported for MIDI event input.
+`OPTM`, `SLT_OLTW` and `SL_OLTW` are also ported for MIDI event input. `OPTM` uses
+`allow_jump`, `backup_steps`, and `jump_trigger` for the reference lostness tracker; like
+`OTM`, Rust callers can use `try_call` to propagate inference and input errors.
 OTM exports include event-aligned token/logit presence masks and tempo state:
 
 ```text
@@ -251,7 +253,11 @@ The [Benchmark workflow](.github/workflows/benchmark.yml) compares Rust and the 
 (latency, accuracy, alignment parity) and publishes the
 [report](https://meisterschueler.github.io/matchmaker-rs/) on GitHub Pages; the benchmark badge
 above shows the median speed-up over all pieces of the latest `master` run (red on a parity
-violation). Datasets are
+violation). MIDI messages use NumPy's scalar `argsort` order; the benchmark disables NumPy's
+`X86_V3` and `X86_V4` dispatch to use the same order. SIMD-enabled NumPy may order simultaneous
+messages differently. Disabling these features can also affect Python benchmark timings.
+The sorting port is distributed under the [NumPy license](NUMPY-LICENSE).
+Datasets are
 downloaded in CI at pinned commits ([tools/datasets/datasets.toml](tools/datasets/datasets.toml),
 [fetch.py](tools/datasets/fetch.py)); they are not part of this repository and keep their own
 licenses — only derived metrics are published:

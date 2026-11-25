@@ -368,6 +368,7 @@ def main() -> None:
         "arch": platform.machine(),
         "commit": os.environ.get("GITHUB_SHA"),
         "timestamp": int(time.time()),
+        "numpy_disabled_cpu_features": os.environ.get("NPY_DISABLE_CPU_FEATURES"),
     }
 
     records = []

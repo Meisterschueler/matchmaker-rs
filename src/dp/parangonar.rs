@@ -1,7 +1,8 @@
 //! Ports of Parangonar's symbolic OLTW and pure-transformer MIDI matchers.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
+use super::otm::python_pitch_set;
 use super::otm_model::{OtmModel, tokenize};
 use crate::base::{AlignmentPath, OnlineAlignment, StepDebug};
 use crate::error::{Error, Result};
@@ -97,7 +98,7 @@ impl OnlineAlignment for SlOltwMatcher {
         self.input.push(pitch);
         let start = self.current.saturating_sub(self.config.window_size);
         let end = (self.current + self.config.window_size).min(self.reference.len());
-        let mut min_cost = f32::INFINITY;
+        let mut min_cost = f64::INFINITY;
         let mut min_index = start;
         if start == 0 && self.input_index == 0 {
             self.cost[1][1] = 0.0;
@@ -109,7 +110,7 @@ impl OnlineAlignment for SlOltwMatcher {
             if i == 0 && self.input_index == 0 {
                 continue;
             }
-            let mut local_cost = f32::INFINITY;
+            let mut local_cost = f64::INFINITY;
             let mut local_length = 1.0;
             for (d_index, &(istep, jstep)) in [(1usize, 0usize), (1, 1), (0, 1)].iter().enumerate()
             {
@@ -124,15 +125,16 @@ impl OnlineAlignment for SlOltwMatcher {
                         1.0
                     };
                     let weights = [2.0, 1.0, 1.0];
-                    let cost = (prev_cost * prev_length + distance * weights[d_index])
-                        / (prev_length + 1.0);
+                    // NumPy promotes the weighted distance to f64 before comparing costs.
+                    let cost = (f64::from(prev_cost * prev_length) + distance * weights[d_index])
+                        / f64::from(prev_length + 1.0);
                     if cost < local_cost {
                         local_cost = cost;
                         local_length = 1.0 + prev_length;
                     }
                 }
             }
-            self.cost[i + 1][1] = local_cost;
+            self.cost[i + 1][1] = local_cost as f32;
             self.length[i + 1][1] = local_length;
             if local_cost < min_cost {
                 min_cost = local_cost;
@@ -406,6 +408,10 @@ pub struct OptmMatcher {
     pitches: Vec<Vec<i32>>,
     performance: Vec<i32>,
     model: OtmModel,
+    config: OptmConfig,
+    backup: Vec<f64>,
+    unmatched: VecDeque<bool>,
+    unmatched_count: usize,
     current: usize,
     input_index: usize,
     path: AlignmentPath,
@@ -413,68 +419,157 @@ pub struct OptmMatcher {
 
 impl OptmMatcher {
     /// Construct an `OPTM` follower from the unloaded score note array.
-    pub fn new(notes: &[ScoreNote], _config: OptmConfig) -> Result<Self> {
+    pub fn new(notes: &[ScoreNote], config: OptmConfig) -> Result<Self> {
         if notes.is_empty() {
             return Err(invalid("score", "OPTM requires at least one score note"));
         }
-        let (positions, pitch_sets) = unique_score(notes);
-        let pitches = pitch_sets
-            .into_iter()
-            .map(|set| set.into_iter().collect())
-            .collect();
+        if notes.iter().any(|note| !note.onset_beat.is_finite())
+            || notes
+                .windows(2)
+                .any(|pair| pair[0].onset_beat > pair[1].onset_beat)
+        {
+            return Err(invalid(
+                "score",
+                "OPTM score onsets must be finite and sorted",
+            ));
+        }
+        let buffer_len = config
+            .jump_trigger
+            .checked_add(4)
+            .filter(|_| config.backup_steps > 0 && config.jump_trigger > 0)
+            .ok_or_else(|| invalid("OPTM", "backup_steps and jump_trigger must be positive"))?;
+        let mut positions = Vec::new();
+        let mut pitches = Vec::new();
+        for onset in notes.chunk_by(|a, b| a.onset_beat == b.onset_beat) {
+            positions.push(onset[0].onset_beat);
+            pitches.push(python_pitch_set(
+                onset
+                    .iter()
+                    .filter(|note| !note.is_grace)
+                    .map(|note| note.pitch),
+            ));
+        }
+        let mut unmatched = VecDeque::new();
+        unmatched.try_reserve_exact(buffer_len).map_err(|error| {
+            invalid("jump_trigger", format!("buffer allocation failed: {error}"))
+        })?;
+        unmatched.resize(buffer_len, false);
         Ok(Self {
+            backup: vec![0.0; positions.len()],
             positions,
             pitches,
             performance: Vec::new(),
             model: OtmModel::bundled()?,
+            config,
+            unmatched,
+            unmatched_count: 0,
             current: 0,
             input_index: 0,
             path: AlignmentPath::default(),
         })
     }
+
+    fn update_backup(&mut self, pitch: i32) {
+        let max = self.config.backup_steps as f64;
+        let mut previous = self.backup[0];
+        for (index, pitches) in self.pitches.iter().enumerate() {
+            let value = self.backup[index];
+            if pitches.contains(&pitch) {
+                let filtered = previous.max(value);
+                let normalized = (filtered - max) / -max;
+                let next = (1.0 - 1.0 / max) * normalized;
+                self.backup[index] = -max * next + max;
+            } else {
+                self.backup[index] = (value - 1.0).clamp(0.0, max);
+            }
+            previous = value;
+        }
+    }
+
+    fn track_lostness(&mut self, predicted: usize, pitch: i32) -> usize {
+        let unmatched = !self.pitches[predicted].contains(&pitch);
+        self.unmatched_count -= usize::from(self.unmatched.pop_front().expect("nonempty buffer"));
+        self.unmatched.push_back(unmatched);
+        self.unmatched_count += usize::from(unmatched);
+        if self.unmatched_count < self.config.jump_trigger {
+            return predicted;
+        }
+        let start = predicted.saturating_sub(4);
+        let end = predicted.saturating_add(16).min(self.backup.len());
+        let mut best = start;
+        for index in start + 1..end {
+            if self.backup[index] > self.backup[best] {
+                best = index;
+            }
+        }
+        self.backup.fill(0.0);
+        self.unmatched.iter_mut().for_each(|value| *value = false);
+        self.unmatched_count = 0;
+        best
+    }
 }
 
 impl OnlineAlignment for OptmMatcher {
-    fn call(&mut self, obs: &Observation) -> f64 {
-        let pitch = obs
-            .features
-            .first()
-            .copied()
-            .map(|v| v as i32)
-            .unwrap_or(-1);
-        self.performance.push(pitch);
+    fn try_call(&mut self, obs: &Observation) -> Result<f64> {
+        let pitch = obs.features.first().copied().unwrap_or(f32::NAN);
+        if obs.features.len() != 1
+            || !pitch.is_finite()
+            || pitch.fract() != 0.0
+            || !(20.0..=110.0).contains(&pitch)
+            || !(obs.perf_time as f32).is_finite()
+        {
+            return Err(invalid(
+                "OPTM observation",
+                "requires one integral pitch 20..=110 and a finite time",
+            ));
+        }
+        let pitch = pitch as i32;
         let start = self.current.saturating_sub(7);
         let end = (self.current + 9).min(self.positions.len());
-        let score: Vec<Vec<i32>> = self.pitches[start..end].to_vec();
-        let performance: Vec<i32> = self
-            .performance
-            .iter()
-            .rev()
-            .take(8)
-            .copied()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        if let Ok(tokens) = tokenize(&score, &performance)
-            && let Ok(logits) = self.model.forward(&tokens)
-        {
-            let mut pred = 0usize;
-            for index in 1..26 {
-                if logits[index * 2 + 1] > logits[pred * 2 + 1] {
-                    pred = index;
-                }
-            }
-            let relative =
-                pred as i64 - performance.len() as i64 - 1 - (self.current as i64 - start as i64);
-            let absolute = (relative + self.current as i64)
-                .clamp(0, self.positions.len().saturating_sub(1) as i64);
-            self.current = absolute as usize;
+        let mut performance = self.performance.clone();
+        if performance.len() == 8 {
+            performance.remove(0);
         }
+        performance.push(pitch);
+        let tokens = tokenize(&self.pitches[start..end], &performance)?;
+        let logits = self.model.forward(&tokens)?;
+        let probability = |index: usize| {
+            let a = logits[index * 2];
+            let b = logits[index * 2 + 1];
+            let max = a.max(b);
+            let ea = libm::expf(a - max);
+            let eb = libm::expf(b - max);
+            eb * (1.0 / (ea + eb))
+        };
+        let mut pred = 0usize;
+        for index in 1..26 {
+            if probability(index) > probability(pred) {
+                pred = index;
+            }
+        }
+        let predicted = (start as isize + pred as isize - performance.len() as isize - 1)
+            .clamp(0, self.positions.len() as isize - 1) as usize;
+        self.performance = performance;
+        self.update_backup(pitch);
+        self.current = if self.config.allow_jump {
+            self.track_lostness(predicted, pitch)
+        } else {
+            predicted
+        };
         self.input_index += 1;
         self.path
             .push(obs.perf_time, f64::from(self.positions[self.current]));
-        f64::from(self.positions[self.current])
+        Ok(f64::from(self.positions[self.current]))
+    }
+
+    fn call(&mut self, obs: &Observation) -> f64 {
+        match self.try_call(obs) {
+            Ok(position) => position,
+            Err(error) => {
+                tracing::error!(%error, "OPTM observation rejected; use try_call to propagate errors");
+                f64::NAN
+            }
+        }
     }
 
     fn is_still_following(&self) -> bool {
@@ -494,5 +589,62 @@ impl OnlineAlignment for OptmMatcher {
             current_index: self.current,
             ..StepDebug::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notes() -> Vec<ScoreNote> {
+        (0..5)
+            .map(|index| ScoreNote {
+                id: index.to_string(),
+                is_grace: false,
+                pitch: 60 + index,
+                onset_beat: index as f32,
+                duration_beat: 1.0,
+                onset_quarter: index as f32,
+                duration_quarter: 1.0,
+                onset_div: i64::from(index),
+                duration_div: 1,
+                voice: 1,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn optm_backup_and_jump_match_reference() {
+        let mut matcher = OptmMatcher::new(
+            &notes(),
+            OptmConfig {
+                allow_jump: true,
+                backup_steps: 4,
+                jump_trigger: 2,
+            },
+        )
+        .unwrap();
+        for (pitch, expected) in [(62, 0), (63, 3), (64, 0), (62, 2), (63, 0)] {
+            matcher.update_backup(pitch);
+            matcher.current = matcher.track_lostness(0, pitch);
+            assert_eq!(matcher.current, expected);
+        }
+    }
+
+    #[test]
+    fn optm_rejects_invalid_input_without_changing_path() {
+        let mut matcher = OptmMatcher::new(&notes(), OptmConfig::default()).unwrap();
+        for features in [vec![], vec![19.0], vec![60.5], vec![60.0, 61.0]] {
+            assert!(
+                matcher
+                    .try_call(&Observation {
+                        features,
+                        perf_time: 0.0
+                    })
+                    .is_err()
+            );
+        }
+        assert!(matcher.alignment_path().perf_time.is_empty());
+        assert_eq!(matcher.input_index, 0);
     }
 }

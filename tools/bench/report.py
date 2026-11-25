@@ -5,10 +5,10 @@ parity flags (contracts/benchmark-report.md):
 
 - metric parity: every evaluation metric of Rust within 1e-4 of the reference (golden tolerance)
 - position parity: alignment paths (``paths/<dataset>/<piece>/<method>.tsv`` next to each
-  records file) agree within 1e-6 at every step for pthmm/outerhmm/arzt/dixon (SC-001) and at
+  records file) agree within 1e-6 at every step for pthmm/outerhmm/arzt/dixon/dannenberg (SC-001) and at
   >= 99.9 % of the steps for hmm (SC-002); the first differing step is reported (SC-007). Steps where
   Rust's best state leads by less than 1e-9 (relative; ``<method>.gap.tsv``) are numerical ties
-  and count as equal
+  and count as equal, except for Dannenberg, whose DP values are not probabilities
 
 Exits with 1 on a parity violation. Frame processors such as audio mel and MFCC use the shared
 audio position gate; standalone Korzeniowski extraction reports feature timing without a follower
@@ -127,7 +127,7 @@ def position_parity(method: str, rust: Path, python: Path, audio: bool = False) 
     # a step where Rust's best state leads by less than TIE_GAP is a numerical tie (repeated score
     # chords have exactly equal probabilities; the reference's BLAS rounding picks one of them)
     gaps = rust.with_suffix(".gap.tsv")
-    if gaps.exists():
+    if method != "dannenberg" and gaps.exists():
         close |= np.loadtxt(gaps, ndmin=1)[:n] < TIE_GAP
     differing = np.flatnonzero(~close)
     first = int(differing[0]) if len(differing) else (n if len(r) != len(p) else None)
@@ -187,6 +187,7 @@ def main() -> None:
                 "pooled_p95_b": records[0].get("pooled_p95_b") if records else None,
                 "has_ground_truth": any(record.get("ground_truth", False) for record in records),
                 "ground_truth_path": records[0].get("ground_truth_path") if records else None,
+                "numpy_disabled_cpu_features": records[0].get("environment", {}).get("numpy_disabled_cpu_features") if records else None,
             }
         r, p = side["rust"], side["python"]
         audio = r["input_type"] == "audio" or p["input_type"] == "audio"
@@ -261,6 +262,17 @@ def main() -> None:
         "| method | processor | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | p95 delta | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
+    disabled = sorted({
+        row["python"]["numpy_disabled_cpu_features"]
+        for row in rows
+        if row["python"]["numpy_disabled_cpu_features"]
+    })
+    if disabled:
+        lines[4:4] = [
+            f"Python reference disabled NumPy CPU features: {', '.join(disabled)}. "
+            "This can affect timings as well as MIDI event ordering.",
+            "",
+        ]
     for row in rows:
         r, p = row["rust"], row["python"]
         ev = (

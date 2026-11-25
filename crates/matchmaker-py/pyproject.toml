@@ -16,3 +16,4 @@ test = ["pytest>=7"]
 [tool.maturin]
 module-name = "matchmaker_rs"
 features = ["pyo3/extension-module"]
+include = [{ path = "NUMPY-LICENSE", format = "wheel" }]

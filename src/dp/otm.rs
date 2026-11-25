@@ -415,7 +415,7 @@ impl OnlineAlignment for OnlineTransformerMatcher {
 
 // CPython's small-integer set iteration order is part of the upstream tokenizer:
 // collisions, growth, and truncation to seven slots make sorted pitches inequivalent.
-fn python_pitch_set(pitches: impl Iterator<Item = i32>) -> Vec<i32> {
+pub(super) fn python_pitch_set(pitches: impl Iterator<Item = i32>) -> Vec<i32> {
     fn hash(pitch: i32) -> usize {
         if pitch == -1 {
             (-2isize) as usize

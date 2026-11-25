@@ -386,6 +386,41 @@ class MelStageComparisonTests(unittest.TestCase):
             self.assertEqual(result["class"], "WITHIN_TOL")
 
 
+class DannenbergPositionParityTests(unittest.TestCase):
+    def test_equal_dp_values_do_not_hide_position_difference(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rust, python = root / "rust.tsv", root / "python.tsv"
+            np.savetxt(rust, [[0.0, 0.0], [1.0, 2.0]], delimiter="\t", header="time\tbeat", comments="")
+            np.savetxt(python, [[0.0, 0.0], [1.0, 3.0]], delimiter="\t", header="time\tbeat", comments="")
+            np.savetxt(rust.with_suffix(".gap.tsv"), [1.0, 0.0])
+
+            self.assertFalse(position_parity("dannenberg", rust, python)["ok"])
+            self.assertTrue(position_parity("pthmm", rust, python)["ok"])
+
+    def test_report_discloses_disabled_numpy_cpu_features(self):
+        record = {
+            "method": "dannenberg", "dataset": "fixture", "piece": "test",
+            "processor": "pitch", "evaluation": None, "total_processing_s": 1.0,
+            "environment": {"numpy_disabled_cpu_features": "X86_V3,X86_V4"},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rust, python = root / "rust.json", root / "python.json"
+            rust.write_text(json.dumps([{**record, "environment": {}}]), encoding="utf-8")
+            python.write_text(json.dumps([record]), encoding="utf-8")
+            output = root / "report"
+            with patch("sys.argv", [
+                "report.py", "--rust", str(rust), "--python", str(python), "--out", str(output),
+            ]), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as result:
+                    main()
+            self.assertEqual(result.exception.code, 0)
+            self.assertIn("X86_V3,X86_V4", (output / "index.md").read_text(encoding="utf-8"))
+            row = json.loads((output / "report.json").read_text(encoding="utf-8"))["rows"][0]
+            self.assertEqual(row["python"]["numpy_disabled_cpu_features"], "X86_V3,X86_V4")
+
+
 class MfccStageComparisonTests(unittest.TestCase):
     def test_feature_limit_first_difference_and_metadata(self):
         path = Path(__file__).parents[1] / "golden" / "compare.py"
