@@ -44,9 +44,9 @@ def test_otm_rejects_invalid_configuration(kwargs, key):
         make("OTM", kwargs=kwargs)
 
 
-def test_otm_is_midi_only_and_other_parangonar_methods_remain_deferred():
+def test_parangonar_methods_are_midi_only():
     with pytest.raises(ValueError, match="OTM"):
         Matchmaker(SCORE, PERFORMANCE, input_type="audio", method="OTM")
     for method in ["OPTM", "SLT_OLTW", "SL_OLTW"]:
-        with pytest.raises(ValueError):
-            make(method)
+        assert method in AVAILABLE_METHODS["midi"]
+        assert method not in AVAILABLE_METHODS["audio"]
