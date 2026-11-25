@@ -49,7 +49,7 @@ from matchmaker.utils.symbolic import (
 REFERENCE_TAG = "v0.5.1"
 PIECES = ["simple_mozart_k265_var1", "mozart_k265_var1", "Bach-fugue_bwv_858"]
 METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "dannenberg"]
-ALL_METHODS = [*METHODS, "OTM"]
+ALL_METHODS = [*METHODS, "OTM", "OPTM", "SLT_OLTW", "SL_OLTW"]
 MAX_PROBABILITY_VALUES = 5_000_000
 
 KIND_CODES = {"note_on": 0, "note_off": 1, "control_change": 2, "program_change": 3}
@@ -317,7 +317,12 @@ class Recorder:
 
         def __call__(self, observation, perf_time, *args, **kwargs):
             position = base.__call__(self, observation, perf_time, *args, **kwargs)
-            recorder.features.append(np.asarray(observation, dtype=np.float32).copy())
+            try:
+                recorder.features.append(np.asarray(observation, dtype=np.float32).copy())
+            except (TypeError, ValueError):
+                recorder.features.append(
+                    np.asarray([observation["pitch"]], dtype="<i4").copy()
+                )
             recorder.times.append(float(perf_time))
             recorder.positions.append(float(position))
             recorder.indices.append(int(self.current_index))
@@ -360,7 +365,10 @@ def dump_method(out: Path, method: str, score_path: Path, perf_path: Path, match
     follower = mm.score_follower
     save(d / "score_positions.npy", np.asarray(follower.score_positions))
     is_list = method in ("hmm", "dannenberg")
-    save(d / "observations_features.npy", pad_rows(rec.features) if is_list else (np.stack(rec.features) if rec.features else np.zeros((0, 88), np.float32)))
+    if method in ("OPTM", "SLT_OLTW", "SL_OLTW"):
+        save(d / "observations_features.npy", np.asarray(rec.features, dtype="<i4").reshape(-1, 1))
+    else:
+        save(d / "observations_features.npy", pad_rows(rec.features) if is_list else (np.stack(rec.features) if rec.features else np.zeros((0, 88), np.float32)))
     save(d / "observations_times.npy", np.array(rec.times, dtype="<f8"))
     save(d / "positions.npy", np.array(rec.positions, dtype="<f8"))
     save(d / "current_index.npy", np.array(rec.indices, dtype="<i8"))

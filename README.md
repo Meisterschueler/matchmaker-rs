@@ -48,7 +48,7 @@ always initializes at 0.5 even when `init_beat_period` is supplied; this port pr
 behavior. Rust callers should use `try_call`/`try_process` to propagate input errors; the
 legacy infallible trait methods log rejection (OTM `call` returns NaN without updating its
 path). The facade, CLI and Python use the checked path.
-`OPTM`, `SLT_OLTW` and `SL_OLTW` are not yet ported.
+`OPTM`, `SLT_OLTW` and `SL_OLTW` are also ported for MIDI event input.
 OTM exports include event-aligned token/logit presence masks and tempo state:
 
 ```text

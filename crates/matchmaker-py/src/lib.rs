@@ -371,7 +371,10 @@ fn config_value(value: &Bound<'_, PyAny>) -> PyResult<ConfigValue> {
 /// `DEFAULT_KWARGS["midi"][method]` of the reference's `methods.yaml`.
 fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, PyDict>> {
     let kwargs = PyDict::new(py);
-    if method == Method::Otm {
+    if matches!(
+        method,
+        Method::Otm | Method::Optm | Method::SltOltw | Method::SlOltw
+    ) {
         kwargs.set_item("processor", "parangonar")?;
         kwargs.set_item("polling_period", py.None())?;
         return Ok(kwargs);
@@ -402,6 +405,23 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
             kwargs.set_item("epsilon_fraction", 0.25)?;
             kwargs.set_item("window", 50)?;
             kwargs.set_item("smoothing", 0.5)?;
+        }
+        Method::Optm => {
+            kwargs.set_item("allow_jump", true)?;
+            kwargs.set_item("backup_steps", 24)?;
+            kwargs.set_item("jump_trigger", 24)?;
+        }
+        Method::SltOltw => {
+            kwargs.set_item("hop_size", 1)?;
+            kwargs.set_item("window_size", 40)?;
+            kwargs.set_item("max_run_count", 10)?;
+            kwargs.set_item("tempo_factor", 0.1)?;
+            kwargs.set_item("time_weight", 2.0)?;
+        }
+        Method::SlOltw => {
+            kwargs.set_item("hop_size", 1)?;
+            kwargs.set_item("window_size", 40)?;
+            kwargs.set_item("max_run_count", 10)?;
         }
         Method::Pthmm | Method::Hmm | Method::Otm => {}
     }

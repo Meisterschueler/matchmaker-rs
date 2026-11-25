@@ -26,6 +26,9 @@ use crate::dp::dannenberg::{DannenbergConfig, DannenbergEvent};
 use crate::dp::dixon::{DixonEvent, DixonEventConfig};
 use crate::dp::dixon_frame::DixonFrame;
 use crate::dp::otm::{OnlineTransformerMatcher, OtmConfig};
+use crate::dp::parangonar::{
+    OptmConfig, OptmMatcher, SlOltwConfig, SlOltwMatcher, SltOltwConfig, SltOltwMatcher,
+};
 use crate::error::{Error, Result};
 use crate::features::parangonar::ParangonarProcessor;
 use crate::features::{
@@ -69,11 +72,17 @@ pub enum Method {
     Dannenberg,
     /// Parangonar's pretrained event-based Online Transformer Matcher.
     Otm,
+    /// Parangonar's Online Pure Transformer Matcher.
+    Optm,
+    /// Parangonar's symbolic-level tempo-aware online time warping.
+    SltOltw,
+    /// Parangonar's symbolic-level online time warping.
+    SlOltw,
 }
 
 impl Method {
     /// Reference names of the supported methods.
-    pub const AVAILABLE: [&'static str; 7] = [
+    pub const AVAILABLE: [&'static str; 10] = [
         "pthmm",
         "hmm",
         "outerhmm",
@@ -81,6 +90,9 @@ impl Method {
         "dixon",
         "dannenberg",
         "OTM",
+        "OPTM",
+        "SLT_OLTW",
+        "SL_OLTW",
     ];
 
     /// Keys [`MethodConfig::set`] accepts for this method.
@@ -131,6 +143,29 @@ impl Method {
                 "init_beat_period",
                 "lookback",
             ],
+            Method::Optm => &[
+                "processor",
+                "polling_period",
+                "allow_jump",
+                "backup_steps",
+                "jump_trigger",
+            ],
+            Method::SltOltw => &[
+                "processor",
+                "polling_period",
+                "hop_size",
+                "window_size",
+                "max_run_count",
+                "tempo_factor",
+                "time_weight",
+            ],
+            Method::SlOltw => &[
+                "processor",
+                "polling_period",
+                "hop_size",
+                "window_size",
+                "max_run_count",
+            ],
             _ => &["processor", "piano_range", "polling_period"],
         }
     }
@@ -145,6 +180,9 @@ impl Method {
             Method::Dixon => "dixon",
             Method::Dannenberg => "dannenberg",
             Method::Otm => "OTM",
+            Method::Optm => "OPTM",
+            Method::SltOltw => "SLT_OLTW",
+            Method::SlOltw => "SL_OLTW",
         }
     }
 }
@@ -161,6 +199,9 @@ impl FromStr for Method {
             "dixon" => Ok(Method::Dixon),
             "dannenberg" => Ok(Method::Dannenberg),
             "OTM" => Ok(Method::Otm),
+            "OPTM" => Ok(Method::Optm),
+            "SLT_OLTW" => Ok(Method::SltOltw),
+            "SL_OLTW" => Ok(Method::SlOltw),
             _ => Err(Error::InvalidMethod {
                 method: name.to_string(),
                 available: Method::AVAILABLE.iter().map(|s| s.to_string()).collect(),
@@ -892,6 +933,18 @@ pub struct MethodConfig {
     pub init_beat_period: Option<f64>,
     /// `OTM`: positive integer tempo lookback in beats (default 1).
     pub lookback: Option<usize>,
+    /// `OPTM`: permit lostness-triggered jumps (default true).
+    pub allow_jump: Option<bool>,
+    /// `OPTM`: bounded Smith-Waterman backup steps (default 24).
+    pub backup_steps: Option<usize>,
+    /// `OPTM`: lostness jump trigger (default 24).
+    pub jump_trigger: Option<usize>,
+    /// `SLT_OLTW`: tempo exponential averaging factor (default 0.1).
+    pub tempo_factor: Option<f64>,
+    /// `SLT_OLTW`: onset deviation weight (default 2.0).
+    pub time_weight: Option<f64>,
+    /// `SL_OLTW` / `SLT_OLTW`: hop size (default 1).
+    pub hop_size: Option<usize>,
 }
 
 impl MethodConfig {
@@ -901,7 +954,10 @@ impl MethodConfig {
     pub fn for_method(method: Method) -> Self {
         let oltw = matches!(method, Method::Arzt | Method::Dixon);
         MethodConfig {
-            processor: if method == Method::Otm {
+            processor: if matches!(
+                method,
+                Method::Otm | Method::Optm | Method::SltOltw | Method::SlOltw
+            ) {
                 ProcessorKind::Parangonar
             } else if oltw {
                 ProcessorKind::ChordOnset
@@ -909,7 +965,10 @@ impl MethodConfig {
                 ProcessorKind::Pitch
             },
             piano_range: !matches!(method, Method::Dannenberg | Method::Otm),
-            polling_period: if matches!(method, Method::Dannenberg | Method::Otm) {
+            polling_period: if matches!(
+                method,
+                Method::Dannenberg | Method::Otm | Method::Optm | Method::SltOltw | Method::SlOltw
+            ) {
                 None
             } else if oltw || method == Method::OuterHmm {
                 Some(0.001)
@@ -930,6 +989,12 @@ impl MethodConfig {
             smoothing: None,
             init_beat_period: None,
             lookback: None,
+            allow_jump: None,
+            backup_steps: None,
+            jump_trigger: None,
+            tempo_factor: None,
+            time_weight: None,
+            hop_size: None,
         }
     }
 
@@ -992,6 +1057,7 @@ impl MethodConfig {
         }
         match (key, value) {
             ("processor", ConfigValue::Str(name)) => self.processor = name.parse()?,
+            ("allow_jump", ConfigValue::Bool(value)) => self.allow_jump = Some(*value),
             ("piano_range", ConfigValue::Bool(b)) => self.piano_range = *b,
             ("polling_period", ConfigValue::None) => self.polling_period = None,
             ("polling_period", ConfigValue::Float(p)) => self.polling_period = Some(*p),
@@ -1003,7 +1069,8 @@ impl MethodConfig {
             ("other_prob", ConfigValue::Float(p)) => self.other_prob = Some(*p),
             ("other_prob", ConfigValue::Int(p)) => self.other_prob = Some(*p as f64),
             (
-                "step_size" | "window_size" | "max_run_count" | "window" | "lookback",
+                "step_size" | "window_size" | "max_run_count" | "window" | "lookback"
+                | "backup_steps" | "jump_trigger" | "hop_size",
                 ConfigValue::Int(n),
             ) => {
                 let n = usize::try_from(*n).map_err(|_| invalid("must not be negative".into()))?;
@@ -1012,12 +1079,16 @@ impl MethodConfig {
                     "window_size" => self.window_size = Some(n),
                     "window" => self.window = Some(n),
                     "lookback" => self.lookback = Some(n),
+                    "backup_steps" => self.backup_steps = Some(n),
+                    "jump_trigger" => self.jump_trigger = Some(n),
+                    "hop_size" => self.hop_size = Some(n),
                     _ => self.max_run_count = Some(n),
                 }
             }
             ("distance_func", ConfigValue::Str(name)) => self.distance_func = Some(name.parse()?),
             (
-                "c_m" | "c_e" | "epsilon" | "epsilon_fraction" | "smoothing" | "init_beat_period",
+                "c_m" | "c_e" | "epsilon" | "epsilon_fraction" | "smoothing" | "init_beat_period"
+                | "tempo_factor" | "time_weight",
                 ConfigValue::Float(_) | ConfigValue::Int(_),
             ) => {
                 let v = match value {
@@ -1034,6 +1105,8 @@ impl MethodConfig {
                     "epsilon" => self.epsilon = Some(v),
                     "epsilon_fraction" => self.epsilon_fraction = Some(v),
                     "init_beat_period" => self.init_beat_period = Some(v),
+                    "tempo_factor" => self.tempo_factor = Some(v),
+                    "time_weight" => self.time_weight = Some(v),
                     _ => self.smoothing = Some(v),
                 }
             }
@@ -1048,14 +1121,17 @@ impl MethodConfig {
             key: key.into(),
             reason: reason.into(),
         };
-        if method == Method::Otm {
+        if matches!(
+            method,
+            Method::Otm | Method::Optm | Method::SltOltw | Method::SlOltw
+        ) {
             if self.processor != ProcessorKind::Parangonar {
-                return Err(invalid("processor", "OTM requires parangonar"));
+                return Err(invalid("processor", "this method requires parangonar"));
             }
             if self.polling_period.is_some() {
                 return Err(invalid(
                     "polling_period",
-                    "OTM requires event-based input (None)",
+                    "this method requires event-based input (None)",
                 ));
             }
             if self
@@ -1065,7 +1141,10 @@ impl MethodConfig {
                 return Err(invalid("init_beat_period", "must be finite and positive"));
             }
         } else if self.processor == ProcessorKind::Parangonar {
-            return Err(invalid("processor", "parangonar is only supported by OTM"));
+            return Err(invalid(
+                "processor",
+                "parangonar is only supported by OTM/OPTM/SLT_OLTW/SL_OLTW",
+            ));
         }
         if self
             .polling_period
@@ -1100,6 +1179,9 @@ impl MethodConfig {
             ("max_run_count", self.max_run_count),
             ("window", self.window),
             ("lookback", self.lookback),
+            ("backup_steps", self.backup_steps),
+            ("jump_trigger", self.jump_trigger),
+            ("hop_size", self.hop_size),
         ] {
             if size == Some(0) {
                 return Err(invalid(key, "must be at least 1"));
@@ -1189,6 +1271,43 @@ impl Matchmaker {
                 OtmConfig {
                     init_beat_period: config.init_beat_period.unwrap_or(0.5),
                     lookback: config.lookback.unwrap_or(1),
+                },
+            )?),
+            Method::Optm => Box::new(OptmMatcher::new(
+                &score.otm_notes(),
+                OptmConfig {
+                    allow_jump: config.allow_jump.unwrap_or(true),
+                    backup_steps: config.backup_steps.unwrap_or(24),
+                    jump_trigger: config.jump_trigger.unwrap_or(24),
+                },
+            )?),
+            Method::SltOltw => Box::new(SltOltwMatcher::new(
+                &score.otm_notes(),
+                SltOltwConfig {
+                    window_size: config.window_size.unwrap_or(40),
+                    max_run_count: config.max_run_count.unwrap_or(10),
+                    init_tempo: config.init_beat_period.unwrap_or_else(|| {
+                        let timed = score
+                            .notes
+                            .iter()
+                            .filter(|note| note.duration_quarter > 0.0)
+                            .next();
+                        match timed {
+                            Some(note) if note.duration_quarter != 0.0 => {
+                                60.0 / 90.0 / f64::from(note.duration_beat / note.duration_quarter)
+                            }
+                            _ => 60.0 / 90.0,
+                        }
+                    }),
+                    tempo_factor: config.tempo_factor.unwrap_or(0.1),
+                    time_weight: config.time_weight.unwrap_or(2.0),
+                },
+            )?),
+            Method::SlOltw => Box::new(SlOltwMatcher::new(
+                &score.otm_notes(),
+                SlOltwConfig {
+                    window_size: config.window_size.unwrap_or(40),
+                    max_run_count: config.max_run_count.unwrap_or(10),
                 },
             )?),
             Method::Pthmm => Box::new(PitchHmm::new(&score, true, config.piano_range)),

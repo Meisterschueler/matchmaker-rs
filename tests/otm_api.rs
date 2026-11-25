@@ -17,8 +17,8 @@ fn otm_defaults_and_invalid_configuration_are_method_specific() {
             .set(method, "dim_model", &ConfigValue::Int(32))
             .is_err()
     );
-    for deferred in ["OPTM", "SLT_OLTW", "SL_OLTW"] {
-        assert!(deferred.parse::<Method>().is_err());
+    for name in ["OPTM", "SLT_OLTW", "SL_OLTW"] {
+        assert!(name.parse::<Method>().is_ok());
     }
 }
 
