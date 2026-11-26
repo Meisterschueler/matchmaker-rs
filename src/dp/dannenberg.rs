@@ -295,6 +295,7 @@ impl OnlineAlignment for DannenbergEvent {
             tempo: None,
             multi_fold: None,
             skf: None,
+            otm: None,
         }
     }
 }

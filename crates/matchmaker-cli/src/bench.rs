@@ -64,6 +64,15 @@ struct TimedProcessor {
 }
 
 impl Processor for TimedProcessor {
+    fn try_process(&mut self, frame: &Frame) -> matchmaker_rs::Result<Option<Observation>> {
+        let start = Instant::now();
+        let observation = self.inner.try_process(frame)?;
+        if observation.is_some() {
+            self.times.borrow_mut().push(start.elapsed());
+        }
+        Ok(observation)
+    }
+
     fn process(&mut self, frame: &Frame) -> Option<Observation> {
         let start = Instant::now();
         let obs = self.inner.process(frame);
@@ -86,6 +95,13 @@ struct TimedFollower {
 }
 
 impl OnlineAlignment for TimedFollower {
+    fn try_call(&mut self, observation: &Observation) -> matchmaker_rs::Result<f64> {
+        let start = Instant::now();
+        let position = self.inner.try_call(observation)?;
+        self.times.borrow_mut().push(start.elapsed());
+        Ok(position)
+    }
+
     fn call(&mut self, obs: &Observation) -> f64 {
         let start = Instant::now();
         let position = self.inner.call(obs);

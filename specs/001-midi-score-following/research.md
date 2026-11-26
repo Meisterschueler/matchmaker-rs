@@ -137,16 +137,12 @@ rejected as unreadable (II) without evidence of need.
   `t ≤ pp`; frame k takes `k·pp < t ≤ (k+1)·pp`; buffer time = `(k + 0.5)·pp`.
 - Event mode (`polling_period=None`): one message per frame, frame time = message time.
 
-**Decision**: Port these three functions 1:1 (same float formulas, same comparisons) in
-`performance::midi` and `io::stream`; use a **stable** sort by time over the construction order.
-Parse MIDI with `midly`.
-**Rationale**: Frame membership depends on the exact float expressions. Tie order cannot
-change any default-configuration result: in windowed mode all messages with equal time land
-in the same frame and processors aggregate frames order-independently (outerhmm uses 1 ms
-windows, so simultaneous notes form one observation). Documented as a deviation only for the
-non-default event mode.
-**Alternatives considered**: Emulating NumPy's unstable quicksort (CPU-dependent, impossible
-to match reliably).
+**Decision**: Port the timing and framing formulas and use NumPy's scalar indirect quicksort
+for MIDI message times. Parse MIDI with `midly`. The benchmark disables NumPy's `X86_V3` and
+`X86_V4` dispatch so its reference uses the same scalar sort.
+**Rationale**: Dannenberg defaults to event mode, so simultaneous-note order can change its
+state and path. NumPy's SIMD sort can produce a different tie order; exact agreement with
+SIMD-enabled reference installations is not guaranteed.
 
 ## R6. Score loading (partitura subset)
 

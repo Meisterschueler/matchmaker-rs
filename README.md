@@ -30,6 +30,10 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `outerhmm` | MIDI | `pitch`, `chord_onset` | outer-product HMM with pitch-error model |
 | `arzt` | MIDI | `chord_onset`, `pitch` | event-level online time warping over the onset pianoroll |
 | `dixon` | MIDI | `chord_onset`, `pitch` | event-level online time warping with sparse path-normalized costs |
+| `OTM` | MIDI | `parangonar` | Parangonar's pretrained Online Transformer Matcher; one note event per step, CPU-only |
+| `OPTM` | MIDI | `parangonar` | pure-transformer matcher with lostness tracking |
+| `SLT_OLTW` | MIDI | `parangonar` | tempo-aware symbolic online time warping |
+| `SL_OLTW` | MIDI | `parangonar` | symbolic online time warping |
 | `arzt` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt`, `mel`, `mfcc` | frame-level online time warping; defaults to `chroma` at 30 fps |
 | `dixon` | Audio | `chroma`, `lse`, `raw_spectrum`, `cqt`, `mel`, `mfcc` | frame-level online time warping; defaults to `lse` at 50 fps |
 | `arzt_tempo` | Audio | `chroma`, `lse`, `mel`, `mfcc` | seeded tempo-aware Arzt; defaults to `chroma` at 30 fps |
@@ -39,6 +43,27 @@ Prints `perf_time<TAB>beat` per position and writes the alignment path to `path.
 | `pfkorz` | Audio | `korzeniowski` | seeded particle filter over an analytical score model; seed 1984, 500 particles, 44100 Hz, hop 1470 |
 
 Select with `--method` and `--processor`; override parameters with `--set KEY=VALUE`.
+`OTM` uses `polling_period=None`, an initial 0.5 seconds per beat and `lookback=1`.
+It bundles converted Apache-2.0 weights; no Python, PyTorch or network access is needed at
+runtime. The model architecture is fixed; incompatible dimensions and non-event polling
+are rejected. `dropout_p` is accepted but disabled during inference. Upstream `__call__`
+always initializes at 0.5 even when `init_beat_period` is supplied; this port preserves that
+behavior. Rust callers should use `try_call`/`try_process` to propagate input errors; the
+legacy infallible trait methods log rejection (OTM `call` returns NaN without updating its
+path). The facade, CLI and Python use the checked path.
+`OPTM`, `SLT_OLTW` and `SL_OLTW` are also ported for MIDI event input. `OPTM` uses
+`allow_jump`, `backup_steps`, and `jump_trigger` for the reference lostness tracker; like
+`OTM`, Rust callers can use `try_call` to propagate inference and input errors. `SLT_OLTW`
+and `SL_OLTW` also provide checked `try_call`; their legacy `call` logs invalid observations
+and returns NaN without updating the path.
+OTM exports include event-aligned token/logit presence masks and tempo state:
+
+```text
+cargo run --release -p matchmaker-cli -- follow tests/data/simple_mozart_k265_var1.musicxml tests/data/simple_mozart_k265_var1.mid --method OTM --export target/otm-export/
+```
+
+See the [OTM validation guide](specs/006-online-transformer-matcher/quickstart.md) for
+reference parity and benchmarks.
 For `arzt_multi_fold`, pass `--no-unfold` when the score has repeats so the follower receives
 the folded score and can compare repeat hypotheses. With the default maximal unfolding, this
 reference-compatible method may have only one unique candidate.
@@ -225,7 +250,7 @@ Moving to a newer reference release: bump the tag in `tools/golden/pyproject.tom
 
 1. MIDI score following: methods `pthmm`, `hmm`, `outerhmm`, `arzt`, `dixon`, `dannenberg`; processors `pitch`, `chord_onset`.
 2. Audio score following: frame-level `arzt`, `dixon`, `arzt_tempo`, `arzt_multi_fold`, `skf`, `outerhmm`, seeded `pfkorz`; processors `lse`, `chroma`, `raw_spectrum`, `cqt`, `cqt_spectral_flux`, `mel`, `mfcc` (mel and MFCC support the frame-level Arzt/Dixon followers; audio outerhmm only uses `cqt_spectral_flux`). Structured `korzeniowski` extraction is available separately, feeds `pfkorz`, and is not accepted by vector followers.
-3. Later: parangonar methods.
+3. Parangonar MIDI score following: `OTM`, `OPTM`, `SLT_OLTW`, and `SL_OLTW` with the event-based `parangonar` processor.
 
 ## Benchmark datasets
 
@@ -233,7 +258,14 @@ The [Benchmark workflow](.github/workflows/benchmark.yml) compares Rust and the 
 (latency, accuracy, alignment parity) and publishes the
 [report](https://meisterschueler.github.io/matchmaker-rs/) on GitHub Pages; the benchmark badge
 above shows the median speed-up over all pieces of the latest `master` run (red on a parity
-violation). Datasets are
+violation). MIDI messages use NumPy's scalar `argsort` order; the benchmark disables NumPy's
+`X86_V3` and `X86_V4` dispatch to use the same order. SIMD-enabled NumPy may order simultaneous
+messages differently. Disabling these features can also affect Python benchmark timings.
+CI compares all four Parangonar matchers on the same MIDI datasets and requires both alignment
+paths. The report shows the previous master inference latency and percentage delta when a
+baseline exists; a new method has no master delta until a baseline is published.
+The sorting port is distributed under the [NumPy license](NUMPY-LICENSE).
+Datasets are
 downloaded in CI at pinned commits ([tools/datasets/datasets.toml](tools/datasets/datasets.toml),
 [fetch.py](tools/datasets/fetch.py)); they are not part of this repository and keep their own
 licenses — only derived metrics are published:

@@ -17,6 +17,7 @@ pub(crate) type Time = i64;
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Note {
     pub id: Option<String>,
+    pub is_grace: bool,
     pub midi_pitch: i32,
     pub voice: i32,
     pub start: Time,

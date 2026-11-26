@@ -16,12 +16,25 @@ import hashlib
 import json
 import os
 import platform
+import sys
 import time
 import tomllib
 from ctypes import c_int
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from unittest.mock import patch
+
+def transformer_requested() -> bool:
+    for i, arg in enumerate(sys.argv[1:]):
+        if arg.startswith("--methods="):
+            return bool({"OTM", "OPTM"} & set(arg.split("=", 1)[1].split(",")))
+        if arg == "--methods" and i + 2 < len(sys.argv):
+            return bool({"OTM", "OPTM"} & set(sys.argv[i + 2].split(",")))
+    return False
+
+
+if transformer_requested():
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import numpy as np
 import partitura
@@ -33,11 +46,13 @@ from matchmaker.features.audio import KorzeniowskiAudioProcessor
 from matchmaker.utils.eval import evaluate_alignment, resolve_gt
 from matchmaker.utils.symbolic import midi_messages_from_performance
 
-METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "pfkorz", "dannenberg"]
+DEFAULT_METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "pfkorz", "dannenberg"]
+PARANGONAR_METHODS = ("OTM", "OPTM", "SLT_OLTW", "SL_OLTW")
 SOUNDFONT_SHA256 = "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F"
 PROCESSORS = {
     "PitchProcessor": "pitch",
     "ChordOnsetProcessor": "chord_onset",
+    "ParangonarProcessor": "parangonar",
     "ChromagramProcessor": "chroma",
     "LogSpectralEnergyProcessor": "lse",
     "RawSpectrumProcessor": "raw_spectrum",
@@ -338,8 +353,12 @@ def main() -> None:
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--runs", type=int, default=5)
-    parser.add_argument("--methods", default=",".join(METHODS))
+    parser.add_argument("--methods", default=",".join(DEFAULT_METHODS))
     args = parser.parse_args()
+    methods = args.methods.split(",")
+    if {"OTM", "OPTM"} & set(methods):
+        import torch
+        torch.set_num_threads(1)
 
     manifest = tomllib.loads(args.manifest.read_text(encoding="utf-8"))
     base = args.manifest.resolve().parent
@@ -349,6 +368,7 @@ def main() -> None:
         "arch": platform.machine(),
         "commit": os.environ.get("GITHUB_SHA"),
         "timestamp": int(time.time()),
+        "numpy_disabled_cpu_features": os.environ.get("NPY_DISABLE_CPU_FEATURES"),
     }
 
     records = []
@@ -359,7 +379,7 @@ def main() -> None:
                     p,
                     base,
                     out_dir,
-                    args.methods.split(","),
+                    [method for method in methods if method not in PARANGONAR_METHODS],
                     args.runs,
                     environment,
                 )
@@ -368,7 +388,8 @@ def main() -> None:
         score, perf = base / p["score"], base / p["performance"]
         _, msg_times = midi_messages_from_performance(str(perf))
         duration = float(msg_times[-1]) if len(msg_times) else 0.0
-        for method in args.methods.split(","):
+        for method in methods:
+            first_path = None
             for run in range(args.runs):
                 mm = Matchmaker(score_file=str(score), performance_file=str(perf), input_type="midi", method=method)
                 feature, inference = [], []
@@ -378,6 +399,11 @@ def main() -> None:
                 for _ in mm.run(verbose=False):
                     pass
                 path = np.asarray(mm.score_follower.alignment_path, dtype=float).reshape(2, -1)
+                if method in PARANGONAR_METHODS:
+                    if first_path is None:
+                        first_path = path.copy()
+                    elif not np.array_equal(path, first_path):
+                        raise RuntimeError(f"{method} path changed across runs for {p['piece']}")
                 if run == 0:
                     tsv = out_dir / "paths" / p["dataset"] / p["piece"] / f"{method}.tsv"
                     tsv.parent.mkdir(parents=True, exist_ok=True)

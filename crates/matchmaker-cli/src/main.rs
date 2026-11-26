@@ -48,7 +48,7 @@ enum Command {
         /// Tempo in BPM (default: score marking, else 120)
         #[arg(long)]
         tempo: Option<f64>,
-        /// Feature processor: MIDI pitch/chord_onset or audio chroma/lse/raw_spectrum/cqt
+        /// Feature processor: MIDI pitch/chord_onset/parangonar or audio chroma/lse/raw_spectrum/cqt
         #[arg(long)]
         processor: Option<String>,
         /// Method parameter, repeatable (e.g. --set polling_period=0.02 --set patience=20;

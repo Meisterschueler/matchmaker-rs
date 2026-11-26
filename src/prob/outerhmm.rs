@@ -386,6 +386,7 @@ impl OnlineAlignment for OuterProductHmm {
             tempo: None,
             multi_fold: None,
             skf: None,
+            otm: None,
         }
     }
 }

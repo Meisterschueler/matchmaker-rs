@@ -21,6 +21,7 @@ pub mod korzeniowski;
 pub mod lse;
 pub mod mel;
 pub mod mfcc;
+pub mod parangonar;
 pub mod pitch;
 pub mod raw_spectrum;
 
@@ -54,6 +55,11 @@ pub struct KorzeniowskiObservation {
 
 /// Port of `matchmaker.features.processor.Processor` (the part the MIDI pipeline uses).
 pub trait Processor {
+    /// Fallible processing for processors with input validation.
+    fn try_process(&mut self, frame: &Frame) -> crate::error::Result<Option<Observation>> {
+        Ok(self.process(frame))
+    }
+
     /// Process one frame; `None` if the frame yields no observation.
     fn process(&mut self, frame: &Frame) -> Option<Observation>;
 

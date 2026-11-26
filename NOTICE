@@ -14,3 +14,10 @@ The learned pitch-template archive in src/prob/assets/pitch_templates_16000_640.
 redistributed from pymatchmaker v0.4.0 under the upstream repository's Apache License 2.0.
 Its source commit and SHA-256 are recorded in specs/004-audio-methods/research.md; the
 upstream release does not identify the archive's training corpus.
+
+The Online Transformer Matcher is ported from Parangonar 3.4.1
+(https://github.com/sildater/parangonar), licensed under the Apache License,
+Version 2.0. Its alignment_transformer_checkpoint.pt is converted to the compact
+inference-only assets/otm/model.bin; unused positional rows and optimizer metadata
+are omitted. The source, hashes, and tensor layout are recorded in assets/otm/model.json.
+The upstream package does not document the model's training-data provenance.

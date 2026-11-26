@@ -173,6 +173,7 @@ fn create_part(
         part.add_point(onset + duration);
         part.notes.push(Note {
             id: Some(id),
+            is_grace: false,
             midi_pitch: pitch,
             voice,
             start: onset,

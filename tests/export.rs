@@ -139,13 +139,28 @@ fn export_equals_golden_for_every_method() {
         let probabilities = out.join(format!("{name}/probabilities.npy"));
         assert_eq!(
             probabilities.exists(),
-            !matches!(method, Method::Arzt | Method::Dixon),
+            !matches!(
+                method,
+                Method::Arzt
+                    | Method::Dixon
+                    | Method::Otm
+                    | Method::Optm
+                    | Method::SltOltw
+                    | Method::SlOltw
+            ),
             "[{name}] probabilities.npy"
         );
         match method {
             Method::Hmm => assert!(out.join("hmm/beat_period.npy").exists()),
             Method::OuterHmm => assert!(out.join("outerhmm/is_continuation.npy").exists()),
-            Method::Pthmm | Method::Arzt | Method::Dixon | Method::Dannenberg => {}
+            Method::Pthmm
+            | Method::Arzt
+            | Method::Dixon
+            | Method::Dannenberg
+            | Method::Otm
+            | Method::Optm
+            | Method::SltOltw
+            | Method::SlOltw => {}
         }
 
         let ctx = Ctx::new(name, PIECE, "");

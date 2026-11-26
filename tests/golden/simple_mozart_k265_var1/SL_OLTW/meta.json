@@ -1,0 +1,31 @@
+{
+  "config": {
+    "method": "SL_OLTW",
+    "piano_range": true,
+    "polling_period": null,
+    "processor": "ParangonarProcessor",
+    "return_pitch_list": false,
+    "tempo": 120
+  },
+  "generator": "tools/golden/generate.py",
+  "inputs": {
+    "ground_truth": "simple_mozart_k265_var1.match",
+    "performance": "simple_mozart_k265_var1.mid",
+    "score": "simple_mozart_k265_var1.musicxml"
+  },
+  "reference": {
+    "lockfile_sha256": "999f89909bcb999a7b8d79a3ff0e9cdd535871ef85c27a866fbecbd206537bb4",
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "partitura": "1.9.0",
+    "tag": "v0.5.1",
+    "version": "0.5.1"
+  },
+  "tolerances": {
+    "beat_period_rtol": 1e-09,
+    "f32_rtol": 1e-06,
+    "metrics_abs": 0.0001,
+    "positions": 1e-06,
+    "probabilities_rtol": 1e-12
+  }
+}

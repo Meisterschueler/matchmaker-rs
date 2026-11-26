@@ -90,6 +90,51 @@ fn follow(method: &str, set: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn otm_matches_reference_and_rejects_non_event_or_audio_input() {
+    let output = follow("OTM", &[]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let printed = String::from_utf8(output.stdout).unwrap();
+    let actual: Vec<_> = printed
+        .lines()
+        .map(|line| {
+            let (time, beat) = line.split_once('\t').unwrap();
+            (time.parse::<f64>().unwrap(), beat.parse::<f64>().unwrap())
+        })
+        .collect();
+    let expected = golden_path("OTM");
+    assert_eq!(actual.len(), expected.len());
+    for (index, ((time, beat), (expected_time, expected_beat))) in
+        actual.iter().zip(expected).enumerate()
+    {
+        assert!(
+            (time - expected_time).abs() <= 1e-6 && (beat - expected_beat).abs() <= 1e-6,
+            "event {index}"
+        );
+    }
+    for (set, key) in [
+        ("polling_period=0.01", "polling_period"),
+        ("unknown_option=1", "unknown_option"),
+        ("dim_model=32", "dim_model"),
+    ] {
+        let output = follow("OTM", &[set]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(key));
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_matchmaker"))
+        .args(["follow", &data("simple_mozart_k265_var1.musicxml")])
+        .arg(data("simple_mozart_k265_var1.mid"))
+        .args(["--method", "OTM", "--input-type", "audio"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("OTM"));
+}
+
+#[test]
 fn oltw_methods_print_the_golden_path() {
     for method in ["arzt", "dixon"] {
         let out = follow(method, &[]);

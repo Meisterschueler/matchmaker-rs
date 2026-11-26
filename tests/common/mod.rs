@@ -35,13 +35,12 @@ pub fn probabilities_rtol(method: &str) -> f64 {
     }
 }
 
-/// All golden piece directories.
+/// Piece directories with the standard score fixtures (not method-only fixtures).
 pub fn golden_pieces() -> Vec<String> {
     let mut pieces: Vec<String> = std::fs::read_dir(golden(""))
         .expect("tests/golden exists")
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter(|e| e.file_name() != "audio")
+        .filter(|e| e.path().join("score").is_dir())
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     pieces.sort();
@@ -58,7 +57,7 @@ pub fn npy(path: impl AsRef<Path>) -> NpyArray {
 /// Observations of `<piece>/<method>/observations_*.npy`; `hmm` pitch lists are `-1`-padded.
 pub fn golden_observations(dir: &Path) -> Vec<matchmaker_rs::features::Observation> {
     let features = npy(dir.join("observations_features.npy"));
-    let width = features.shape[1];
+    let width = features.shape.get(1).copied().unwrap_or(1);
     let times = npy(dir.join("observations_times.npy")).values();
     features
         .values()

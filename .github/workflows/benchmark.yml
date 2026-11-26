@@ -22,7 +22,7 @@ env:
   RUNS_RUST: 5
   RUNS_PYTHON: 5
   # methods compared against the reference
-  METHODS: pthmm,hmm,outerhmm,arzt,dixon,dannenberg
+  METHODS: pthmm,hmm,outerhmm,arzt,dixon,dannenberg,OTM,OPTM,SLT_OLTW,SL_OLTW
 
 jobs:
   bench:
@@ -62,6 +62,8 @@ jobs:
         run: cargo run --release -p matchmaker-cli -- bench "$MANIFEST" --out out/rust/records.json --runs "$RUNS_RUST" --methods "$METHODS"
       - name: Python reference
         working-directory: tools/golden
+        env:
+          NPY_DISABLE_CPU_FEATURES: X86_V3,X86_V4
         run: python -m uv run ../bench/run_reference.py "$MANIFEST" --out "$GITHUB_WORKSPACE/out/python/records.json" --runs "$RUNS_PYTHON" --methods "$METHODS"
       - name: Audio benchmark
         if: matrix.dataset == 'bundled'

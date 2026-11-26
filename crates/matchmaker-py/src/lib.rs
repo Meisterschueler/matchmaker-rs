@@ -371,6 +371,14 @@ fn config_value(value: &Bound<'_, PyAny>) -> PyResult<ConfigValue> {
 /// `DEFAULT_KWARGS["midi"][method]` of the reference's `methods.yaml`.
 fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, PyDict>> {
     let kwargs = PyDict::new(py);
+    if matches!(
+        method,
+        Method::Otm | Method::Optm | Method::SltOltw | Method::SlOltw
+    ) {
+        kwargs.set_item("processor", "parangonar")?;
+        kwargs.set_item("polling_period", py.None())?;
+        return Ok(kwargs);
+    }
     let oltw = matches!(method, Method::Arzt | Method::Dixon);
     kwargs.set_item("processor", if oltw { "chord_onset" } else { "pitch" })?;
     if method != Method::Dannenberg {
@@ -398,7 +406,24 @@ fn default_kwargs<'py>(py: Python<'py>, method: Method) -> PyResult<Bound<'py, P
             kwargs.set_item("window", 50)?;
             kwargs.set_item("smoothing", 0.5)?;
         }
-        Method::Pthmm | Method::Hmm => {}
+        Method::Optm => {
+            kwargs.set_item("allow_jump", true)?;
+            kwargs.set_item("backup_steps", 24)?;
+            kwargs.set_item("jump_trigger", 24)?;
+        }
+        Method::SltOltw => {
+            kwargs.set_item("hop_size", 1)?;
+            kwargs.set_item("window_size", 40)?;
+            kwargs.set_item("max_run_count", 10)?;
+            kwargs.set_item("tempo_factor", 0.1)?;
+            kwargs.set_item("time_weight", 2.0)?;
+        }
+        Method::SlOltw => {
+            kwargs.set_item("hop_size", 1)?;
+            kwargs.set_item("window_size", 40)?;
+            kwargs.set_item("max_run_count", 10)?;
+        }
+        Method::Pthmm | Method::Hmm | Method::Otm => {}
     }
     Ok(kwargs)
 }
@@ -894,8 +919,11 @@ impl PyMatchmaker {
         };
         // replaced kwargs fall back to 10 ms windows; only the `event_based` methods
         // (outerhmm, dannenberg) stream events
-        let default_polling =
-            (!matches!(method_kind, Method::OuterHmm | Method::Dannenberg)).then_some(0.01);
+        let default_polling = (!matches!(
+            method_kind,
+            Method::OuterHmm | Method::Dannenberg | Method::Otm
+        ))
+        .then_some(0.01);
         let polling_period = match pop(&config, "polling_period")? {
             Some(value) if value.is_none() => None,
             Some(value) => Some(value.extract::<f64>()?),
@@ -903,6 +931,7 @@ impl PyMatchmaker {
         };
         let configured_processor: String = match pop(&config, "processor")? {
             Some(value) => value.extract()?,
+            None if method_kind == Method::Otm => "parangonar".into(),
             None => "pitch".into(),
         };
 

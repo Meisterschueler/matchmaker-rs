@@ -18,6 +18,9 @@ pub mod arzt_tempo;
 pub mod dannenberg;
 pub mod dixon;
 pub mod dixon_frame;
+pub mod otm;
+pub mod otm_model;
+pub mod parangonar;
 
 use std::str::FromStr;
 

@@ -1,0 +1,37 @@
+{
+  "config": {
+    "device": "cpu",
+    "method": "OTM",
+    "polling_period": null,
+    "processor": "ParangonarProcessor"
+  },
+  "generator": "tools/golden/generate.py",
+  "inputs": {
+    "ground_truth": null,
+    "performance": "simple_mozart_k265_var1.mid",
+    "score": "simple_mozart_k265_var1.mid"
+  },
+  "model": {
+    "format": "pytorch checkpoint",
+    "format_version": "parangonar-3.4.1",
+    "sha256": "9ec8a1b8e6731c01a9bb359635dab3fa0b9e60045bbbf18f27227237b249af97",
+    "source": "https://github.com/sildater/parangonar/blob/3.4.1/parangonar/assets/alignment_transformer_checkpoint.pt"
+  },
+  "reference": {
+    "lockfile_sha256": "999f89909bcb999a7b8d79a3ff0e9cdd535871ef85c27a866fbecbd206537bb4",
+    "numpy": "2.5.4",
+    "package": "pymatchmaker",
+    "parangonar": "3.4.1",
+    "partitura": "1.9.0",
+    "tag": "v0.5.1",
+    "version": "0.5.1"
+  },
+  "tolerances": {
+    "alignment_path_atol": 1e-06,
+    "model_logits_atol": 0.0001,
+    "model_logits_rtol": 0.0001,
+    "positions_atol": 1e-06,
+    "tempo_state_atol": 1e-06,
+    "tokens": "exact"
+  }
+}
