@@ -40,6 +40,7 @@ The reference sources are installed by `uv sync --locked` into `tools/golden/.ve
 | `src/features/parangonar.rs` | `matchmaker/external.py` | event-based `ParangonarProcessor` |
 | `src/dp/otm.rs` | `parangonar/match/online_matchers.py` | `OnlineTransformerMatcher.__call__`, `TempoModel`, CPython integer-set token ordering |
 | `src/dp/otm_model.rs` | `parangonar/match/pretrained_models.py`, `parangonar/match/online_matchers.py` | fixed CPU `AlignmentTransformer` and `tokenize` |
+| `src/dp/parangonar.rs` | `parangonar/match/online_matchers.py` | `OnlinePureTransformerMatcher`, `OLTWMatcher`, `TOLTWMatcher` |
 | `src/io/stream.rs` | `matchmaker/io/midi.py`, `matchmaker/utils/symbolic.py` | `MidiStream`, `Buffer`, `midi_messages_to_framed_midi` |
 | `src/performance.rs` | `partitura/io/importmidi.py`, `matchmaker/utils/symbolic.py` | `load_performance_midi`, `midi_messages_from_performance` |
 | `src/prob/pthmm.rs` | `matchmaker/prob/hmm.py` | `PitchHMM` |

@@ -24,16 +24,16 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
-def otm_requested() -> bool:
+def transformer_requested() -> bool:
     for i, arg in enumerate(sys.argv[1:]):
         if arg.startswith("--methods="):
-            return "OTM" in arg.split("=", 1)[1].split(",")
+            return bool({"OTM", "OPTM"} & set(arg.split("=", 1)[1].split(",")))
         if arg == "--methods" and i + 2 < len(sys.argv):
-            return "OTM" in sys.argv[i + 2].split(",")
+            return bool({"OTM", "OPTM"} & set(sys.argv[i + 2].split(",")))
     return False
 
 
-if otm_requested():
+if transformer_requested():
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import numpy as np
@@ -47,7 +47,7 @@ from matchmaker.utils.eval import evaluate_alignment, resolve_gt
 from matchmaker.utils.symbolic import midi_messages_from_performance
 
 DEFAULT_METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "pfkorz", "dannenberg"]
-METHODS = [*DEFAULT_METHODS, "OTM"]
+PARANGONAR_METHODS = ("OTM", "OPTM", "SLT_OLTW", "SL_OLTW")
 SOUNDFONT_SHA256 = "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F"
 PROCESSORS = {
     "PitchProcessor": "pitch",
@@ -356,7 +356,7 @@ def main() -> None:
     parser.add_argument("--methods", default=",".join(DEFAULT_METHODS))
     args = parser.parse_args()
     methods = args.methods.split(",")
-    if "OTM" in methods:
+    if {"OTM", "OPTM"} & set(methods):
         import torch
         torch.set_num_threads(1)
 
@@ -379,7 +379,7 @@ def main() -> None:
                     p,
                     base,
                     out_dir,
-                    [method for method in methods if method != "OTM"],
+                    [method for method in methods if method not in PARANGONAR_METHODS],
                     args.runs,
                     environment,
                 )
@@ -399,11 +399,11 @@ def main() -> None:
                 for _ in mm.run(verbose=False):
                     pass
                 path = np.asarray(mm.score_follower.alignment_path, dtype=float).reshape(2, -1)
-                if method == "OTM":
+                if method in PARANGONAR_METHODS:
                     if first_path is None:
                         first_path = path.copy()
                     elif not np.array_equal(path, first_path):
-                        raise RuntimeError(f"OTM path changed across runs for {p['piece']}")
+                        raise RuntimeError(f"{method} path changed across runs for {p['piece']}")
                 if run == 0:
                     tsv = out_dir / "paths" / p["dataset"] / p["piece"] / f"{method}.tsv"
                     tsv.parent.mkdir(parents=True, exist_ok=True)

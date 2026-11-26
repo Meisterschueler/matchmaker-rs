@@ -1289,9 +1289,10 @@ impl Matchmaker {
                     init_tempo: config.init_beat_period.unwrap_or_else(|| {
                         let timed = score.notes.iter().find(|note| note.duration_quarter > 0.0);
                         match timed {
-                            Some(note) if note.duration_quarter != 0.0 => {
-                                60.0 / 90.0 / f64::from(note.duration_beat / note.duration_quarter)
-                            }
+                            Some(note) if note.duration_quarter != 0.0 => f64::from(
+                                (60.0_f32 / 90.0_f32)
+                                    / (note.duration_beat / note.duration_quarter),
+                            ),
                             _ => 60.0 / 90.0,
                         }
                     }),

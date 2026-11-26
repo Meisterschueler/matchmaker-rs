@@ -396,6 +396,8 @@ class DannenbergPositionParityTests(unittest.TestCase):
             np.savetxt(rust.with_suffix(".gap.tsv"), [1.0, 0.0])
 
             self.assertFalse(position_parity("dannenberg", rust, python)["ok"])
+            for method in ("OTM", "OPTM", "SLT_OLTW", "SL_OLTW"):
+                self.assertFalse(position_parity(method, rust, python)["ok"], method)
             self.assertTrue(position_parity("pthmm", rust, python)["ok"])
 
     def test_report_discloses_disabled_numpy_cpu_features(self):
@@ -419,6 +421,48 @@ class DannenbergPositionParityTests(unittest.TestCase):
             self.assertIn("X86_V3,X86_V4", (output / "index.md").read_text(encoding="utf-8"))
             row = json.loads((output / "report.json").read_text(encoding="utf-8"))["rows"][0]
             self.assertEqual(row["python"]["numpy_disabled_cpu_features"], "X86_V3,X86_V4")
+
+
+class ParangonarBenchmarkTests(unittest.TestCase):
+    def test_missing_path_fails_and_baseline_delta_is_reported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for method in ("OTM", "OPTM", "SLT_OLTW", "SL_OLTW"):
+                with self.subTest(method=method):
+                    rust_dir, python_dir = root / method / "rust", root / method / "python"
+                    rust_dir.mkdir(parents=True)
+                    python_dir.mkdir(parents=True)
+                    record = {
+                        "method": method, "dataset": "fixture", "piece": "test",
+                        "processor": "parangonar", "evaluation": None, "total_processing_s": 1.0,
+                        "latency_ms": {"inference": {"median": 1.2}},
+                    }
+                    rust, python = rust_dir / "records.json", python_dir / "records.json"
+                    for path in (rust, python):
+                        path.write_text(json.dumps([record]), encoding="utf-8")
+                    baseline = root / method / "baseline.json"
+                    baseline.write_text(json.dumps({"rows": [{
+                        "method": method, "dataset": "fixture", "piece": "test",
+                        "rust": {"inference_ms": 1.0},
+                    }]}), encoding="utf-8")
+                    output = root / method / "report"
+                    argv = ["report.py", "--rust", str(rust), "--python", str(python),
+                            "--baseline", str(baseline), "--out", str(output)]
+                    with patch("sys.argv", argv), contextlib.redirect_stdout(io.StringIO()):
+                        with self.assertRaises(SystemExit) as result:
+                            main()
+                    self.assertEqual(result.exception.code, 1)
+                    for directory in (rust_dir, python_dir):
+                        path = directory / "paths" / "fixture" / "test" / f"{method}.tsv"
+                        path.parent.mkdir(parents=True)
+                        np.savetxt(path, [[0.0, 0.0]], delimiter="\t", header="time\tbeat", comments="")
+                    with patch("sys.argv", argv), contextlib.redirect_stdout(io.StringIO()):
+                        with self.assertRaises(SystemExit) as result:
+                            main()
+                    self.assertEqual(result.exception.code, 0)
+                    row = json.loads((output / "report.json").read_text(encoding="utf-8"))["rows"][0]
+                    self.assertAlmostEqual(row["inference_delta_percent"], 20.0)
+                    self.assertTrue(row["regression"])
 
 
 class MfccStageComparisonTests(unittest.TestCase):

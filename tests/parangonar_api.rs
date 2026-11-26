@@ -8,7 +8,193 @@ use matchmaker_rs::dp::parangonar::{
 };
 use matchmaker_rs::features::Observation;
 use matchmaker_rs::matchmaker::{Matchmaker, Method};
-use matchmaker_rs::score::Score;
+use matchmaker_rs::score::{Score, ScoreNote};
+
+fn test_notes() -> Vec<ScoreNote> {
+    (0..5)
+        .map(|index| ScoreNote {
+            id: index.to_string(),
+            is_grace: false,
+            pitch: 60 + index,
+            onset_beat: index as f32,
+            duration_beat: 1.0,
+            onset_quarter: index as f32,
+            duration_quarter: 1.0,
+            onset_div: i64::from(index),
+            duration_div: 1,
+            voice: 1,
+        })
+        .collect()
+}
+
+#[test]
+fn oltw_checked_calls_reject_invalid_observations_without_mutating_the_path() {
+    let notes = test_notes();
+    let mut followers: Vec<Box<dyn OnlineAlignment>> = vec![
+        Box::new(SlOltwMatcher::new(&notes, SlOltwConfig::default()).unwrap()),
+        Box::new(SltOltwMatcher::new(&notes, SltOltwConfig::default()).unwrap()),
+    ];
+    for follower in &mut followers {
+        for (features, perf_time) in [
+            (vec![], 0.0),
+            (vec![60.0, 61.0], 0.0),
+            (vec![60.5], 0.0),
+            (vec![f32::NAN], 0.0),
+            (vec![128.0], 0.0),
+            (vec![60.0], f64::NAN),
+        ] {
+            assert!(
+                follower
+                    .try_call(&Observation {
+                        features,
+                        perf_time
+                    })
+                    .is_err()
+            );
+            assert!(follower.alignment_path().perf_time.is_empty());
+        }
+        assert!(
+            follower
+                .try_call(&Observation {
+                    features: vec![0.0],
+                    perf_time: 0.0
+                })
+                .is_ok()
+        );
+    }
+}
+
+#[test]
+fn oltw_extreme_windows_match_a_full_score_window() {
+    let notes = test_notes();
+    let mut pairs: Vec<(Box<dyn OnlineAlignment>, Box<dyn OnlineAlignment>)> = vec![
+        (
+            Box::new(
+                SlOltwMatcher::new(
+                    &notes,
+                    SlOltwConfig {
+                        window_size: usize::MAX,
+                        ..SlOltwConfig::default()
+                    },
+                )
+                .unwrap(),
+            ),
+            Box::new(
+                SlOltwMatcher::new(
+                    &notes,
+                    SlOltwConfig {
+                        window_size: notes.len(),
+                        ..SlOltwConfig::default()
+                    },
+                )
+                .unwrap(),
+            ),
+        ),
+        (
+            Box::new(
+                SltOltwMatcher::new(
+                    &notes,
+                    SltOltwConfig {
+                        window_size: usize::MAX,
+                        ..SltOltwConfig::default()
+                    },
+                )
+                .unwrap(),
+            ),
+            Box::new(
+                SltOltwMatcher::new(
+                    &notes,
+                    SltOltwConfig {
+                        window_size: notes.len(),
+                        ..SltOltwConfig::default()
+                    },
+                )
+                .unwrap(),
+            ),
+        ),
+    ];
+    for (large, full) in &mut pairs {
+        for pitch in [60.0, 61.0, 62.0, 63.0] {
+            let obs = Observation {
+                features: vec![pitch],
+                perf_time: f64::from(pitch),
+            };
+            assert_eq!(large.try_call(&obs).unwrap(), full.try_call(&obs).unwrap());
+        }
+        assert!(large.debug_state().current_index > 0);
+    }
+}
+
+#[test]
+fn slt_matches_reference_float32_onsets_without_rounding_path_times() {
+    let mut notes = test_notes();
+    notes.truncate(2);
+    notes[0].pitch = 62;
+    notes[1].pitch = 61;
+    notes[1].onset_beat = 0.5;
+    let mut follower = SltOltwMatcher::new(&notes, SltOltwConfig::default()).unwrap();
+
+    assert!(
+        follower
+            .try_call(&Observation {
+                features: vec![60.0],
+                perf_time: f64::MAX,
+            })
+            .is_err()
+    );
+    assert!(follower.alignment_path().perf_time.is_empty());
+    for (time, pitch, expected) in [(99.98, 60.0, 0.0), (100.32, 62.0, 0.5)] {
+        assert_eq!(
+            follower
+                .try_call(&Observation {
+                    features: vec![pitch],
+                    perf_time: time,
+                })
+                .unwrap(),
+            expected
+        );
+    }
+    assert_eq!(follower.alignment_path().perf_time, [99.98, 100.32]);
+}
+
+#[test]
+fn oltw_rejects_invalid_scores_and_tempo_parameters() {
+    let mut notes = test_notes();
+    notes[1].onset_beat = f32::NAN;
+    assert!(SlOltwMatcher::new(&notes, SlOltwConfig::default()).is_err());
+    assert!(SltOltwMatcher::new(&notes, SltOltwConfig::default()).is_err());
+    notes[1].onset_beat = -1.0;
+    assert!(SlOltwMatcher::new(&notes, SlOltwConfig::default()).is_err());
+    assert!(SltOltwMatcher::new(&notes, SltOltwConfig::default()).is_err());
+    for config in [
+        SltOltwConfig {
+            init_tempo: f64::MIN_POSITIVE,
+            ..SltOltwConfig::default()
+        },
+        SltOltwConfig {
+            init_tempo: f64::MAX,
+            ..SltOltwConfig::default()
+        },
+        SltOltwConfig {
+            tempo_factor: f64::NAN,
+            ..SltOltwConfig::default()
+        },
+        SltOltwConfig {
+            tempo_factor: f64::MAX,
+            ..SltOltwConfig::default()
+        },
+        SltOltwConfig {
+            time_weight: f64::INFINITY,
+            ..SltOltwConfig::default()
+        },
+        SltOltwConfig {
+            time_weight: f64::MAX,
+            ..SltOltwConfig::default()
+        },
+    ] {
+        assert!(SltOltwMatcher::new(&test_notes(), config).is_err());
+    }
+}
 
 fn golden_path(method: &str) -> Vec<(f64, f64)> {
     let file = common::data(&format!(
@@ -159,7 +345,8 @@ fn oltw_methods_replay_reference_observations() {
             .iter()
             .find(|note| note.duration_quarter > 0.0)
             .unwrap();
-        let tempo = 60.0 / 90.0 / f64::from(timed.duration_beat / timed.duration_quarter);
+        let tempo =
+            f64::from((60.0_f32 / 90.0_f32) / (timed.duration_beat / timed.duration_quarter));
         for name in ["SL_OLTW", "SLT_OLTW"] {
             let mut matcher: Box<dyn OnlineAlignment> = if name == "SL_OLTW" {
                 Box::new(SlOltwMatcher::new(&notes, SlOltwConfig::default()).unwrap())

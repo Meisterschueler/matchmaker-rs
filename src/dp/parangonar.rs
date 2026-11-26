@@ -1,4 +1,16 @@
 //! Ports of Parangonar's symbolic OLTW and pure-transformer MIDI matchers.
+//! Upstream: `parangonar/match/online_matchers.py` (`OLTWMatcher`, `TOLTWMatcher`,
+//! `OnlinePureTransformerMatcher`).
+//!
+//! ```
+//! use matchmaker_rs::{base::OnlineAlignment, features::Observation, score::Score};
+//! use matchmaker_rs::dp::parangonar::{SlOltwConfig, SlOltwMatcher};
+//! let score = Score::load("tests/data/simple_mozart_k265_var1.musicxml", true)?;
+//! let mut follower = SlOltwMatcher::new(&score.otm_notes(), SlOltwConfig::default())?;
+//! let beat = follower.try_call(&Observation { features: vec![60.0], perf_time: 0.0 })?;
+//! assert!(beat.is_finite());
+//! # Ok::<(), matchmaker_rs::Error>(())
+//! ```
 
 use std::collections::{HashSet, VecDeque};
 
@@ -14,6 +26,37 @@ fn invalid(key: &str, reason: impl Into<String>) -> Error {
         key: key.into(),
         reason: reason.into(),
     }
+}
+
+fn observation_pitch(obs: &Observation) -> Result<i32> {
+    let pitch = obs.features.first().copied().unwrap_or(f32::NAN);
+    if obs.features.len() != 1
+        || !pitch.is_finite()
+        || pitch.fract() != 0.0
+        || !(0.0..=127.0).contains(&pitch)
+        || !obs.perf_time.is_finite()
+    {
+        return Err(invalid(
+            "observation",
+            "requires one integral MIDI pitch 0..=127 and a finite time",
+        ));
+    }
+    Ok(pitch as i32)
+}
+
+fn validate_score(notes: &[ScoreNote]) -> Result<()> {
+    if notes.is_empty()
+        || notes.iter().any(|note| !note.onset_beat.is_finite())
+        || notes
+            .windows(2)
+            .any(|pair| pair[0].onset_beat > pair[1].onset_beat)
+    {
+        return Err(invalid(
+            "score",
+            "onsets must be nonempty, finite and sorted",
+        ));
+    }
+    Ok(())
 }
 
 fn unique_score(notes: &[ScoreNote]) -> (Vec<f32>, Vec<HashSet<i32>>) {
@@ -63,9 +106,7 @@ pub struct SlOltwMatcher {
 impl SlOltwMatcher {
     /// Construct an `SL_OLTW` follower from the unloaded score note array.
     pub fn new(notes: &[ScoreNote], config: SlOltwConfig) -> Result<Self> {
-        if notes.is_empty() {
-            return Err(invalid("score", "SL_OLTW requires at least one score note"));
-        }
+        validate_score(notes)?;
         if config.window_size == 0 || config.max_run_count == 0 {
             return Err(invalid("window_size/max_run_count", "must be at least 1"));
         }
@@ -88,16 +129,14 @@ impl SlOltwMatcher {
 }
 
 impl OnlineAlignment for SlOltwMatcher {
-    fn call(&mut self, obs: &Observation) -> f64 {
-        let pitch = obs
-            .features
-            .first()
-            .copied()
-            .map(|v| v as i32)
-            .unwrap_or(-1);
+    fn try_call(&mut self, obs: &Observation) -> Result<f64> {
+        let pitch = observation_pitch(obs)?;
         self.input.push(pitch);
         let start = self.current.saturating_sub(self.config.window_size);
-        let end = (self.current + self.config.window_size).min(self.reference.len());
+        let end = self
+            .current
+            .saturating_add(self.config.window_size)
+            .min(self.reference.len());
         let mut min_cost = f64::INFINITY;
         let mut min_index = start;
         if start == 0 && self.input_index == 0 {
@@ -114,11 +153,11 @@ impl OnlineAlignment for SlOltwMatcher {
             let mut local_length = 1.0;
             for (d_index, &(istep, jstep)) in [(1usize, 0usize), (1, 1), (0, 1)].iter().enumerate()
             {
-                let previ = i.saturating_sub(istep);
+                let prev_row = i + 1 - istep;
                 let jlocal = 1usize.saturating_sub(jstep);
-                let prev_cost = self.cost[previ + 1][jlocal];
+                let prev_cost = self.cost[prev_row][jlocal];
                 if prev_cost.is_finite() {
-                    let prev_length = self.length[previ + 1][jlocal];
+                    let prev_length = self.length[prev_row][jlocal];
                     let distance = if self.reference[i].contains(&pitch) {
                         0.2
                     } else {
@@ -156,7 +195,17 @@ impl OnlineAlignment for SlOltwMatcher {
         self.input_index += 1;
         self.path
             .push(obs.perf_time, f64::from(self.positions[self.current]));
-        f64::from(self.positions[self.current])
+        Ok(f64::from(self.positions[self.current]))
+    }
+
+    fn call(&mut self, obs: &Observation) -> f64 {
+        match self.try_call(obs) {
+            Ok(position) => position,
+            Err(error) => {
+                tracing::error!(%error, "SL_OLTW observation rejected; use try_call to propagate errors");
+                f64::NAN
+            }
+        }
     }
 
     fn is_still_following(&self) -> bool {
@@ -207,10 +256,13 @@ impl Default for SltOltwConfig {
 }
 
 /// Port of Parangonar's single-loop tempo-aware OLTW matcher.
+///
+/// Observation times must fit in `f32` for reference-compatible tempo calculations;
+/// the alignment path retains the original `f64` times.
 pub struct SltOltwMatcher {
     positions: Vec<f32>,
-    reference: Vec<(f64, HashSet<i32>)>,
-    input: Vec<(f64, i32)>,
+    reference: Vec<(f32, HashSet<i32>)>,
+    input: Vec<(f32, i32)>,
     cost: Vec<Vec<f32>>,
     length: Vec<Vec<f32>>,
     tempo: Vec<Vec<f32>>,
@@ -223,20 +275,21 @@ pub struct SltOltwMatcher {
 impl SltOltwMatcher {
     /// Construct an `SLT_OLTW` follower from the unloaded score note array.
     pub fn new(notes: &[ScoreNote], config: SltOltwConfig) -> Result<Self> {
-        if notes.is_empty() {
-            return Err(invalid(
-                "score",
-                "SLT_OLTW requires at least one score note",
-            ));
-        }
+        validate_score(notes)?;
         if config.window_size == 0
             || config.max_run_count == 0
             || !config.init_tempo.is_finite()
             || config.init_tempo <= 0.0
+            || !(config.init_tempo as f32).is_finite()
+            || config.init_tempo as f32 == 0.0
+            || !config.tempo_factor.is_finite()
+            || !(config.tempo_factor as f32).is_finite()
+            || !config.time_weight.is_finite()
+            || !(config.time_weight as f32).is_finite()
         {
             return Err(invalid(
                 "SLT_OLTW",
-                "window, run count and tempo must be valid",
+                "window, run count and tempo parameters must be valid",
             ));
         }
         let (positions, pitch_sets) = unique_score(notes);
@@ -244,7 +297,6 @@ impl SltOltwMatcher {
             .iter()
             .cloned()
             .zip(pitch_sets)
-            .map(|(onset, pitches)| (f64::from(onset), pitches))
             .collect::<Vec<_>>();
         let n = reference.len();
         let mut cost = vec![vec![f32::INFINITY; 2]; n + 1];
@@ -267,17 +319,19 @@ impl SltOltwMatcher {
 }
 
 impl OnlineAlignment for SltOltwMatcher {
-    fn call(&mut self, obs: &Observation) -> f64 {
-        let pitch = obs
-            .features
-            .first()
-            .copied()
-            .map(|v| v as i32)
-            .unwrap_or(-1);
-        self.input.push((obs.perf_time, pitch));
+    fn try_call(&mut self, obs: &Observation) -> Result<f64> {
+        let pitch = observation_pitch(obs)?;
+        let time = obs.perf_time as f32;
+        if !time.is_finite() {
+            return Err(invalid("observation", "time must fit in float32"));
+        }
+        self.input.push((time, pitch));
         let start = self.current.saturating_sub(self.config.window_size);
-        let end = (self.current + self.config.window_size).min(self.reference.len());
-        let mut min_cost = f32::INFINITY;
+        let end = self
+            .current
+            .saturating_add(self.config.window_size)
+            .min(self.reference.len());
+        let mut min_cost = f64::INFINITY;
         let mut min_index = start;
         let j = self.input_index;
         if start == 0 && j == 0 {
@@ -290,18 +344,19 @@ impl OnlineAlignment for SltOltwMatcher {
             if i == 0 && j == 0 {
                 continue;
             }
-            let mut local_cost = f32::INFINITY;
+            let mut local_cost = f64::INFINITY;
             let mut local_tempo = self.config.init_tempo as f32;
             let mut local_length = 1.0;
             for (d_index, &(istep, jstep)) in [(1usize, 0usize), (1, 1), (0, 1)].iter().enumerate()
             {
                 let previ = i.saturating_sub(istep);
+                let prev_row = i + 1 - istep;
                 let prevj = j.saturating_sub(jstep);
                 let jlocal = 1usize.saturating_sub(jstep);
-                let prev_cost = self.cost[previ + 1][jlocal];
+                let prev_cost = self.cost[prev_row][jlocal];
                 if prev_cost.is_finite() && prevj < self.input.len() {
-                    let prev_length = self.length[previ + 1][jlocal];
-                    let tempo = f64::from(self.tempo[previ + 1][jlocal]);
+                    let prev_length = self.length[prev_row][jlocal];
+                    let tempo = self.tempo[prev_row][jlocal];
                     let pitch_dist = if self.reference[i].1.contains(&pitch) {
                         0.0
                     } else {
@@ -309,7 +364,7 @@ impl OnlineAlignment for SltOltwMatcher {
                     };
                     let onset_s = self.reference[i].0;
                     let prev_onset_s = self.reference[previ].0;
-                    let onset_p = obs.perf_time;
+                    let onset_p = time;
                     let prev_onset_p = self.input[prevj].0;
                     let estimated = prev_onset_p + (onset_s - prev_onset_s) * tempo;
                     let onset_dist = (onset_p - estimated).abs() / tempo;
@@ -318,21 +373,23 @@ impl OnlineAlignment for SltOltwMatcher {
                     } else {
                         tempo + (onset_p - prev_onset_p)
                     };
-                    let new_tempo = (self.config.tempo_factor * current_tempo
-                        + (1.0 - self.config.tempo_factor) * tempo)
+                    let new_tempo = ((self.config.tempo_factor as f32) * current_tempo
+                        + ((1.0 - self.config.tempo_factor) as f32) * tempo)
                         .clamp(0.05, 10.0);
-                    let distance = pitch_dist + self.config.time_weight * onset_dist;
+                    let distance = pitch_dist + self.config.time_weight as f32 * onset_dist;
                     let weights = [2.0, 1.0, 1.0];
-                    let cost = (prev_cost * prev_length + distance as f32 * weights[d_index])
-                        / (prev_length + 1.0);
+                    // The reference uses float32 onsets and tempo, but float64 direction weights.
+                    let cost = (f64::from(prev_cost * prev_length)
+                        + f64::from(distance) * weights[d_index])
+                        / f64::from(prev_length + 1.0);
                     if cost < local_cost {
                         local_cost = cost;
-                        local_tempo = new_tempo as f32;
+                        local_tempo = new_tempo;
                         local_length = 1.0 + prev_length;
                     }
                 }
             }
-            self.cost[i + 1][1] = local_cost;
+            self.cost[i + 1][1] = local_cost as f32;
             self.length[i + 1][1] = local_length;
             self.tempo[i + 1][1] = local_tempo;
             if local_cost < min_cost {
@@ -358,7 +415,17 @@ impl OnlineAlignment for SltOltwMatcher {
         self.input_index += 1;
         self.path
             .push(obs.perf_time, f64::from(self.positions[self.current]));
-        f64::from(self.positions[self.current])
+        Ok(f64::from(self.positions[self.current]))
+    }
+
+    fn call(&mut self, obs: &Observation) -> f64 {
+        match self.try_call(obs) {
+            Ok(position) => position,
+            Err(error) => {
+                tracing::error!(%error, "SLT_OLTW observation rejected; use try_call to propagate errors");
+                f64::NAN
+            }
+        }
     }
 
     fn is_still_following(&self) -> bool {

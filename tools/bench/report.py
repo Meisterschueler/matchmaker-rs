@@ -6,14 +6,16 @@ parity flags (contracts/benchmark-report.md):
 - metric parity: every evaluation metric of Rust within 1e-4 of the reference (golden tolerance)
 - position parity: alignment paths (``paths/<dataset>/<piece>/<method>.tsv`` next to each
   records file) agree within 1e-6 at every step for pthmm/outerhmm/arzt/dixon/dannenberg (SC-001) and at
-  >= 99.9 % of the steps for hmm (SC-002); the first differing step is reported (SC-007). Steps where
+  >= 99.9 % of the steps for hmm (SC-002); Parangonar paths are required and compared within
+  1e-6. The first differing step is reported (SC-007). Steps where
   Rust's best state leads by less than 1e-9 (relative; ``<method>.gap.tsv``) are numerical ties
-  and count as equal, except for Dannenberg, whose DP values are not probabilities
+  and count as equal, except for Dannenberg and the Parangonar matchers
 
 Exits with 1 on a parity violation. Frame processors such as audio mel and MFCC use the shared
 audio position gate; standalone Korzeniowski extraction reports feature timing without a follower
 or position-parity check. The OuterHMM p95 gate also applies only to audio runs, never MIDI OuterHMM.
-``--baseline`` (the previous master report.json) flags Rust inference latency above 1.10 x the baseline. The page ends with the
+``--baseline`` (the previous master report.json) shows the Rust inference delta and flags
+latency above 1.10 x the baseline. The page ends with the
 sources of the datasets in the report (tools/datasets/datasets.toml). Standard library + NumPy
 only; every records file has its own ``paths/`` directory next to it (one directory per shard
 and side):
@@ -37,6 +39,7 @@ POSITION_TOL = 1e-6
 TIE_GAP = 1e-9
 HMM_MIN_SHARE = 0.999
 REGRESSION = 1.10
+PARANGONAR_METHODS = {"OTM", "OPTM", "SLT_OLTW", "SL_OLTW"}
 DATASETS = Path(__file__).parent.parent / "datasets" / "datasets.toml"
 
 
@@ -127,7 +130,7 @@ def position_parity(method: str, rust: Path, python: Path, audio: bool = False) 
     # a step where Rust's best state leads by less than TIE_GAP is a numerical tie (repeated score
     # chords have exactly equal probabilities; the reference's BLAS rounding picks one of them)
     gaps = rust.with_suffix(".gap.tsv")
-    if method != "dannenberg" and gaps.exists():
+    if method != "dannenberg" and method not in PARANGONAR_METHODS and gaps.exists():
         close |= np.loadtxt(gaps, ndmin=1)[:n] < TIE_GAP
     differing = np.flatnonzero(~close)
     first = int(differing[0]) if len(differing) else (n if len(r) != len(p) else None)
@@ -245,6 +248,12 @@ def main() -> None:
                     if (method == "arzt_tempo" or (method == "arzt_multi_fold" and r["has_ground_truth"] and p["has_ground_truth"]))
                     and r["evaluation"] and p["evaluation"] else None,
                 "position_parity": parity,
+                "baseline_inference_ms": previous,
+                "inference_delta_percent": (
+                    100 * (r["inference_ms"] / previous - 1)
+                    if previous is not None and previous > 0 and r["inference_ms"] is not None
+                    else None
+                ),
                 "regression": regression_status(r["inference_ms"], previous),
             }
         )
@@ -259,8 +268,8 @@ def main() -> None:
         "",
         "Medians over runs. Latency in ms per observation; speed-up = Python / Rust total processing time.",
         "",
-        "| method | processor | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | speed-up | RTF rs | mean_b | acc 0.1b | p95 delta | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| method | processor | dataset | piece | feature ms (rs / py) | inference ms (rs / py) | baseline ms | inference delta % | speed-up | RTF rs | mean_b | acc 0.1b | p95 delta | smoothness | strict metrics | GT accuracy | renderer accuracy | positions | regression |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     disabled = sorted({
         row["python"]["numpy_disabled_cpu_features"]
@@ -289,6 +298,7 @@ def main() -> None:
         lines.append(
             f"| {row['method']} | {row['processor'] or '-'} | {row['dataset']} | {row['piece']} "
             f"| {fmt(r['feature_ms'])} / {fmt(p['feature_ms'])} | {fmt(r['inference_ms'])} / {fmt(p['inference_ms'])} "
+            f"| {fmt(row['baseline_inference_ms'])} | {fmt(row['inference_delta_percent'])} "
             f"| {fmt(row['speed_up'], '.1f')} | {fmt(r['real_time_factor'])} | {fmt(ev.get('mean_b'))} "
             f"| {fmt(ev.get('accuracy_0.1b'))} | {fmt(row['p95_b_delta'])} | {fmt(ev.get('smoothness'))} | {flag(row['metric_parity'])} "
             f"| {flag(row['ground_truth_accuracy_parity'])} | {flag(row['renderer_accuracy_parity'])} "
@@ -333,6 +343,7 @@ def main() -> None:
     print("\n".join(lines))
 
     violations = [row for row in rows if (row["position_parity"] and not row["position_parity"]["ok"])
+                  or (row["method"] in PARANGONAR_METHODS and row["position_parity"] is None)
                   or row["ground_truth_accuracy_parity"] is False
                   or row["renderer_accuracy_parity"] is False
                   or row["p95_parity"] is False]
@@ -349,6 +360,8 @@ def main() -> None:
         reasons = []
         if row["position_parity"] and not row["position_parity"]["ok"]:
             reasons.append(f"positions {row['position_parity']}")
+        if row["method"] in PARANGONAR_METHODS and row["position_parity"] is None:
+            reasons.append("missing position comparison")
         if row["ground_truth_accuracy_parity"] is False:
             reasons.append("ground-truth accuracy")
         if row["renderer_accuracy_parity"] is False:
