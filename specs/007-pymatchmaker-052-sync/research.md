@@ -133,10 +133,11 @@ standard operations are numerically equivalent up to floating-point summation or
   benchmark's default method list fails on `pfkorz` with
   `KeyError: 'ParticleFilterMidiProcessor'`; the five-run report therefore uses the six
   other methods (including both HMMs) on the same bundled manifest.
-- Full audio-golden regeneration was attempted but could not run because native FluidSynth
-  is unavailable in this environment (`ImportError: Fluidsynth is not installed!`). Existing
-  audio-golden metadata remains unchanged and is explicitly documented as historical
-  pymatchmaker 0.5.1 provenance; the 0.5.2 upstream diff does not change the audio paths.
+- Audio goldens were regenerated with the pinned SoundFont and native FluidSynth 2.6.2
+  after adding its `bin` directory to `PATH`. All 581 generated files matched the existing
+  file set; all non-JSON files were byte-identical. The only changes were reference fields
+  in 62 JSON files, each recording pymatchmaker 0.5.2, python-hiddenmarkov 0.3.0 and the
+  current lockfile digest. The upstream 0.5.2 diff does not change audio paths.
 - `cargo fmt --check`, Clippy, the wasm build, `cargo deny check`, and the Rust 1.88 MSRV
   check pass. `cargo deny check` emits existing duplicate-`syn` and unused license-allowance
   warnings.

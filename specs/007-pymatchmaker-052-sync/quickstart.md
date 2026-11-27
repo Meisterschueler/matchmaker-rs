@@ -29,11 +29,27 @@ Expected: pymatchmaker reports `0.5.2`; python-hiddenmarkov reports a version at
 cd tools/golden
 uv run generate.py --data ../../tests/data --out ../../tests/golden
 uv run generate_audio.py --out ../../tests/golden/audio
+uv run generate_audio.py --processors-only --out ../../tests/golden/audio
+uv run generate_audio.py --raw-spectrum-only --out ../../tests/golden/audio
+uv run generate_audio.py --mel-only --out ../../tests/golden/audio
+uv run generate_audio.py --mfcc-only --out ../../tests/golden/audio
+uv run generate_audio.py --korzeniowski-only --out ../../tests/golden/audio
+uv run generate_audio.py --pfkorz-only --out ../../tests/golden/audio
+uv run generate_audio.py --cqt-only --out ../../tests/golden/audio
+uv run generate_audio.py --cqt-spectral-flux-only --out ../../tests/golden/audio
+uv run generate_audio.py --skf-only --out ../../tests/golden/audio
+uv run generate_audio.py --outerhmm-only --out ../../tests/golden/audio
+uv run generate_audio.py --tempo-replay-only --out ../../tests/golden/audio
+uv run generate_audio.py --arzt-tempo-only --out ../../tests/golden/audio
+uv run generate_audio.py --multi-fold-only --out ../../tests/golden/audio
+uv run generate_audio.py --audio-ground-truth-only --out ../../tests/golden/audio
 ```
 
 Expected: generated metadata records pymatchmaker `v0.5.2`, the resolved
 python-hiddenmarkov version, and the current lockfile digest. Review every changed value
 against the release diff and lockfile changes; unexplained changes block completion.
+The multi-fold and ground-truth modes also regenerate their tracked audio/TSV fixtures.
+On Windows, add the pinned FluidSynth `bin` directory to `PATH` before starting `uv`.
 
 ## 3. Verify HMM parity and edge cases
 

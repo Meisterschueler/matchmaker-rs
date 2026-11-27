@@ -1686,6 +1686,7 @@ def generate_multi_fold_audio(
         )
 
         base = output / "multi_fold" / name
+        base.mkdir(parents=True, exist_ok=True)
         (base / "ground_truth.tsv").write_text(
             truth_path.read_text(encoding="utf-8"), encoding="utf-8"
         )
