@@ -558,7 +558,7 @@ dependencies = [
 requires-dist = [
     { name = "numpy", specifier = ">=2" },
     { name = "pyfluidsynth", specifier = ">=1.4,<2" },
-    { name = "pymatchmaker", git = "https://github.com/pymatchmaker/matchmaker?rev=v0.5.1" },
+    { name = "pymatchmaker", git = "https://github.com/pymatchmaker/matchmaker?rev=v0.5.2" },
 ]
 
 [[package]]
@@ -1003,8 +1003,8 @@ wheels = [
 
 [[package]]
 name = "pymatchmaker"
-version = "0.5.1"
-source = { git = "https://github.com/pymatchmaker/matchmaker?rev=v0.5.1#7a758e77c4540842925a1bf0619bb70b9f881ae5" }
+version = "0.5.2"
+source = { git = "https://github.com/pymatchmaker/matchmaker?rev=v0.5.2#6e6f2713b5f6dc5dec51e939993b9c163189f3cf" }
 dependencies = [
     { name = "cython" },
     { name = "librosa" },
@@ -1054,15 +1054,19 @@ wheels = [
 
 [[package]]
 name = "python-hiddenmarkov"
-version = "0.1.4"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/34/a0/1cb23e35b82f2812ef3088359f1cf800c86cc79465930798a8a1d7e3c81b/python_hiddenmarkov-0.1.4.tar.gz", hash = "sha256:c0481c3d51d9feae5bcbf59fa5241a6fb682b19ab0f923e225826e23d3242775", size = 10229, upload-time = "2026-05-25T01:32:43.08Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/e5/9a673a3276a0f5fd465ca13099615b246804717eb83ff38b320772c886d4/python_hiddenmarkov-0.3.0.tar.gz", hash = "sha256:fd8f694435d3fa08a94695d0e6ee0757d952600e6e98bc57068a38b8aeb730fb", size = 187787, upload-time = "2026-11-22T17:37:46Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/66/be/70edd6409df9d660ed1c03635f3c537bbc0688a2b914279828e87b63f428/python_hiddenmarkov-0.1.4-py3-none-any.whl", hash = "sha256:2c2ddbd1c1d3751037153d2886d42b43ad094954764fd3a9a0b717d509044dd2", size = 8656, upload-time = "2026-05-25T01:32:42.049Z" },
+    { url = "https://files.pythonhosted.org/packages/52/2e/8e35bea12bd6f16419001b0c7a7820a37205629715978afa395571b8f592/python_hiddenmarkov-0.3.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:e2c33370cd003cbbe5c75cb52dd9ed641fd7c0d3e728aed06ecaa002d33251c4", size = 258843, upload-time = "2026-11-22T17:37:33.586Z" },
+    { url = "https://files.pythonhosted.org/packages/64/67/1c9febd6ba8c87c7db31c5afc6d5b023f475a5c67f128ddbcbc787d0f6c2/python_hiddenmarkov-0.3.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:9f5dc169c49d871f282af6efee4e74af9bd1ea14493067e80a25b07e2b930e22", size = 259522, upload-time = "2026-11-22T17:37:34.672Z" },
+    { url = "https://files.pythonhosted.org/packages/57/52/80580a96ccf128b5d6ced1cd4bdb303d2646e2fbdc1c4cb8804bdc6aec9c/python_hiddenmarkov-0.3.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:cde9c32f2362ff26a27581bf879ed0837c173d3a2cf64e8ac79ba59c1c92b4a7", size = 656882, upload-time = "2026-11-22T17:37:35.717Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/2b/561b9d3af032a549350642f9983cc31e51943092f1042bb1fb438e436790/python_hiddenmarkov-0.3.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5c9955eea7aa610dcd0f53f20c1beb00c2db80d46df500a99d67d405341dd408", size = 661526, upload-time = "2026-11-22T17:37:36.886Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/41/969e1dddbcd02f0ee7dc13c4cbc14ede146dfed174373e3a352447138dcc/python_hiddenmarkov-0.3.0-cp312-cp312-win_amd64.whl", hash = "sha256:7077a5c94b03f8b6f75481e56a407ccbea2316864f7ed0f688cf10e3a3b9f46a", size = 250979, upload-time = "2026-11-22T17:37:37.969Z" },
 ]
 
 [[package]]

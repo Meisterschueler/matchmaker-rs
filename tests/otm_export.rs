@@ -63,6 +63,11 @@ fn diagnostics_include_every_event_and_explicit_model_presence() {
     }
     let metadata = common::json(method_dir.join("meta.json"));
     assert_eq!(metadata["config"]["method"], "OTM");
+    assert_eq!(metadata["reference"]["upstream_tag"], "v0.5.2");
+    assert_eq!(
+        metadata["reference"]["lockfile_sha256"],
+        "221bf2b97c72c5ca91fff1f7c818f9f9a33bad1d3c2c06bfbd107ccf824e9f7e"
+    );
     let notes = common::npy(method_dir.join("score_notes.npy"));
     assert_eq!(notes.len(), follower.score().notes.len());
     assert_eq!(

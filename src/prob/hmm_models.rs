@@ -77,7 +77,7 @@ pub fn score_states(unique_onsets: &[f32], has_insertions: bool) -> Vec<f32> {
 
 /// Port of `compute_discrete_pitch_profiles(chord_pitches, piano_range, inserted_states)`:
 /// row-major `(n_states, 88 | 128)`. With `inserted_states` every odd row is the identical
-/// uniform profile, which is why the reference's 0.5.1
+/// uniform profile, which is why the reference's 0.5.2
 /// `BernoulliPitchObservationModel(inserted_states=True)` may evaluate it once and
 /// broadcast — the per-row evaluation here yields the same values.
 pub fn compute_discrete_pitch_profiles(

@@ -14,12 +14,13 @@
     "score": "simple_mozart_k265_var1.musicxml"
   },
   "reference": {
-    "lockfile_sha256": "999f89909bcb999a7b8d79a3ff0e9cdd535871ef85c27a866fbecbd206537bb4",
+    "lockfile_sha256": "221bf2b97c72c5ca91fff1f7c818f9f9a33bad1d3c2c06bfbd107ccf824e9f7e",
     "numpy": "2.5.4",
     "package": "pymatchmaker",
     "partitura": "1.9.0",
-    "tag": "v0.5.1",
-    "version": "0.5.1"
+    "python_hiddenmarkov": "0.3.0",
+    "tag": "v0.5.2",
+    "version": "0.5.2"
   },
   "tolerances": {
     "beat_period_rtol": 1e-09,

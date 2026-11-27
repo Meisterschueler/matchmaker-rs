@@ -53,7 +53,7 @@ this exact pin and records its SF2 hash in generated fixture metadata.
 
 ### Reference generation
 
-`tools/golden/generate_audio.py` uses pymatchmaker v0.5.1 and the locked
+`tools/golden/generate_audio.py` uses pymatchmaker v0.5.2 and the locked
 `tools/golden/uv.lock`. Its `--processors-only` mode generates a deterministic
 three-tone input and processor goldens for all four method/processor pairs under
 `tests/golden/audio/processors/`, without requiring FluidSynth. The checked-in
@@ -84,6 +84,12 @@ reference, FluidSynth version, and SoundFont hashes. The SoundFont path and
 SHA-256 are checked before use. The reference score renderer is patched only to
 pass this pinned SF2 to Partitura; its timing, padding, and cropping logic
 remains the reference implementation.
+
+Existing score-derived audio goldens retain the reference versions recorded in
+their metadata (currently pymatchmaker 0.5.1); do not relabel them without
+regenerating them. The 0.5.2 release changes the shared HMM forward step used by
+the MIDI followers, not these audio paths. A regeneration records the currently
+locked reference version and requires native FluidSynth support.
 
 The optional `--render-performance` flag writes a float WAV derived from the
 score and pinned SF2 to `tests/data/audio/simple_mozart_k265_var1_sf2.wav`.

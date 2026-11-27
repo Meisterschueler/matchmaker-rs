@@ -46,7 +46,7 @@ from matchmaker.utils.symbolic import (
     midi_messages_to_framed_midi,
 )
 
-REFERENCE_TAG = "v0.5.1"
+REFERENCE_TAG = "v0.5.2"
 PIECES = ["simple_mozart_k265_var1", "mozart_k265_var1", "Bach-fugue_bwv_858"]
 METHODS = ["pthmm", "hmm", "outerhmm", "arzt", "dixon", "dannenberg"]
 ALL_METHODS = [*METHODS, "OTM", "OPTM", "SLT_OLTW", "SL_OLTW"]
@@ -105,6 +105,7 @@ def reference_meta() -> dict:
         "package": "pymatchmaker",
         "tag": REFERENCE_TAG,
         "version": matchmaker.__version__,
+        "python_hiddenmarkov": version("python-hiddenmarkov"),
         "partitura": version("partitura"),
         "numpy": np.__version__,
         "lockfile_sha256": lockfile_sha256(),
@@ -410,8 +411,8 @@ def dump_method(out: Path, method: str, score_path: Path, perf_path: Path, match
 def dump_otm(out: Path, score_path: Path, perf_path: Path, match_path: Path | None) -> None:
     from parangonar.match.online_matchers import ALIGNMENT_TRANSFORMER_CHECKPOINT
 
-    if matchmaker.__version__ != "0.5.1" or version("parangonar") != "3.4.1":
-        raise RuntimeError("OTM goldens require pymatchmaker 0.5.1 and parangonar 3.4.1")
+    if matchmaker.__version__ != "0.5.2" or version("parangonar") != "3.4.1":
+        raise RuntimeError("OTM goldens require pymatchmaker 0.5.2 and parangonar 3.4.1")
     checkpoint_hash = hashlib.sha256(Path(ALIGNMENT_TRANSFORMER_CHECKPOINT).read_bytes()).hexdigest()
     if checkpoint_hash != "9ec8a1b8e6731c01a9bb359635dab3fa0b9e60045bbbf18f27227237b249af97":
         raise RuntimeError(f"unexpected OTM checkpoint SHA-256: {checkpoint_hash}")
