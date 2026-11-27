@@ -9,9 +9,10 @@
     "numpy": "2.5.4",
     "package": "pymatchmaker",
     "partitura": "1.9.0",
-    "tag": "v0.5.1",
-    "uv_lock_sha256": "999F89909BCB999A7B8D79A3FF0E9CDD535871EF85C27A866FBECBD206537BB4",
-    "version": "0.5.1"
+    "python_hiddenmarkov": "0.3.0",
+    "tag": "v0.5.2",
+    "uv_lock_sha256": "221BF2B97C72C5CA91FFF1F7C818F9F9A33BAD1D3C2C06BFBD107CCF824E9F7E",
+    "version": "0.5.2"
   },
   "sample_rate": 8000,
   "tolerances": {

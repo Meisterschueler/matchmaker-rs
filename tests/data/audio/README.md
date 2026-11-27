@@ -53,7 +53,7 @@ this exact pin and records its SF2 hash in generated fixture metadata.
 
 ### Reference generation
 
-`tools/golden/generate_audio.py` uses pymatchmaker v0.5.1 and the locked
+`tools/golden/generate_audio.py` uses pymatchmaker v0.5.2 and the locked
 `tools/golden/uv.lock`. Its `--processors-only` mode generates a deterministic
 three-tone input and processor goldens for all four method/processor pairs under
 `tests/golden/audio/processors/`, without requiring FluidSynth. The checked-in
@@ -84,6 +84,11 @@ reference, FluidSynth version, and SoundFont hashes. The SoundFont path and
 SHA-256 are checked before use. The reference score renderer is patched only to
 pass this pinned SF2 to Partitura; its timing, padding, and cropping logic
 remains the reference implementation.
+
+Audio golden metadata records the version used for regeneration; do not relabel
+it without regenerating the data. The current goldens were regenerated with
+pymatchmaker 0.5.2 and FluidSynth 2.6.2. The 0.5.2 release changes the shared HMM
+forward step used by the MIDI followers, not these audio paths.
 
 The optional `--render-performance` flag writes a float WAV derived from the
 score and pinned SF2 to `tests/data/audio/simple_mozart_k265_var1_sf2.wav`.
@@ -129,7 +134,7 @@ documented, with their known limits, in research R11 of `specs/004-audio-methods
 `tests/data/fixture_repeats_voltas.musicxml` is a small hand-authored synthetic
 score. `tools/golden/generate_audio.py --multi-fold-only` renders its taken- and
 skipped-repeat variants with the pinned CC0 SoundFont above and records Partitura
-candidate and replay goldens (locked pymatchmaker 0.5.1 environment) under
+candidate and replay goldens (locked pymatchmaker 0.5.2 environment) under
 `tests/golden/audio/multi_fold/`.
 The score SHA-256 is `44E765CBD6CA3C48871123F290CC6B360234855C8599207DFC0D358B8809D4E9`.
 

@@ -377,10 +377,10 @@ pub fn write_run(mm: &Matchmaker, dir: impl AsRef<Path>) -> Result<()> {
             "source_url": manifest["source_url"],
             "sha256": manifest["sha256"], "license": manifest["license"],
         });
-        metadata["reference"]["upstream_tag"] = json!("v0.5.1");
+        metadata["reference"]["upstream_tag"] = json!("v0.5.2");
         metadata["reference"]["parangonar"] = json!("3.4.1");
         metadata["reference"]["lockfile_sha256"] =
-            json!("999f89909bcb999a7b8d79a3ff0e9cdd535871ef85c27a866fbecbd206537bb4");
+            json!("221bf2b97c72c5ca91fff1f7c818f9f9a33bad1d3c2c06bfbd107ccf824e9f7e");
         metadata["tolerances"] = json!({
             "tokens": "exact", "positions_atol": 1e-6, "alignment_path_atol": 1e-6,
             "model_logits_atol": 1e-4, "model_logits_rtol": 1e-4, "tempo_state_atol": 1e-6,

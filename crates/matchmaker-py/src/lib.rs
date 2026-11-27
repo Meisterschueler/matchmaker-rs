@@ -36,7 +36,7 @@ use pyo3::types::{PyAny, PyDict, PyList};
 use pyo3::wrap_pyfunction;
 
 /// Reference tag the build was validated against (`tools/golden/pyproject.toml`).
-const REFERENCE_VERSION: &str = "v0.5.1";
+const REFERENCE_VERSION: &str = "v0.5.2";
 type ExtractedAudioFeatures<'py> = (Bound<'py, PyArray2<f32>>, Bound<'py, PyArray1<f64>>);
 
 #[pyfunction(signature = (performance_path, processor, kwargs=None))]

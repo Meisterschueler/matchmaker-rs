@@ -5,6 +5,8 @@
 //! States are the score onsets plus, with insertions, one state between consecutive onsets.
 //! Each observation (binary pitch vector) is scored with a Bernoulli model against pitch
 //! profiles; the forward algorithm with a Gumbel-shaped transition matrix picks the state.
+//! Its shared forward step follows pymatchmaker 0.5.2's optimized python-hiddenmarkov 0.3.0
+//! path via `hidden_markov::forward_algorithm_step`.
 //!
 //! ```
 //! use matchmaker_rs::base::OnlineAlignment;
@@ -72,7 +74,7 @@ impl PitchHmm {
 impl OnlineAlignment for PitchHmm {
     fn call(&mut self, obs: &Observation) -> f64 {
         let _span = tracing::debug_span!("inference", method = "pthmm").entered();
-        // 0.5.1's observation model evaluates the shared uniform inserted-state profile
+        // 0.5.2's observation model evaluates the shared uniform inserted-state profile
         // once (`BernoulliPitchObservationModel(inserted_states=True)`); the per-row
         // evaluation here yields the same values, see `compute_discrete_pitch_profiles`.
         let observation_prob = bernoulli_pitch_probabilities(&obs.features, &self.pitch_profiles);

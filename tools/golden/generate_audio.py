@@ -46,7 +46,7 @@ from scipy.io import wavfile
 
 from generate import load_score_like_matchmaker
 
-REFERENCE_TAG = "v0.5.1"
+REFERENCE_TAG = "v0.5.2"
 SOUNDFONT_SHA256 = "CF2A98EB38A32C4954B4B6E2CAAE4112D62DD8E892ECEEFDD7942B0E7D01AC2F"
 METHODS = {
     "arzt": {
@@ -90,6 +90,7 @@ def reference_info() -> dict:
         "package": "pymatchmaker",
         "tag": REFERENCE_TAG,
         "version": matchmaker.__version__,
+        "python_hiddenmarkov": version("python-hiddenmarkov"),
         "partitura": version("partitura"),
         "numpy": np.__version__,
         "uv_lock_sha256": sha256(lockfile),
@@ -1685,6 +1686,7 @@ def generate_multi_fold_audio(
         )
 
         base = output / "multi_fold" / name
+        base.mkdir(parents=True, exist_ok=True)
         (base / "ground_truth.tsv").write_text(
             truth_path.read_text(encoding="utf-8"), encoding="utf-8"
         )

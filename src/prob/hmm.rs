@@ -5,6 +5,8 @@
 //! Like `pthmm`, but each observation is a pitch list plus the time since the previous
 //! observation. The inter-onset-interval term compares it with the score IOI scaled by the beat
 //! period of a Kalman tempo model, which is updated whenever the follower advances to a new onset.
+//! Its forward step is shared with `pthmm` and follows pymatchmaker 0.5.2's optimized
+//! python-hiddenmarkov 0.3.0 path via `hidden_markov::forward_algorithm_step`.
 //!
 //! ```
 //! use matchmaker_rs::prob::hmm::{PitchIoiHmm, PitchIoiHmmConfig};
@@ -131,7 +133,7 @@ impl OnlineAlignment for PitchIoiHmm {
                     )
             })
             .collect();
-        // 0.5.1 restricts this step to the states the forward variable has reached
+        // 0.5.2 restricts this step to the states the forward variable has reached
         // (`PitchIOIHMM.step`); the banded transition realizes that, see `hidden_markov`.
         let fv = forward_algorithm_step(
             &observation_prob,
